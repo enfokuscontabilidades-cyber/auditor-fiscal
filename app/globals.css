@@ -1,0 +1,549 @@
+@import "tailwindcss";
+
+:root {
+  /* Tema TOTVS / enterprise - claro */
+  --af-primary: #0b67c2;
+  --af-primary-hover: #084f99;
+  --af-primary-strong: #063f7a;
+  --af-primary-soft: #e8f2ff;
+  --af-accent: #00a7b5;
+
+  --af-bg: #eef2f7;
+  --af-surface: #ffffff;
+  --af-surface-2: #f8fafc;
+  --af-surface-3: #edf3fa;
+  --af-elevated: #ffffff;
+
+  --af-border: #cfd8e3;
+  --af-border-soft: #e4eaf1;
+
+  --af-text: #111827;
+  --af-text-soft: #374151;
+  --af-muted: #64748b;
+  --af-inverted: #ffffff;
+
+  --af-success: #15803d;
+  --af-success-soft: #eaf7ef;
+  --af-warning: #b45309;
+  --af-warning-soft: #fff7e6;
+  --af-danger: #b91c1c;
+  --af-danger-soft: #fff1f2;
+  --af-info: #0369a1;
+  --af-info-soft: #e8f5ff;
+
+  --af-sidebar-bg: #071527;
+  --af-sidebar-bg-2: #0b1f36;
+  --af-sidebar-text: #e5edf7;
+  --af-sidebar-muted: #99a8bb;
+  --af-sidebar-active: linear-gradient(90deg, #0b67c2 0%, #00a7b5 100%);
+
+  --af-radius: 16px;
+  --af-shadow: 0 18px 44px rgba(15, 23, 42, 0.08);
+  --af-shadow-sm: 0 8px 22px rgba(15, 23, 42, 0.06);
+  --af-focus: 0 0 0 3px rgba(11, 103, 194, 0.18);
+}
+
+html[data-theme="escuro"] {
+  /* Tema TOTVS / enterprise - escuro */
+  --af-primary: #38bdf8;
+  --af-primary-hover: #0ea5e9;
+  --af-primary-strong: #7dd3fc;
+  --af-primary-soft: rgba(56, 189, 248, 0.13);
+  --af-accent: #22d3ee;
+
+  --af-bg: #07111f;
+  --af-surface: #0f1b2d;
+  --af-surface-2: #142238;
+  --af-surface-3: #1c2c45;
+  --af-elevated: #111f33;
+
+  --af-border: #2d3d55;
+  --af-border-soft: #223149;
+
+  --af-text: #f8fafc;
+  --af-text-soft: #dbeafe;
+  --af-muted: #a8b8ca;
+  --af-inverted: #06111f;
+
+  --af-success: #4ade80;
+  --af-success-soft: rgba(74, 222, 128, 0.14);
+  --af-warning: #fbbf24;
+  --af-warning-soft: rgba(251, 191, 36, 0.14);
+  --af-danger: #fb7185;
+  --af-danger-soft: rgba(251, 113, 133, 0.14);
+  --af-info: #38bdf8;
+  --af-info-soft: rgba(56, 189, 248, 0.14);
+
+  --af-sidebar-bg: #06111f;
+  --af-sidebar-bg-2: #0b1b2f;
+  --af-sidebar-text: #f8fafc;
+  --af-sidebar-muted: #9fb0c3;
+  --af-sidebar-active: linear-gradient(90deg, #0b67c2 0%, #00a7b5 100%);
+
+  --af-shadow: 0 18px 48px rgba(0, 0, 0, 0.38);
+  --af-shadow-sm: 0 10px 26px rgba(0, 0, 0, 0.28);
+  --af-focus: 0 0 0 3px rgba(56, 189, 248, 0.24);
+}
+
+html,
+body {
+  min-height: 100%;
+  background: var(--af-bg);
+}
+
+body {
+  margin: 0;
+  color: var(--af-text);
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+* { box-sizing: border-box; }
+button, input, select, textarea { font-family: inherit; }
+button { transition: background .16s ease, border-color .16s ease, color .16s ease, transform .16s ease, box-shadow .16s ease; }
+button:hover { transform: translateY(-1px); }
+::selection { background: rgba(11, 103, 194, 0.18); }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 999px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-track { background: transparent; }
+
+.fiscal-shell {
+  display: flex;
+  min-height: 100vh;
+  background: var(--af-bg) !important;
+  color: var(--af-text) !important;
+}
+
+.fiscal-main {
+  flex: 1;
+  overflow: auto;
+  min-width: 0;
+  background: var(--af-bg) !important;
+  color: var(--af-text) !important;
+}
+
+.af-sidebar {
+  width: 248px;
+  min-height: 100vh;
+  background: linear-gradient(180deg, var(--af-sidebar-bg) 0%, var(--af-sidebar-bg-2) 56%, var(--af-sidebar-bg) 100%);
+  border-right: 1px solid rgba(148,163,184,0.18);
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-geist-sans);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  box-shadow: 12px 0 36px rgba(2, 6, 23, .12);
+}
+
+.af-sidebar-header { padding: 22px 18px 18px; border-bottom: 1px solid rgba(148,163,184,0.14); }
+.af-sidebar-section-title { font-size: 10px; font-weight: 800; color: rgba(203,213,225,0.66); letter-spacing: 0.13em; text-transform: uppercase; padding: 2px 24px 7px; }
+.af-sidebar-footer { padding: 12px; border-top: 1px solid rgba(148,163,184,0.14); display: flex; flex-direction: column; gap: 8px; }
+.af-theme-toggle, .af-logout-button { display: flex; align-items: center; width: 100%; padding: 10px 12px; border-radius: 12px; font-size: 13px; cursor: pointer; text-align: left; }
+.af-theme-toggle { justify-content: space-between; gap: 10px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14); color: #f8fafc; font-weight: 750; }
+.af-theme-toggle:hover { background: rgba(255,255,255,0.13); }
+.af-theme-tag { font-size: 10px; color: rgba(226,232,240,0.72); text-transform: uppercase; }
+.af-logout-button { gap: 10px; background: rgba(255,255,255,0.045); border: 1px solid rgba(255,255,255,0.09); color: rgba(226,232,240,0.82); }
+.af-logout-button:hover { color: #fff; background: rgba(255,255,255,0.09); }
+
+/* Componentes utilitários enterprise */
+.af-card, .af-panel { background: var(--af-surface) !important; border: 1px solid var(--af-border) !important; border-radius: var(--af-radius) !important; box-shadow: var(--af-shadow-sm) !important; color: var(--af-text) !important; }
+.af-muted { color: var(--af-muted) !important; }
+.af-title { color: var(--af-text) !important; font-weight: 800; }
+.af-subtitle { color: var(--af-text-soft) !important; }
+.af-input, .af-select { background: var(--af-surface) !important; color: var(--af-text) !important; border: 1px solid var(--af-border) !important; border-radius: 12px !important; }
+.af-input:focus, .af-select:focus { outline: none !important; box-shadow: var(--af-focus) !important; border-color: var(--af-primary) !important; }
+.af-btn-primary { background: var(--af-primary) !important; color: var(--af-inverted) !important; border: 1px solid var(--af-primary) !important; }
+html[data-theme="escuro"] .af-btn-primary { color: #06111f !important; }
+.af-btn-secondary { background: var(--af-surface-2) !important; color: var(--af-text) !important; border: 1px solid var(--af-border) !important; }
+
+/* Normalização de páginas antigas com style inline e Tailwind misturado */
+.fiscal-main h1, .fiscal-main h2, .fiscal-main h3, .fiscal-main h4,
+.fiscal-main p, .fiscal-main label, .fiscal-main small, .fiscal-main strong,
+.fiscal-main a, .fiscal-main div, .fiscal-main span, .fiscal-main td, .fiscal-main th,
+.fiscal-main li, .fiscal-main button {
+  color: inherit;
+}
+
+/* Fundos e textos por tema: cobre bg-white/text-slate e styles antigos */
+html[data-theme="claro"] .fiscal-main,
+html[data-theme="claro"] .fiscal-main *:not(svg):not(path) { color: var(--af-text) !important; }
+html[data-theme="escuro"] .fiscal-main,
+html[data-theme="escuro"] .fiscal-main *:not(svg):not(path) { color: var(--af-text) !important; }
+
+html[data-theme="claro"] .fiscal-main p,
+html[data-theme="claro"] .fiscal-main small,
+html[data-theme="claro"] .fiscal-main label,
+html[data-theme="claro"] .fiscal-main .text-slate-500,
+html[data-theme="claro"] .fiscal-main .text-gray-500,
+html[data-theme="claro"] .fiscal-main [class*="text-slate-"],
+html[data-theme="claro"] .fiscal-main [style*="var(--af-muted)"] { color: var(--af-muted) !important; }
+
+html[data-theme="escuro"] .fiscal-main p,
+html[data-theme="escuro"] .fiscal-main small,
+html[data-theme="escuro"] .fiscal-main label,
+html[data-theme="escuro"] .fiscal-main .text-slate-500,
+html[data-theme="escuro"] .fiscal-main .text-gray-500,
+html[data-theme="escuro"] .fiscal-main [class*="text-slate-"],
+html[data-theme="escuro"] .fiscal-main [style*="var(--af-muted)"] { color: var(--af-muted) !important; }
+
+/* Normaliza bordas apenas nas classes Tailwind legadas */
+.fiscal-main .bg-white,
+.fiscal-main .bg-gray-50,
+.fiscal-main .bg-slate-50,
+.fiscal-main .bg-neutral-50 {
+  border-color: var(--af-border) !important;
+}
+
+/* Normaliza apenas classes Tailwind legadas — não interfere com inline styles baseados em CSS vars */
+html[data-theme="claro"] .fiscal-main .bg-white,
+html[data-theme="claro"] .fiscal-main .bg-gray-50,
+html[data-theme="claro"] .fiscal-main .bg-slate-50,
+html[data-theme="claro"] .fiscal-main .bg-neutral-50 {
+  background: var(--af-surface) !important;
+  box-shadow: var(--af-shadow-sm);
+}
+
+html[data-theme="escuro"] .fiscal-main .bg-white,
+html[data-theme="escuro"] .fiscal-main .bg-gray-50,
+html[data-theme="escuro"] .fiscal-main .bg-slate-50,
+html[data-theme="escuro"] .fiscal-main .bg-neutral-50 {
+  background: var(--af-surface) !important;
+  box-shadow: var(--af-shadow-sm);
+}
+
+/* Preserva botões de ação e badges com contraste */
+.fiscal-main button[style*="var(--af-primary)"],
+.fiscal-main a[style*="var(--af-primary)"],
+.fiscal-main [style*="var(--af-danger-soft)"],
+.fiscal-main [style*="var(--af-warning-soft)"],
+.fiscal-main [style*="var(--af-success-soft)"],
+.fiscal-main [style*="var(--af-primary-soft)"] {
+  box-shadow: none !important;
+}
+
+.fiscal-main input,
+.fiscal-main select,
+.fiscal-main textarea {
+  background: var(--af-surface) !important;
+  color: var(--af-text) !important;
+  border-color: var(--af-border) !important;
+}
+.fiscal-main input::placeholder,
+.fiscal-main textarea::placeholder { color: var(--af-muted) !important; }
+.fiscal-main input:focus,
+.fiscal-main select:focus,
+.fiscal-main textarea:focus { outline: none !important; box-shadow: var(--af-focus) !important; border-color: var(--af-primary) !important; }
+
+.fiscal-main table { background: var(--af-surface) !important; color: var(--af-text) !important; }
+.fiscal-main th { background: var(--af-surface-2) !important; color: var(--af-text-soft) !important; border-color: var(--af-border) !important; }
+.fiscal-main td { background: transparent !important; color: var(--af-text) !important; border-color: var(--af-border-soft) !important; }
+.fiscal-main tr { border-color: var(--af-border-soft) !important; }
+
+/* Modais: contraste forte em claro e escuro */
+.fiscal-main [style*="position: fixed"][style*="inset: 0"] {
+  background: rgba(5, 12, 22, 0.72) !important;
+  backdrop-filter: blur(8px) !important;
+}
+.fiscal-main [style*="max-height: 90vh"],
+.fiscal-main [style*="width: 440"],
+.fiscal-main [style*="width: 460"] {
+  background: var(--af-elevated) !important;
+  color: var(--af-text) !important;
+  border: 1px solid var(--af-border) !important;
+  box-shadow: var(--af-shadow) !important;
+}
+
+/* Compatibilidade com cores antigas inseridas inline */
+.fiscal-main [style*="#050d17"] { color: var(--af-inverted) !important; }
+html[data-theme="escuro"] .fiscal-main [style*="#050d17"] { color: #06111f !important; }
+.fiscal-main [style*="opacity: 0.6"] { opacity: 1 !important; }
+.fiscal-main svg { flex-shrink: 0; }
+
+/* Ícones internos: evita que a normalização global deixe os ícones brancos/apagados no modo escuro */
+.af-icon-box {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--af-primary-soft) !important;
+  color: var(--af-primary) !important;
+  border: 1px solid color-mix(in srgb, var(--af-primary) 20%, transparent);
+  flex-shrink: 0;
+}
+.af-icon-box svg,
+.af-icon-box svg *,
+.fiscal-main .af-icon-box svg,
+.fiscal-main .af-icon-box svg * {
+  color: var(--af-primary) !important;
+  stroke: var(--af-primary) !important;
+}
+html[data-theme="escuro"] .af-icon-box {
+  background: rgba(56, 189, 248, 0.13) !important;
+  color: #7dd3fc !important;
+  border-color: rgba(125, 211, 252, 0.22) !important;
+}
+html[data-theme="escuro"] .af-icon-box svg,
+html[data-theme="escuro"] .af-icon-box svg * {
+  color: #7dd3fc !important;
+  stroke: #7dd3fc !important;
+}
+
+@media (max-width: 900px) {
+  .af-sidebar { width: 76px; }
+  .af-logo-box { min-height: 54px; padding: 10px; }
+  .af-logo-img { max-width: 44px; }
+  .af-sidebar-section-title, .af-theme-tag { display: none; }
+}
+
+/* Restauro de elementos de ação/badges após normalização global */
+.fiscal-main [style*="background: var(--af-primary)"] {
+  background: var(--af-primary) !important;
+  color: var(--af-inverted) !important;
+  border-color: var(--af-primary) !important;
+}
+html[data-theme="escuro"] .fiscal-main [style*="background: var(--af-primary)"] { color: #06111f !important; }
+.fiscal-main [style*="background: var(--af-primary-soft)"] {
+  background: var(--af-primary-soft) !important;
+  border-color: color-mix(in srgb, var(--af-primary) 28%, transparent) !important;
+}
+.fiscal-main [style*="background: var(--af-surface-2)"] {
+  background: var(--af-surface-2) !important;
+}
+.fiscal-main [style*="background: var(--af-danger-soft)"] { background: var(--af-danger-soft) !important; }
+.fiscal-main [style*="background: var(--af-warning-soft)"] { background: var(--af-warning-soft) !important; }
+.fiscal-main [style*="background: var(--af-success-soft)"] { background: var(--af-success-soft) !important; }
+.fiscal-main [style*="color: var(--af-primary)"] { color: var(--af-primary) !important; }
+.fiscal-main [style*="color: var(--af-danger)"] { color: var(--af-danger) !important; }
+.fiscal-main [style*="color: var(--af-warning)"] { color: var(--af-warning) !important; }
+.fiscal-main [style*="color: var(--af-success)"] { color: var(--af-success) !important; }
+.af-sidebar-active-company {
+  margin: 14px 12px 4px;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.af-sidebar-active-company-label {
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(203, 213, 225, 0.62);
+  margin-bottom: 6px;
+}
+
+.af-sidebar-active-company-name {
+  color: #f8fafc;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.af-sidebar-active-company-cnpj,
+.af-sidebar-active-company-empty {
+  color: rgba(203, 213, 225, 0.68);
+  font-size: 10.5px;
+  margin-top: 4px;
+  line-height: 1.25;
+}
+
+@media (max-width: 860px) {
+  .af-sidebar-active-company { display: none; }
+  .af-logo-img { width: 42px !important; max-height: 42px !important; }
+}
+
+.af-sidebar-active-company {
+  position: relative;
+  margin: 14px 12px 4px;
+  padding: 0;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.af-sidebar-active-company-button {
+  width: 100%;
+  min-height: 76px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.af-sidebar-active-company-button:hover {
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.af-sidebar-company-chevron {
+  color: rgba(203, 213, 225, 0.78);
+  flex-shrink: 0;
+  transition: transform .16s ease;
+}
+
+.af-sidebar-company-chevron.open {
+  transform: rotate(180deg);
+}
+
+.af-sidebar-company-popover {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 80;
+  background: #0f1b2d;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 14px;
+  padding: 8px;
+  box-shadow: 0 22px 50px rgba(0, 0, 0, .38);
+}
+
+.af-sidebar-company-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  color: #93c5fd;
+}
+
+.af-sidebar-company-search input {
+  width: 100%;
+  min-width: 0;
+  background: transparent !important;
+  border: 0 !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+  color: #f8fafc !important;
+  font-size: 11px;
+}
+
+.af-sidebar-company-search input::placeholder {
+  color: rgba(203, 213, 225, .62) !important;
+}
+
+.af-sidebar-company-list {
+  max-height: 260px;
+  overflow: auto;
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.af-sidebar-company-option {
+  width: 100%;
+  border: 0;
+  border-radius: 10px;
+  padding: 9px 8px;
+  background: transparent;
+  color: rgba(226, 232, 240, .86);
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.af-sidebar-company-option:hover,
+.af-sidebar-company-option.active {
+  background: rgba(56, 189, 248, .13);
+  color: #f8fafc;
+}
+
+.af-sidebar-company-option svg {
+  color: #38bdf8;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.af-sidebar-company-option span {
+  min-width: 0;
+}
+
+.af-sidebar-company-option strong {
+  display: block;
+  font-size: 10.5px;
+  line-height: 1.25;
+  font-weight: 800;
+  color: inherit;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.af-sidebar-company-option small {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  color: rgba(203, 213, 225, .68);
+}
+
+.af-sidebar-company-empty-list {
+  padding: 10px 8px;
+  color: rgba(203, 213, 225, .68);
+  font-size: 11px;
+}
+
+@media (max-width: 860px) {
+  .af-logo-box { min-height: 58px !important; height: 58px !important; padding: 10px !important; overflow: hidden !important; }
+  .af-logo-img { width: 42px !important; max-height: 42px !important; }
+  .af-sidebar-company-popover { display: none; }
+}
+
+/* Ajuste final da logo: sem card, sem corte, apenas a marca no topo da sidebar */
+.af-sidebar-header {
+  padding: 20px 18px 16px !important;
+}
+
+.af-logo-box {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  padding: 0 4px 14px !important;
+  min-height: 0 !important;
+  height: auto !important;
+  overflow: visible !important;
+  text-decoration: none !important;
+}
+
+.af-logo-img {
+  width: 198px !important;
+  max-width: 100% !important;
+  height: auto !important;
+  max-height: none !important;
+  object-fit: contain !important;
+  display: block !important;
+  filter: drop-shadow(0 8px 18px rgba(0,0,0,.22)) !important;
+}
+
+@media (max-width: 860px) {
+  .af-logo-box {
+    padding: 0 0 10px !important;
+    min-height: 0 !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+  .af-logo-img {
+    width: 42px !important;
+    max-height: none !important;
+  }
+}

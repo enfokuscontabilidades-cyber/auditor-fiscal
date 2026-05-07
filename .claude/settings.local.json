@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc *)",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\User\\\\sistema-controle-V3\" -Force | Where-Object { $_.Name -notin @\\(\"node_modules\", \".next\"\\) } | Format-Table Name, Attributes -AutoSize)"
+    ]
+  }
+}
