@@ -143,7 +143,70 @@ Regras seed incluídas no banco:
 - [x] Nova página com 3 abas: Cruzamento | Apuração | Inconsistências
 - [x] KPIs: docs fiscal, docs contrib, divergências, ICMS/PIS/COFINS a recolher
 
-### Fase 2 — Persistência NF-e + Cruzamento completo (próximo)
+### Fase 2 — Simples Nacional (Fase 1) ✅ CONCLUÍDA
+
+**Arquivos criados/modificados:**
+
+| Arquivo | Ação |
+|---|---|
+| `supabase_setup.sql` | Adicionada tabela `sn_declaracoes` (seção 11) |
+| `lib/types.ts` | Adicionados `SnTributo`, `SnHistoricoMes`, `SnAtividade`, `SnParsedData`, `SnDeclaracao` |
+| `lib/simples/parsePgdas.ts` | Criado — parser PDF browser-side via `pdfjs-dist` |
+| `app/api/simples_nacional/route.ts` | Criado — POST/GET/DELETE declarações |
+| `app/(fiscal)/simples_nacional/page.tsx` | Criado — página principal |
+| `app/(fiscal)/SidebarFiscal.tsx` | Adicionado link Simples Nacional (ícone Receipt) |
+| `public/pdf.worker.min.mjs` | Copiado de `node_modules/pdfjs-dist/build/` |
+
+**Funcionalidades implementadas:**
+
+- [x] Importação de PDFs do PGDAS-D (browser-side, sem servidor)
+- [x] Extração de: CNPJ, razão social, período, tipo (Original/Retificadora), atividade, anexo, receitas, tributos individuais, histórico mensal, total devido, nº recibo
+- [x] Extração de múltiplas atividades (seção 2.8) — breakdown por atividade quando empresa tem Comércio + Serviços
+- [x] Modal de confirmação antes de salvar, com alerta de CNPJ divergente (comparação por raiz — 8 primeiros dígitos)
+- [x] Persistência na tabela `sn_declaracoes` via upsert (`onConflict: empresa_id,competencia`)
+- [x] Tabela multi-período: linhas = períodos, colunas = Receita Bruta | Total Impostos | Alíquota Efetiva
+- [x] Chip "Retificadora" (âmbar) para declarações retificadoras
+- [x] Chip "Anexo X" (ciano) com tooltip da atividade completa
+- [x] Linhas expansíveis: atividade única → chips de tributos; múltiplas atividades → cards por atividade com total individual
+- [x] Botão "Limpar tudo" (remove todas as declarações da empresa)
+- [x] Botão "Exportar Excel": planilha "PGDAS-D" + planilha "Por Atividade" (gerada se houver dados multi-atividade)
+- [x] KPIs: Receita/Imposto último período, Receita/Imposto total acumulado, Alíquota média, Acumulado 12m
+- [x] Drag & drop de PDFs quando a lista está vazia
+
+**Tabela `sn_declaracoes`:**
+```sql
+CREATE TABLE sn_declaracoes (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  empresa_id UUID REFERENCES empresas(id) ON DELETE CASCADE NOT NULL,
+  competencia TEXT NOT NULL,
+  receita_bruta_mes NUMERIC(15,2),
+  receita_bruta_acumulada_12m NUMERIC(15,2),
+  receita_bruta_ano NUMERIC(15,2),
+  valor_total_devido NUMERIC(15,2),
+  numero_recibo TEXT,
+  nome_arquivo TEXT,
+  parsed_data JSONB,   -- inclui tributos[], atividades[]?, historico_mensal[], etc.
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(empresa_id, competencia)
+);
+```
+
+### Fase 3 — Simples Nacional (Fase 2) — Confronto com NF-e (próximo)
+
+- [ ] Aba "Confronto NF-e" na página `/simples_nacional`
+- [ ] Somar `valor_total` das NF-e de saída do Validador para o mesmo período
+- [ ] Comparar com `receita_bruta_mes` do PGDAS — alerta se diferença > 1%
+- [ ] Identificar notas não consideradas na apuração
+
+### Fase 4 — Simples Nacional (Fase 3) — Simulação via XML
+
+- [ ] Buscar XMLs do banco (`fa_arquivos_xml`) para o período
+- [ ] Aplicar tabelas dos Anexos I–V conforme CNAE da empresa
+- [ ] Calcular alíquota efetiva pela RBT12
+- [ ] Gerar breakdown simulado de tributos
+- [ ] Comparar com PGDAS declarado — destacar diferenças
+
+### Fase 5 — Persistência NF-e + Cruzamento SPED × NF-e
 
 - [ ] Salvar `parsed_data` do Validador NF-e no banco (`fa_arquivos_xml`)
 - [ ] Restaurar estado ao recarregar (GET + PATCH `/api/arquivos-xml`)
@@ -151,7 +214,7 @@ Regras seed incluídas no banco:
 - [ ] Exportação Excel no Auditor SPED
 - [ ] Regras UC_COM_CREDITO, IMOB_SEM_CIAP, CONTRIB_EXCLUSAO_INDEVIDA, NCM_ST_SEM_TRATAMENTO
 
-### Fase 3 — Inteligência (12+ semanas)
+### Fase 6 — Inteligência (12+ semanas)
 
 - [ ] Simulador de planejamento tributário (Simples × Presumido × Real)
 - [ ] Calendário de obrigações com detecção automática

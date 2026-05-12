@@ -2,7 +2,7 @@
 
 > Arquivo de referência para novas conversas com Claude Code.
 > Mantido manualmente. Atualizar sempre que houver mudança estrutural significativa.
-> Última atualização: 2026-05-06
+> Última atualização: 2026-05-12
 
 ---
 
@@ -45,6 +45,7 @@ app/
     auditor_fiscal/     ← Módulo SPED
     validador_entradas/ ← Módulo NF-e (mais completo)
     inconsistencias/    ← Módulo de alertas
+    simples_nacional/   ← Módulo PGDAS-D (Simples Nacional)
     empresas/           ← Cadastro e seleção de empresa
     planejamento/       ← Em desenvolvimento (stub criado)
     obrigacoes/         ← Em desenvolvimento (stub criado)
@@ -55,6 +56,7 @@ lib/
   supabase/             ← Clientes browser e server
   hooks/                ← useEmpresaAtiva
   rules/                ← Motor de regras fiscais
+  simples/              ← Parser PGDAS-D (parsePgdas.ts)
   types.ts              ← Tipos TypeScript globais
 ```
 
@@ -225,6 +227,61 @@ comparação de carga tributária e impacto da Reforma Tributária (IBS/CBS).
 Página stub criada. Funcionalidades planejadas: calendário de obrigações, controle de entregas
 (REINF, DCTFWeb, eSocial, DCTF, ECF), alertas de prazo e histórico por competência.
 
+### 3.6 Simples Nacional (`/simples_nacional`) — Implementado em 2026-05-12
+
+**O que faz:**
+- Importa PDFs do PGDAS-D (browser-side via `pdfjs-dist`) — sem upload para servidor
+- Extrai e persiste na tabela `sn_declaracoes`: CNPJ, razão social, período, tipo declaração, atividade, anexo, receitas, tributos individuais, histórico mensal, total devido, nº recibo
+- Detecta múltiplas atividades (seção 2.8 do PDF): separa Comércio × Serviços quando a empresa tem os dois
+- Tabela multi-período: linhas = períodos ordenados decrescente; colunas = Receita Bruta | Total Impostos | Alíquota Efetiva
+- Linhas expansíveis: atividade única → chips de tributos; múltiplas atividades → cards por atividade com total individual e tributos específicos
+- Chip "Retificadora" (âmbar) para declarações retificadoras; chip "Anexo X" (ciano) com tooltip da atividade
+- KPIs: Receita/Imposto do último período, totais acumulados, alíquota média, acumulado 12m
+- Botão "Limpar tudo" (remove todas as declarações da empresa, com confirmação)
+- Exportação Excel: planilha "PGDAS-D" (1 linha por período) + planilha "Por Atividade" (gerada automaticamente se houver dados multi-atividade)
+- Upsert por `(empresa_id, competencia)` — reimportar um período sobrescreve o anterior (retificadora substitui original)
+- Alerta visual de CNPJ divergente no modal (compara raiz — 8 primeiros dígitos)
+
+**Arquivos:**
+- `lib/simples/parsePgdas.ts` — parser PDF (extração por janela de texto para resistir a rodapés de página)
+- `app/api/simples_nacional/route.ts` — POST / GET / DELETE
+- `app/(fiscal)/simples_nacional/page.tsx` — página principal
+- `public/pdf.worker.min.mjs` — worker do pdfjs-dist servido como asset estático
+
+**Tipos adicionados a `lib/types.ts`:**
+```typescript
+SnTributo      { nome, valor }
+SnHistoricoMes { mes, receita }
+SnAtividade    { nome, anexo, tributos[], total }
+SnParsedData   { cnpj, razao_social, periodo, tipo_declaracao, atividade, anexo,
+                  limite_receita, receita_bruta_mes, receita_bruta_acumulada_12m,
+                  receita_bruta_ano, tributos[], historico_mensal[], total_devido,
+                  numero_recibo, atividades? }
+SnDeclaracao   { id, empresa_id, competencia, receita_bruta_mes, ..., parsed_data? }
+```
+
+**Tabela banco:**
+```sql
+sn_declaracoes (
+  id UUID PK,
+  empresa_id UUID FK empresas,
+  competencia TEXT,         -- "03/2026"
+  receita_bruta_mes NUMERIC(15,2),
+  receita_bruta_acumulada_12m NUMERIC(15,2),
+  receita_bruta_ano NUMERIC(15,2),
+  valor_total_devido NUMERIC(15,2),
+  numero_recibo TEXT,
+  nome_arquivo TEXT,
+  parsed_data JSONB,        -- tributos[], atividades[]?, historico_mensal[], etc.
+  created_at TIMESTAMPTZ,
+  UNIQUE(empresa_id, competencia)
+)
+```
+
+**Fases futuras planejadas:**
+- Fase 2: Confronto com NF-e — somar notas do Validador e comparar com receita declarada no PGDAS
+- Fase 3: Simulação via XML — calcular tributos pelos Anexos I–V e comparar com PGDAS
+
 ---
 
 ## 4. Regras Já Implementadas
@@ -383,6 +440,7 @@ DDL completo: `supabase_setup.sql`
 | `fa_arquivos_xml` | XMLs de NF-e importados |
 | `fa_alertas` | Alertas gerados pelo motor de regras |
 | `fa_regras_fiscais` | Catálogo de regras configuráveis |
+| `sn_declaracoes` | Declarações PGDAS-D do Simples Nacional (parsed_data em JSONB) |
 
 API routes disponíveis:
 - `GET/POST /api/empresas`
@@ -392,6 +450,7 @@ API routes disponíveis:
 - `PATCH /api/alertas/[id]`
 - `GET/POST /api/arquivos-sped`
 - `GET/POST /api/arquivos-xml`
+- `GET/POST/DELETE /api/simples_nacional`
 
 ---
 
@@ -411,6 +470,10 @@ API routes disponíveis:
 | `app/(fiscal)/validador_entradas/page.tsx` | Módulo NF-e (arquivo principal, ~2400 linhas) |
 | `app/(fiscal)/auditor_fiscal/page.tsx` | Módulo SPED |
 | `app/(fiscal)/inconsistencias/page.tsx` | Módulo de alertas |
+| `app/(fiscal)/simples_nacional/page.tsx` | Módulo Simples Nacional — PGDAS-D |
+| `lib/simples/parsePgdas.ts` | Parser PDF do PGDAS-D (browser-side, pdfjs-dist) |
+| `app/api/simples_nacional/route.ts` | API Simples Nacional (GET/POST/DELETE) |
+| `public/pdf.worker.min.mjs` | Worker pdfjs-dist (asset estático) |
 | `eslint.config.js` | Configuração ESLint v9 (flat config) |
 | `project_context.md` | Este arquivo — referência de estado do projeto |
 
@@ -428,6 +491,47 @@ API routes disponíveis:
 - Regra CSS global sobrescrevia fundos inline → restritas a classes Tailwind legadas
 - Cores hardcoded em Inconsistências → substituídas por CSS vars
 - CSS duplicado e artefatos órfãos → removidos
+
+---
+
+### Sessão 2026-05-12 — Módulo Simples Nacional (PGDAS-D)
+
+#### O que foi implementado
+
+**Novo módulo `/simples_nacional`** — importação e análise de declarações PGDAS-D:
+
+1. **Instalação `pdfjs-dist`** — parser PDF browser-side; worker servido como asset estático em `public/pdf.worker.min.mjs`
+2. **Tabela `sn_declaracoes`** no Supabase — DDL adicionado ao `supabase_setup.sql`
+3. **Tipos** adicionados a `lib/types.ts`: `SnTributo`, `SnHistoricoMes`, `SnAtividade`, `SnParsedData`, `SnDeclaracao`
+4. **`lib/simples/parsePgdas.ts`** — extração robusta com janela de texto para resistir a rodapés inseridos pelo PDF entre cabeçalho e valores; campos extraídos: CNPJ, razão social, período, tipo declaração, atividade, anexo, receitas (mês/12m/ano), tributos individuais (seção 2.8), histórico mensal (seção 2.2), total devido, nº recibo, múltiplas atividades
+5. **`app/api/simples_nacional/route.ts`** — GET / POST (upsert por empresa+competência) / DELETE
+6. **`app/(fiscal)/simples_nacional/page.tsx`** — página completa com:
+   - Modal de confirmação com detecção de CNPJ divergente (compara raiz — 8 dígitos)
+   - Tabela: linhas = períodos, colunas = Tipo | Anexo | Receita Bruta | Total Impostos | Alíquota Efetiva
+   - Chips: "Retificadora" (âmbar) e "Anexo X" (ciano com tooltip)
+   - Linhas expansíveis: atividade única (chips de tributos) ou múltiplas atividades (card por atividade)
+   - KPIs: último período + totais acumulados + alíquota média + acumulado 12m
+   - Botão "Limpar tudo" (remove todas as declarações com confirmação)
+   - Botão "Exportar Excel" (sheets: PGDAS-D + Por Atividade se houver multi-atividade)
+7. **SidebarFiscal** — adicionado link "Simples Nacional" com ícone `Receipt`
+
+#### Correções e melhorias incrementais nesta sessão
+
+- **Falha silenciosa no save**: captura e exibe erros de API no modal via `saveError`; reload via `carregarDeclaracoes()` após salvar em vez de atualizar estado local
+- **CNPJ divergente**: compara raiz (8 dígitos) — funciona para matriz/filial; aviso âmbar no modal sem bloquear importação
+- **Múltiplas atividades**: `extractAtividades()` processa seção 2.8 linha a linha (cada linha com exatamente 9 números BRL = 1 atividade); retorna `[]` para empresa com atividade única
+
+#### Arquivos modificados nesta sessão
+
+| Arquivo | O que mudou |
+|---|---|
+| `supabase_setup.sql` | Tabela `sn_declaracoes` + RLS + índices |
+| `lib/types.ts` | Novos tipos Simples Nacional |
+| `lib/simples/parsePgdas.ts` | Criado — parser completo |
+| `app/api/simples_nacional/route.ts` | Criado — GET/POST/DELETE |
+| `app/(fiscal)/simples_nacional/page.tsx` | Criado — página completa |
+| `app/(fiscal)/SidebarFiscal.tsx` | Link Simples Nacional |
+| `public/pdf.worker.min.mjs` | Worker pdfjs-dist |
 
 ---
 

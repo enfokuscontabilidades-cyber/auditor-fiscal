@@ -20,6 +20,7 @@ import {
   ChevronDown,
   Search,
   Star,
+  Receipt,
 } from 'lucide-react'
 
 type EmpresaItem = { id: string; razao_social: string; cnpj: string | null; cnae_principal?: string | null }
@@ -30,6 +31,7 @@ const LINKS = [
   { href: '/auditor_fiscal', label: 'Auditor SPED', icon: FileSearch },
   { href: '/validador_entradas', label: 'Validador NF-e', icon: FileText },
   { href: '/inconsistencias', label: 'Inconsistências', icon: TriangleAlert },
+  { href: '/simples_nacional', label: 'Simples Nacional', icon: Receipt },
   { href: '/planejamento', label: 'Planejamento', icon: Calculator },
   { href: '/obrigacoes', label: 'Obrigações', icon: ClipboardList },
 ]

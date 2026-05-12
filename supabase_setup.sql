@@ -346,3 +346,36 @@ create policy "Usuarios autenticados podem ver planejamento"
   on public.fa_planejamento_tributario for select using (auth.role() = 'authenticated');
 create policy "Usuarios autenticados podem criar planejamento"
   on public.fa_planejamento_tributario for insert with check (auth.role() = 'authenticated');
+
+-- ---------------------------------------------------------------
+-- 11. SN_DECLARACOES (Simples Nacional — PGDAS-D)
+-- ---------------------------------------------------------------
+create table if not exists public.sn_declaracoes (
+  id                          uuid default gen_random_uuid() primary key,
+  empresa_id                  uuid references public.empresas(id) on delete cascade not null,
+  competencia                 text not null,
+  periodo_inicial             date,
+  periodo_final               date,
+  receita_bruta_mes           numeric(15,2),
+  receita_bruta_acumulada_12m numeric(15,2),
+  receita_bruta_ano           numeric(15,2),
+  valor_total_devido          numeric(15,2),
+  numero_recibo               text,
+  nome_arquivo                text,
+  parsed_data                 jsonb,
+  created_at                  timestamptz default now(),
+  unique(empresa_id, competencia)
+);
+
+create index idx_sn_declaracoes_empresa    on public.sn_declaracoes(empresa_id);
+create index idx_sn_declaracoes_competencia on public.sn_declaracoes(competencia);
+
+alter table public.sn_declaracoes enable row level security;
+create policy "Usuarios autenticados podem ver sn_declaracoes"
+  on public.sn_declaracoes for select using (auth.role() = 'authenticated');
+create policy "Usuarios autenticados podem criar sn_declaracoes"
+  on public.sn_declaracoes for insert with check (auth.role() = 'authenticated');
+create policy "Usuarios autenticados podem atualizar sn_declaracoes"
+  on public.sn_declaracoes for update using (auth.role() = 'authenticated');
+create policy "Usuarios autenticados podem deletar sn_declaracoes"
+  on public.sn_declaracoes for delete using (auth.role() = 'authenticated');

@@ -160,3 +160,58 @@ export interface PlacejamentoTributario {
   created_at: string
   empresa?: Empresa
 }
+
+// ---------------------------------------------------------------
+// Simples Nacional — PGDAS-D
+// ---------------------------------------------------------------
+
+export interface SnTributo {
+  nome: string  // 'IRPJ' | 'CSLL' | 'COFINS' | 'PIS/PASEP' | 'INSS/CPP' | 'ICMS'
+  valor: number
+}
+
+export interface SnHistoricoMes {
+  mes: string    // "01/2025"
+  receita: number
+}
+
+export interface SnAtividade {
+  nome: string
+  anexo: string
+  tributos: SnTributo[]
+  total: number
+}
+
+export interface SnParsedData {
+  cnpj: string
+  razao_social: string
+  periodo: string
+  tipo_declaracao: 'Original' | 'Retificadora'
+  atividade: string
+  anexo: string
+  limite_receita: number
+  receita_bruta_mes: number
+  receita_bruta_acumulada_12m: number
+  receita_bruta_ano: number
+  tributos: SnTributo[]
+  historico_mensal: SnHistoricoMes[]
+  total_devido: number
+  numero_recibo: string
+  atividades?: SnAtividade[]
+}
+
+export interface SnDeclaracao {
+  id: string
+  empresa_id: string
+  competencia: string
+  periodo_inicial?: string
+  periodo_final?: string
+  receita_bruta_mes?: number
+  receita_bruta_acumulada_12m?: number
+  receita_bruta_ano?: number
+  valor_total_devido?: number
+  numero_recibo?: string
+  nome_arquivo?: string
+  parsed_data?: SnParsedData
+  created_at: string
+}
