@@ -1,7 +1,7 @@
 import type { SpedRegistro } from "./types"
 
 const BLOCK_ORDER    = ["0", "A", "B", "C", "D", "E", "G", "H", "K", "1"]
-const REQUIRED_BLOCKS = new Set(["A", "B", "1"])
+const REQUIRED_BLOCKS = new Set(["B", "1"])
 const CLOSURE_SET    = new Set(["0990","A990","B990","C990","D990","E990","G990","H990","K990","1990","9990"])
 const BLOCK_SORT_ORDER = ["0","A","B","C","D","E","G","H","K","1","9"]
 
