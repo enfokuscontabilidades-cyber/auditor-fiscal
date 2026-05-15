@@ -1,7 +1,9 @@
 import type { SpedRegistro } from "./types"
 
-const BLOCK_ORDER  = ["0", "A", "C", "D", "E", "G", "H", "K", "1"]
-const CLOSURE_SET  = new Set(["0990","A990","C990","D990","E990","G990","H990","K990","1990","9990"])
+const BLOCK_ORDER    = ["0", "A", "B", "C", "D", "E", "G", "H", "K", "1"]
+const REQUIRED_BLOCKS = new Set(["A", "B", "1"])
+const CLOSURE_SET    = new Set(["0990","A990","B990","C990","D990","E990","G990","H990","K990","1990","9990"])
+const BLOCK_SORT_ORDER = ["0","A","B","C","D","E","G","H","K","1","9"]
 
 export function gerarSpedTxt(registros: SpedRegistro[]): string {
   // Remove existing closure records and all block-9 records; we rebuild them
@@ -17,16 +19,21 @@ export function gerarSpedTxt(registros: SpedRegistro[]): string {
   const allLines: string[] = []
   const typeCounts: Record<string, number> = {}
 
-  function addLine(s: string, tipo: string) {
-    allLines.push(s)
-    typeCounts[tipo] = (typeCounts[tipo] ?? 0) + 1
-  }
-
   // ── Serialize non-9 blocks with closures ─────────────────────────────────
 
   for (const bloco of BLOCK_ORDER) {
     const recs = byBloco[bloco]
-    if (!recs?.length) continue
+    if (!recs?.length) {
+      if (REQUIRED_BLOCKS.has(bloco)) {
+        const openTipo    = `${bloco}001`
+        const closureTipo = `${bloco}990`
+        allLines.push(`|${openTipo}|1|`)
+        allLines.push(`|${closureTipo}|2|`)
+        typeCounts[openTipo]    = (typeCounts[openTipo]    ?? 0) + 1
+        typeCounts[closureTipo] = (typeCounts[closureTipo] ?? 0) + 1
+      }
+      continue
+    }
 
     const blockLines: string[] = []
     for (const r of recs) {
@@ -54,7 +61,12 @@ export function gerarSpedTxt(registros: SpedRegistro[]): string {
   const bloco9: string[] = []
   bloco9.push("|9001|0|")
 
-  const sortedTypes = Object.keys(preview).sort()
+  const sortedTypes = Object.keys(preview).sort((a, b) => {
+    const pa = BLOCK_SORT_ORDER.findIndex(p => a.startsWith(p))
+    const pb = BLOCK_SORT_ORDER.findIndex(p => b.startsWith(p))
+    if (pa !== pb) return (pa === -1 ? 999 : pa) - (pb === -1 ? 999 : pb)
+    return a.localeCompare(b)
+  })
   for (const tipo of sortedTypes) {
     bloco9.push(`|9900|${tipo}|${preview[tipo]}|`)
   }

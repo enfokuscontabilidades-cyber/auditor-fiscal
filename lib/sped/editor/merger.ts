@@ -108,8 +108,8 @@ export function mesclarSped(
       origem: "mescla_automatica", timestamp: now })
   }
 
-  // Assemble by block order: 0 A C D E G H K 1 9
-  const BLOCK_ORDER = ["0", "A", "C", "D", "E", "G", "H", "K", "1", "9"]
+  // Assemble by block order: 0 A B C D E G H K 1 9
+  const BLOCK_ORDER = ["0", "A", "B", "C", "D", "E", "G", "H", "K", "1", "9"]
   const byBloco: Record<string, SpedRegistro[]> = { "0": bloco0Final, "K": kRecordsB }
   for (const r of parsedA.raw) {
     if (r.bloco === "0" || r.bloco === "K") continue
