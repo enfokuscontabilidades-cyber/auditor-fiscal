@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { getOrgId } from '@/lib/supabase/org'
 import { NextResponse } from 'next/server'
 
 export async function GET(request: Request) {
@@ -43,9 +44,14 @@ export async function POST(request: Request) {
 
   if (alertas.length === 0) return NextResponse.json([], { status: 201 })
 
+  const orgId = await getOrgId(supabase, user.id)
+  if (!orgId) return NextResponse.json({ error: 'Usuário sem organização' }, { status: 403 })
+
+  const alertasComUser = alertas.map((a: Record<string, unknown>) => ({ ...a, org_id: orgId }))
+
   const { data, error } = await supabase
     .from('fa_alertas')
-    .insert(alertas)
+    .insert(alertasComUser)
     .select()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

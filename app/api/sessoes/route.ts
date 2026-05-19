@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { getOrgId } from '@/lib/supabase/org'
 import { NextResponse } from 'next/server'
 
 export async function GET(request: Request) {
@@ -37,9 +38,12 @@ export async function POST(request: Request) {
     )
   }
 
+  const orgId = await getOrgId(supabase, user.id)
+  if (!orgId) return NextResponse.json({ error: 'Usuário sem organização' }, { status: 403 })
+
   const { data, error } = await supabase
     .from('fa_sessoes_analise')
-    .insert({ empresa_id, competencia, periodo_inicial, periodo_final, observacoes, criado_por: user.id })
+    .insert({ org_id: orgId, empresa_id, competencia, periodo_inicial, periodo_final, observacoes, criado_por: user.id })
     .select()
     .single()
 

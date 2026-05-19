@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { getOrgId } from '@/lib/supabase/org'
 import { NextResponse } from 'next/server'
 
 export async function POST(request: Request) {
@@ -16,6 +17,9 @@ export async function POST(request: Request) {
     )
   }
 
+  const orgId = await getOrgId(supabase, user.id)
+  if (!orgId) return NextResponse.json({ error: 'Usuário sem organização' }, { status: 403 })
+
   const rows = xmls.map((x: {
     chave_nfe?: string
     numero_nf?: string
@@ -28,6 +32,7 @@ export async function POST(request: Request) {
     valor_total?: number
     parsed_data?: unknown
   }) => ({
+    org_id: orgId,
     sessao_id,
     empresa_id,
     competencia,

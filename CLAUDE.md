@@ -1,8 +1,8 @@
-# Instruções para o Claude Code — Plataforma de Auditoria Fiscal
+# Instruções para o Claude Code — Plataforma SaaS Contábil
 
 ## Projeto
 
-**sistema-controle** — plataforma de auditoria fiscal e tributária da Enfokus Contabilidade.
+**sistema-controle** — plataforma SaaS contábil multiempresa e multiusuário para escritórios de contabilidade. O módulo fiscal é o núcleo principal e o primeiro disponibilizado comercialmente (Founder Access).
 
 Stack: Next.js 16.2 + React 19 + TypeScript 5 + Tailwind CSS 4 + Supabase PostgreSQL.
 
@@ -41,6 +41,14 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 - Cor de destaque principal: `rgba(39,199,216,...)` (azul ciano)
 - NÃO usar classes Tailwind para layout das páginas fiscais — manter consistência com o estilo já existente
 - Novos componentes de UI (botões, cards, tabelas) devem seguir o mesmo padrão visual das páginas `auditor_fiscal` e `validador_entradas`
+
+### Multi-tenant (SaaS)
+- Sempre incluir `user_id` ao inserir registros em tabelas críticas
+- Nunca filtrar dados apenas por `empresa_id` como única barreira de segurança — o RLS por `user_id` é a camada principal
+- Confiar no RLS do Supabase para isolamento entre escritórios — não duplicar a lógica no código
+- Verificar `supabase.auth.getUser()` antes de qualquer operação de escrita
+- Nunca criar tabela sem RLS habilitado
+- Nunca expor URLs de Storage sem autenticação (`createSignedUrl` obrigatório)
 
 ### Supabase
 - Sempre usar `createServerClient` (de `lib/supabase/server.ts`) nas API routes e Server Components
@@ -92,3 +100,6 @@ Tabelas principais:
 - Não mover lógica de parsing para o servidor (continua no browser)
 - Não criar componentes novos desnecessários — reutilizar padrões já existentes nas páginas
 - Não usar `console.log` em produção — remover antes do build
+- Não criar tabelas sem RLS habilitado
+- Não expor URLs de Storage sem autenticação (nunca `getPublicUrl` em buckets de dados do usuário)
+- Não inserir registros sem `user_id` em tabelas que suportam isolamento por usuário

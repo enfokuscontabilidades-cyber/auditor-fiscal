@@ -1,8 +1,21 @@
-# Plataforma de Auditoria Fiscal — Plano Técnico
+# Plataforma SaaS Contábil — Plano Técnico
 
 ## Objetivo
 
-Transformar o `sistema-controle` em uma plataforma profissional de auditoria fiscal com login, banco de dados próprio (Supabase), motor de regras automático, alertas classificados por risco e planejamento tributário. Os dois módulos já funcionando (Auditor SPED e Validador de Entradas) são preservados e integrados ao novo sistema.
+Evoluir o `sistema-controle` de ferramenta interna de auditoria para uma **plataforma SaaS contábil multiempresa e multiusuário**, voltada a escritórios de contabilidade de pequeno e médio porte.
+
+O módulo fiscal é o núcleo principal e o primeiro a ser disponibilizado comercialmente em modelo **Founder Access** (pré-acesso com valor simbólico mensal). O foco inicial não é construir um ERP completo — é entregar auditoria fiscal inteligente, cruzamento de dados, validação tributária automatizada e ganho operacional real para escritórios contábeis.
+
+### Pilares do sistema
+
+| # | Pilar | Status |
+|---|-------|--------|
+| 1 | **Fiscal** | Núcleo — em produção |
+| 2 | **Planejamento Tributário** | Stub criado |
+| 3 | **Obrigações Acessórias** | Stub criado |
+| 4 | **Contábil** | Planejado |
+| 5 | **Departamento Pessoal** | Planejado |
+| 6 | **Financeiro** | Planejado |
 
 ---
 
@@ -11,6 +24,35 @@ Transformar o `sistema-controle` em uma plataforma profissional de auditoria fis
 - **Parsing no browser:** os parsers de SPED e XML já existem e funcionam. O backend salva apenas o resultado (JSON) — não reprocessa o arquivo.
 - **Banco próprio:** projeto Supabase exclusivo do sistema-controle. Sem dependência de outros sistemas.
 - **Motor de regras:** função TypeScript pura que recebe dados parseados e devolve lista de alertas. Sem chamadas externas.
+- **Multi-tenant via RLS:** cada usuário/escritório vê apenas seus dados — o Supabase Row Level Security é a barreira principal. Sem filtros manuais duplicados no código.
+
+---
+
+## Arquitetura SaaS — Requisitos Obrigatórios
+
+| Requisito | Implementação |
+|-----------|--------------|
+| Multi-tenant seguro | Supabase RLS em todas as tabelas |
+| Isolamento por usuário | `user_id UUID REFERENCES auth.users` em tabelas críticas |
+| Isolamento por empresa | `empresa_id` + validação de CNPJ em toda importação |
+| Storage privado | Buckets sem acesso público; URLs assinadas com `createSignedUrl` |
+| Auth obrigatória | Toda API route verifica `supabase.auth.getUser()` e retorna 401 se ausente |
+| Validação de empresa | Toda importação (SPED, XML, PGDAS) valida empresa ativa e CNPJ |
+
+---
+
+## Núcleo Central de Dados — Integração entre Módulos
+
+Princípio: **dados importados uma vez, reutilizados por todos os módulos**. Nenhum módulo importa o mesmo dado de forma isolada.
+
+| Fonte | Alimenta |
+|-------|----------|
+| XML de NF-e | Fiscal, Simples Nacional, Contábil (futuro), Financeiro (futuro) |
+| SPED Fiscal | Auditoria Fiscal, Planejamento Tributário, cruzamentos automáticos |
+| SPED Contribuições | Módulo Fiscal, cálculos PIS/COFINS, cruzamento com NF-e |
+| PGDAS-D | Simples Nacional, confronto com XMLs e faturamento apurado |
+| Extrato bancário | Financeiro, Contábil (futuro) |
+| eSocial / DCTFWeb | Departamento Pessoal (futuro) |
 
 ---
 
@@ -113,6 +155,16 @@ Regras seed incluídas no banco:
 ---
 
 ## Roadmap
+
+### Fase 0 — Fundação SaaS (próxima prioridade)
+
+- [ ] Adicionar coluna `user_id UUID REFERENCES auth.users` nas tabelas: `empresas`, `fa_sessoes_analise`, `fa_arquivos_sped`, `fa_arquivos_xml`, `fa_alertas`, `sn_declaracoes`
+- [ ] Criar políticas RLS por `user_id` em todas as tabelas acima
+- [ ] Atualizar API routes para incluir `user_id` ao inserir registros
+- [ ] Garantir que Storage use bucket privado com URLs assinadas
+- [ ] Stub de tela de planos/assinatura (`/planos`) para o modelo Founder Access
+
+---
 
 ### Fase 1 — MVP ✅ CONCLUÍDA
 

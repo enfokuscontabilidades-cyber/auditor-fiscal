@@ -1,8 +1,8 @@
-# Project Context — Auditor Fiscal | Enfokus Contabilidade
+# Project Context — Plataforma SaaS Contábil | Enfokus
 
 > Arquivo de referência para novas conversas com Claude Code.
 > Mantido manualmente. Atualizar sempre que houver mudança estrutural significativa.
-> Última atualização: 2026-05-12
+> Última atualização: 2026-05-19
 
 ---
 
@@ -10,17 +10,28 @@
 
 ### Objetivo
 
-Plataforma interna de auditoria fiscal e planejamento tributário da Enfokus Contabilidade.
-Permite que contadores e auditores importem, validem e cruzem dados de SPED Fiscal,
-SPED Contribuições e XMLs de NF-e para identificar inconsistências fiscais, tributárias
-e obrigações acessórias pendentes.
+Plataforma SaaS contábil multiempresa e multiusuário para escritórios de contabilidade de pequeno e médio porte. Permite que contadores importem, validem e cruzem dados de SPED Fiscal, SPED Contribuições, XMLs de NF-e e PGDAS-D para identificar inconsistências fiscais, tributárias e obrigações acessórias pendentes.
+
+O módulo fiscal é o núcleo principal e o primeiro disponibilizado comercialmente em modelo **Founder Access** (pré-acesso, assinatura mensal simbólica). O foco inicial é auditoria fiscal inteligente, cruzamento de dados e ganho operacional para escritórios — não é um ERP completo.
 
 ### Tipo de sistema
 
-- Auditoria fiscal (SPED, NF-e, cruzamento de dados)
+- **SaaS por assinatura** — multiempresa, multiusuário, multi-tenant
+- Auditoria fiscal inteligente (SPED, NF-e, cruzamento de dados)
 - Planejamento tributário (comparação de regimes, simulação de carga)
 - Controle de obrigações acessórias (REINF, DCTFWeb, eSocial, DCTF, ECF)
-- Uso interno (Enfokus Contabilidade) — não é SaaS público
+- Voltado para escritórios de contabilidade (não uso exclusivo interno)
+
+### Pilares do sistema
+
+| # | Pilar | Status |
+|---|-------|--------|
+| 1 | **Fiscal** | Núcleo — em produção (Founder Access) |
+| 2 | **Planejamento Tributário** | Stub criado |
+| 3 | **Obrigações Acessórias** | Stub criado |
+| 4 | **Contábil** | Planejado |
+| 5 | **Departamento Pessoal** | Planejado |
+| 6 | **Financeiro** | Planejado |
 
 ### Stack técnica
 
@@ -59,6 +70,36 @@ lib/
   simples/              ← Parser PGDAS-D (parsePgdas.ts)
   types.ts              ← Tipos TypeScript globais
 ```
+
+---
+
+## 1b. Arquitetura de Dados Compartilhados
+
+Princípio central: **dados importados uma vez alimentam todos os módulos**. Nenhum módulo importa o mesmo documento de forma isolada.
+
+| Fonte de dados | Módulos alimentados |
+|----------------|---------------------|
+| XML de NF-e | Fiscal · Simples Nacional · Contábil (futuro) · Financeiro (futuro) |
+| SPED Fiscal | Auditoria Fiscal · Planejamento Tributário · cruzamentos automáticos |
+| SPED Contribuições | Módulo Fiscal · cálculos PIS/COFINS · cruzamento com NF-e |
+| PGDAS-D | Simples Nacional · confronto com XMLs e faturamento apurado |
+| Extrato bancário | Financeiro · Contábil (futuro) |
+| eSocial / DCTFWeb | Departamento Pessoal (futuro) |
+
+---
+
+## 1c. Requisitos SaaS — Segurança Multi-tenant
+
+| Requisito | Como garantir |
+|-----------|---------------|
+| Isolamento entre escritórios | Supabase RLS com política `user_id = auth.uid()` |
+| `user_id` obrigatório | Todas as tabelas críticas têm `user_id UUID REFERENCES auth.users` |
+| `empresa_id` obrigatório | Toda importação valida empresa ativa + CNPJ |
+| Storage privado | Buckets privados; URLs via `createSignedUrl` — sem acesso público |
+| Auth em toda API | Cada route verifica `supabase.auth.getUser()` e retorna 401 se ausente |
+| Validação de empresa | SPED: raiz CNPJ; XML terceiros: destinatário; XML próprios: emitente |
+
+> **Pendência crítica:** as tabelas atuais não possuem `user_id`. Isso significa que o isolamento hoje é apenas por `empresa_id` sem isolamento por escritório/usuário. A Fase 0 do roadmap resolve isso.
 
 ---
 
@@ -323,6 +364,14 @@ sn_declaracoes (
 
 ## 5. Limitações Atuais
 
+### Isolamento multi-tenant incompleto
+
+As tabelas atuais não possuem coluna `user_id`. O isolamento é feito apenas por `empresa_id`, sem separação por escritório/usuário. Para um SaaS real, é necessário adicionar `user_id` + RLS por usuário em todas as tabelas críticas (Fase 0 do roadmap).
+
+### Sem billing / planos de assinatura
+
+Não há integração com gateway de pagamento nem controle de planos/cotas. O modelo Founder Access pode ser operado manualmente enquanto isso não estiver implementado.
+
 ### XMLs de NF-e não persistidos
 
 O Validador NF-e salva a sessão no banco mas `parsed_data` é null. Quando o usuário recarrega a página, as classificações são perdidas.
@@ -347,41 +396,58 @@ Existem apenas como páginas stub.
 
 ## 6. Próximos Passos Planejados
 
-### 6.1 Persistência do Validador NF-e
+As prioridades refletem a evolução para SaaS: primeiro garantir segurança multi-tenant, depois ampliar funcionalidades do módulo fiscal para o Founder Access.
+
+### 6.0 Fundação SaaS — multi-tenant seguro (Fase 0)
+
+- Adicionar `user_id UUID REFERENCES auth.users` nas tabelas: `empresas`, `fa_sessoes_analise`, `fa_arquivos_sped`, `fa_arquivos_xml`, `fa_alertas`, `sn_declaracoes`
+- Criar políticas RLS por `user_id` (`auth.uid() = user_id`) em todas as tabelas acima
+- Atualizar API routes para incluir `user_id` ao inserir registros
+- Garantir Storage com bucket privado e URLs assinadas
+- Stub de página `/planos` para modelo Founder Access
+
+### 6.1 Persistência do Validador NF-e (Fase 5)
 
 - Salvar `LinhaEntrada[]` com classificações no `parsed_data` do `fa_arquivos_xml`
 - Restaurar estado via `GET /api/arquivos-xml?sessao_id=...` ao carregar a página
 - Criar `PATCH /api/arquivos-xml/[id]` para persistir classificações ao alterar manualmente
 
-### 6.2 Evolução do Auditor SPED
+### 6.2 Cruzamento SPED × NF-e + Motor de regras automático
 
-- Exportação Excel com totais de ICMS, PIS/COFINS, receita
-- Cruzamento com NF-e: divergência entre SPED e XMLs importados
-- Visualização por período/competência
+- Cruzamento automático entre SPED e XMLs importados para o mesmo período
+- Motor de regras acionado automaticamente após importação (sem disparo manual)
+- Alertas gerados aparecem em `/inconsistencias` sem intervenção do usuário
+- Exportação Excel no Auditor SPED
 
-### 6.3 Integração entre Módulos (pipeline)
+### 6.3 Confronto PGDAS × NF-e — Simples Nacional Fase 2
 
-1. Usuário importa SPED ou NF-e
-2. Sistema salva no banco via API route
-3. Motor de regras executa automaticamente
-4. Alertas gerados aparecem em `/inconsistencias`
+- Aba "Confronto NF-e" na página `/simples_nacional`
+- Somar `valor_total` das NF-e de saída para o mesmo período
+- Comparar com `receita_bruta_mes` do PGDAS — alerta se diferença > 1%
 
-### 6.4 Regras de Inconsistência (motor)
+### 6.4 Onboarding SaaS — gestão de escritório
 
-- Divergência entre SPED Fiscal e XMLs de NF-e
-- CFOP de entrada incompatível com natureza do produto
-- Crédito de ICMS indevido (uso e consumo sem benefício)
-- SPED com apuração zerada mas com faturamento
-- Divergência entre base de cálculo declarada e apurada
+- Tela de convite de usuários dentro do mesmo escritório
+- Controle de planos e cotas por escritório
+- Integração com gateway de pagamento (futuro)
 
 ### 6.5 Módulos de Obrigações e Planejamento
 
 - Calendário de obrigações com controle de REINF / DCTFWeb / eSocial / DCTF / ECF
 - Simulador de carga tributária por regime (Simples × Presumido × Real)
+- Suporte a IBS/CBS (Reforma Tributária EC 132/2023)
 
 ---
 
 ## 7. Diretrizes Técnicas
+
+### Multi-tenant SaaS
+
+- Sempre incluir `user_id` ao inserir qualquer registro no banco
+- Confiar no RLS do Supabase para isolamento — não duplicar filtros `user_id` no código como segurança extra
+- Verificar `user` (via `supabase.auth.getUser()`) antes de qualquer operação de escrita
+- Nunca criar tabela sem RLS habilitado
+- Nunca expor URLs de Storage sem autenticação (usar `createSignedUrl`)
 
 ### Sistema multiempresa
 

@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { getOrgId } from '@/lib/supabase/org'
 import { redirect } from 'next/navigation'
 import SidebarFiscal from './SidebarFiscal'
 
@@ -11,6 +12,17 @@ export default async function FiscalLayout({
   const { data: { user } } = await supabase.auth.getUser()
 
   if (!user) redirect('/login')
+
+  const orgId = await getOrgId(supabase, user.id)
+  if (!orgId) redirect('/configuracoes/novo-escritorio')
+
+  const { data: org } = await supabase
+    .from('organizacoes')
+    .select('plano')
+    .eq('id', orgId)
+    .single()
+
+  if (org?.plano === 'pendente') redirect('/aguardando-ativacao')
 
   return (
     <div className="fiscal-shell">

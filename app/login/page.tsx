@@ -1,11 +1,13 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [lembrar, setLembrar] = useState(false)
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const supabase = createClient()
@@ -16,6 +18,15 @@ export default function LoginPage() {
     setErro(null)
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) { setErro('E-mail ou senha incorretos.'); setLoading(false); return }
+
+    // Marca sessão ativa para esta janela do navegador
+    sessionStorage.setItem('session_active', '1')
+    if (lembrar) {
+      localStorage.setItem('stay_logged_in', '1')
+    } else {
+      localStorage.removeItem('stay_logged_in')
+    }
+
     window.location.href = '/'
   }
 
@@ -57,8 +68,25 @@ export default function LoginPage() {
             <input id="email" type="email" autoComplete="email" required style={S.input} value={email} onChange={e => setEmail(e.target.value)} />
             <label style={S.label} htmlFor="password">Senha</label>
             <input id="password" type="password" autoComplete="current-password" required style={S.input} value={password} onChange={e => setPassword(e.target.value)} />
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer', marginBottom: 20, userSelect: 'none' }}>
+              <input
+                type="checkbox"
+                checked={lembrar}
+                onChange={e => setLembrar(e.target.checked)}
+                style={{ width: 16, height: 16, accentColor: 'var(--af-primary)', cursor: 'pointer' }}
+              />
+              <span style={{ fontSize: 13, color: 'var(--af-text-soft)' }}>Continuar logado</span>
+            </label>
+
             <button type="submit" style={S.btn} disabled={loading}>{loading ? 'Entrando...' : 'Entrar'}</button>
           </form>
+          <p style={{ textAlign: 'center', marginTop: 24, fontSize: 13, color: 'var(--af-muted)' }}>
+            Não tem uma conta?{' '}
+            <Link href="/cadastro" style={{ color: 'var(--af-primary)', textDecoration: 'none', fontWeight: 600 }}>
+              Criar conta
+            </Link>
+          </p>
         </main>
       </div>
     </div>

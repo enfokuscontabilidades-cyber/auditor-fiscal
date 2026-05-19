@@ -22,9 +22,11 @@ import {
   Star,
   Receipt,
   FilePen,
+  Settings,
 } from 'lucide-react'
 
 type EmpresaItem = { id: string; razao_social: string; cnpj: string | null; cnae_principal?: string | null }
+type OrgInfo = { id: string; nome: string; plano: string }
 
 const LINKS = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -36,6 +38,7 @@ const LINKS = [
   { href: '/editor_sped', label: 'Editor SPED', icon: FilePen },
   { href: '/planejamento', label: 'Planejamento', icon: Calculator },
   { href: '/obrigacoes', label: 'Obrigações', icon: ClipboardList },
+  { href: '/configuracoes', label: 'Configurações', icon: Settings },
 ]
 
 export default function SidebarFiscal() {
@@ -46,12 +49,18 @@ export default function SidebarFiscal() {
   const [empresas, setEmpresas] = useState<EmpresaItem[]>([])
   const [empresaMenuAberto, setEmpresaMenuAberto] = useState(false)
   const [buscaEmpresa, setBuscaEmpresa] = useState('')
+  const [org, setOrg] = useState<OrgInfo | null>(null)
 
   useEffect(() => {
     fetch('/api/empresas')
       .then(r => r.json())
       .then((d: unknown) => { if (Array.isArray(d)) setEmpresas(d as EmpresaItem[]) })
       .catch(() => setEmpresas([]))
+
+    fetch('/api/organizacoes')
+      .then(r => r.json())
+      .then((d: unknown) => { if (d && typeof d === 'object') setOrg(d as OrgInfo) })
+      .catch(() => null)
   }, [])
 
   const empresasFiltradas = useMemo(() => {
@@ -68,6 +77,8 @@ export default function SidebarFiscal() {
   }, [buscaEmpresa, empresas])
 
   async function handleLogout() {
+    sessionStorage.removeItem('session_active')
+    localStorage.removeItem('stay_logged_in')
     await supabase.auth.signOut()
     window.location.href = '/login'
   }
@@ -114,7 +125,9 @@ export default function SidebarFiscal() {
           />
         </Link>
         <div style={{ marginTop: 12 }}>
-          <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--af-surface-2)', letterSpacing: '-0.01em' }}>Auditor Fiscal</div>
+          <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--af-surface-2)', letterSpacing: '-0.01em' }}>
+            {org?.nome ?? 'Auditor Fiscal'}
+          </div>
           <div style={{ fontSize: 11, color: 'rgba(203,213,225,0.64)', marginTop: 2 }}>Análise fiscal e tributária</div>
         </div>
       </div>

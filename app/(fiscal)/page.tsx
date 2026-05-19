@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 import { TriangleAlert, Building2, FileSearch, AlertOctagon, AlertTriangle, CheckCircle2, ArrowRight, ClipboardList, Calculator } from 'lucide-react'
 import EmpresaAtivaBanner from '@/components/EmpresaAtivaBanner'
+import CnpjSearchCard from '@/components/CnpjSearchCard'
 
 export default async function DashboardPage() {
   const supabase = await createClient()
@@ -87,6 +88,16 @@ export default async function DashboardPage() {
           <div style={S.kpiSub}>cadastradas no sistema</div>
         </div>
       </div>
+
+      <section style={{ ...S.sectionCard, marginBottom: 18 }}>
+        <div style={S.sectionTop}>
+          <h2 style={S.sectionTitle}>Consulta CNPJ</h2>
+          <span style={{ fontSize: 12, color: 'var(--af-muted)' }}>Receita Federal</span>
+        </div>
+        <div style={{ padding: 16 }}>
+          <CnpjSearchCard />
+        </div>
+      </section>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.2fr) minmax(320px, 0.8fr)', gap: 18 }}>
         <section style={S.sectionCard}>

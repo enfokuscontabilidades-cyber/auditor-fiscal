@@ -33,7 +33,9 @@ export async function middleware(request: NextRequest) {
 
   const isPublic =
     pathname.startsWith('/login') ||
+    pathname.startsWith('/cadastro') ||
     pathname.startsWith('/auth') ||
+    pathname === '/api/stripe/webhook' ||
     pathname === '/_next' ||
     pathname.startsWith('/_next/')
 

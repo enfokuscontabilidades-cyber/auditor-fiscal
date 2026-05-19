@@ -1,4 +1,45 @@
 export type Regime = 'Simples Nacional' | 'Lucro Presumido' | 'Lucro Real' | 'MEI' | 'CPF'
+
+export interface Organizacao {
+  id: string
+  nome: string
+  plano: 'pendente' | 'founder_access' | 'pro' | 'enterprise'
+  created_at: string
+  updated_at: string
+}
+
+export interface MembroOrganizacao {
+  id: string
+  org_id: string
+  user_id: string
+  papel: 'admin' | 'membro'
+  created_at: string
+  email?: string
+}
+
+export interface ConviteOrganizacao {
+  id: string
+  org_id: string
+  email: string
+  papel: 'admin' | 'membro'
+  criado_em: string
+  organizacao?: { nome: string }
+}
+
+export interface Cobranca {
+  id: string
+  org_id: string
+  empresa_id?: string
+  descricao: string
+  valor?: number
+  vencimento: string
+  pago_em?: string
+  status: 'pendente' | 'pago' | 'atrasado'
+  observacao?: string
+  created_at: string
+  updated_at: string
+  empresa?: { id: string; razao_social: string }
+}
 export type StatusEmpresa = 'Ativo' | 'Inativo' | 'Suspenso'
 export type NivelRisco = 'baixo' | 'medio' | 'alto' | 'critico'
 export type StatusSessao = 'rascunho' | 'processando' | 'concluido' | 'erro'
@@ -7,6 +48,7 @@ export type StatusAlerta = 'aberto' | 'em_analise' | 'resolvido' | 'descartado'
 
 export interface Empresa {
   id: string
+  org_id?: string
   razao_social: string
   nome_fantasia?: string
   cnpj?: string
@@ -19,12 +61,22 @@ export interface Empresa {
   tipo?: 'Matriz' | 'Filial' | 'Autônoma'
   matriz_id?: string
   status: StatusEmpresa
+  situacao_cadastral?: string
+  logradouro?: string
+  numero?: string
+  complemento?: string
+  bairro?: string
+  cep?: string
+  municipio?: string
+  telefone?: string
+  email?: string
   created_at: string
   updated_at: string
 }
 
 export interface SessaoAnalise {
   id: string
+  org_id?: string
   empresa_id: string
   criado_por?: string
   competencia: string
@@ -40,6 +92,7 @@ export interface SessaoAnalise {
 
 export interface ArquivoSped {
   id: string
+  org_id?: string
   sessao_id: string
   empresa_id: string
   nome_arquivo: string
@@ -61,6 +114,7 @@ export interface ArquivoSped {
 
 export interface ArquivoXml {
   id: string
+  org_id?: string
   sessao_id: string
   empresa_id: string
   chave_nfe?: string
@@ -95,6 +149,7 @@ export interface RegraFiscal {
 
 export interface AlertaFiscal {
   id: string
+  org_id?: string
   sessao_id: string
   empresa_id: string
   regra_id?: string
@@ -116,6 +171,7 @@ export interface AlertaFiscal {
 
 export interface ObrigacaoAcessoria {
   id: string
+  org_id?: string
   empresa_id: string
   competencia: string
   tipo: string
@@ -143,6 +199,7 @@ export interface SimulacaoRegime {
 
 export interface PlacejamentoTributario {
   id: string
+  org_id?: string
   empresa_id: string
   criado_por?: string
   competencia_base: string
@@ -202,6 +259,7 @@ export interface SnParsedData {
 
 export interface SnDeclaracao {
   id: string
+  org_id?: string
   empresa_id: string
   competencia: string
   periodo_inicial?: string

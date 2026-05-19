@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { getOrgId } from '@/lib/supabase/org'
 import { NextResponse } from 'next/server'
 
 export async function GET() {
@@ -22,6 +23,9 @@ export async function POST(request: Request) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
 
+  const orgId = await getOrgId(supabase, user.id)
+  if (!orgId) return NextResponse.json({ error: 'Usuário sem organização' }, { status: 403 })
+
   const body = await request.json()
   const { razao_social, cnpj, regime, cnae_principal, inscricao_estadual, uf } = body
 
@@ -34,6 +38,7 @@ export async function POST(request: Request) {
   const { data, error } = await supabase
     .from('empresas')
     .insert({
+      org_id: orgId,
       razao_social: razao_social.trim(),
       cnpj: cnpjLimpo,
       regime: regime || null,

@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { getOrgId } from '@/lib/supabase/org'
 import { NextResponse } from 'next/server'
 
 export async function POST(request: Request) {
@@ -28,10 +29,14 @@ export async function POST(request: Request) {
     )
   }
 
+  const orgId = await getOrgId(supabase, user.id)
+  if (!orgId) return NextResponse.json({ error: 'Usuário sem organização' }, { status: 403 })
+
   const { data, error } = await supabase
     .from('sn_declaracoes')
     .upsert(
       {
+        org_id: orgId,
         empresa_id,
         competencia,
         periodo_inicial: periodo_inicial ?? null,
