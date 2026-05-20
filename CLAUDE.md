@@ -18,12 +18,16 @@ npx tsc --noEmit # verificar erros de TypeScript sem compilar
 ## Estrutura do projeto
 
 - `app/(fiscal)/` — todas as páginas autenticadas do sistema
+- `app/cadastro/` — cadastro de novo usuário (público)
+- `app/aguardando-ativacao/` — tela de assinatura/ativação de plano (público)
+- `app/configuracoes/novo-escritorio/` — onboarding: criar org ou aceitar convite (público)
 - `app/api/` — rotas de API que se comunicam com o banco Supabase
-- `lib/supabase/` — clientes Supabase (browser e servidor)
+- `lib/supabase/` — clientes Supabase: `client.ts` (browser), `server.ts` (SSR), `admin.ts` (service-role), `org.ts` (helper)
 - `lib/rules/` — motor de regras fiscais
 - `lib/types.ts` — tipos TypeScript compartilhados
-- `middleware.ts` — guarda de autenticação (protege todas as rotas exceto `/login`)
+- `middleware.ts` — guarda de autenticação (protege todas as rotas exceto `/login`, `/cadastro`, `/auth`, `/api/stripe/webhook`)
 - `supabase_setup.sql` — DDL completo do banco de dados
+- `components/SessionGuard.tsx` — guard client-side de sessão de browser
 
 ## Variáveis de ambiente
 
@@ -32,6 +36,11 @@ Arquivo `.env.local` na raiz do projeto:
 ```
 NEXT_PUBLIC_SUPABASE_URL=...
 NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+SUPABASE_SERVICE_ROLE_KEY=...      # cliente admin (bypassa RLS)
+STRIPE_SECRET_KEY=...              # chave Stripe (sk_live_ ou sk_test_)
+STRIPE_PRICE_ID=...                # ID do produto no Stripe
+STRIPE_WEBHOOK_SECRET=...          # segredo do webhook Stripe
+NEXT_PUBLIC_APP_URL=...            # URL pública (sem trailing slash)
 ```
 
 ## Padrões de código
@@ -43,16 +52,19 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 - Novos componentes de UI (botões, cards, tabelas) devem seguir o mesmo padrão visual das páginas `auditor_fiscal` e `validador_entradas`
 
 ### Multi-tenant (SaaS)
-- Sempre incluir `user_id` ao inserir registros em tabelas críticas
-- Nunca filtrar dados apenas por `empresa_id` como única barreira de segurança — o RLS por `user_id` é a camada principal
-- Confiar no RLS do Supabase para isolamento entre escritórios — não duplicar a lógica no código
-- Verificar `supabase.auth.getUser()` antes de qualquer operação de escrita
-- Nunca criar tabela sem RLS habilitado
-- Nunca expor URLs de Storage sem autenticação (`createSignedUrl` obrigatório)
+- O isolamento é por **organização** (`org_id`), não por usuário. Vários usuários do mesmo escritório compartilham o mesmo `org_id`.
+- Sempre incluir `org_id` ao inserir registros em tabelas de dados. Obter via `getOrgId(supabase, user.id)` de `lib/supabase/org.ts`.
+- Nunca filtrar dados apenas por `empresa_id` como única barreira de segurança — o RLS por `org_id` é a camada principal.
+- Confiar no RLS do Supabase para isolamento entre escritórios — não duplicar a lógica no código.
+- Usar `createAdminClient()` (de `lib/supabase/admin.ts`) apenas onde genuinamente necessário (criação de org, aceitação de convite).
+- Verificar `supabase.auth.getUser()` antes de qualquer operação de escrita.
+- Nunca criar tabela sem RLS habilitado.
+- Nunca expor URLs de Storage sem autenticação (`createSignedUrl` obrigatório).
 
 ### Supabase
 - Sempre usar `createServerClient` (de `lib/supabase/server.ts`) nas API routes e Server Components
 - Sempre usar `createBrowserClient` (de `lib/supabase/client.ts`) em Client Components (`"use client"`)
+- Usar `createAdminClient` (de `lib/supabase/admin.ts`) apenas para operações que precisam contornar RLS — nunca expor ao browser
 - Nunca acessar o banco diretamente no browser fora de componentes com `"use client"`
 
 ### Motor de regras
@@ -78,13 +90,19 @@ O arquivo `supabase_setup.sql` contém o DDL completo. Para aplicar em um novo p
 2. Abrir SQL Editor
 3. Colar e executar o conteúdo de `supabase_setup.sql`
 
-Tabelas principais:
+Tabelas SaaS:
+- `organizacoes` — escritórios; `plano` = `'pendente'` | `'founder_access'`
+- `membros_organizacao` — vínculo usuário × org; `papel` = `'admin'` | `'membro'`
+- `convites_organizacao` — convites por e-mail para orgs existentes
+
+Tabelas fiscais (todas com `org_id`):
 - `empresas` — cadastro das empresas clientes
 - `fa_sessoes_analise` — sessões de auditoria por empresa+período
 - `fa_arquivos_sped` — arquivos SPED importados (resultado parseado em JSONB)
 - `fa_arquivos_xml` — XMLs de NF-e importados
 - `fa_alertas` — alertas gerados pelo motor de regras
-- `fa_regras_fiscais` — catálogo de regras configuráveis
+- `fa_regras_fiscais` — catálogo de regras configuráveis (compartilhado, sem org_id)
+- `sn_declaracoes` — declarações PGDAS-D do Simples Nacional
 
 ## Legislação de referência (Goiás)
 
@@ -102,4 +120,6 @@ Tabelas principais:
 - Não usar `console.log` em produção — remover antes do build
 - Não criar tabelas sem RLS habilitado
 - Não expor URLs de Storage sem autenticação (nunca `getPublicUrl` em buckets de dados do usuário)
-- Não inserir registros sem `user_id` em tabelas que suportam isolamento por usuário
+- Não inserir registros sem `org_id` em tabelas de dados fiscais
+- Não usar `createAdminClient()` em Client Components nem expô-lo ao browser
+- Não usar chave `sk_live_` do Stripe com cartões de teste — usar `sk_test_` para desenvolvimento local

@@ -24,7 +24,9 @@ O módulo fiscal é o núcleo principal e o primeiro a ser disponibilizado comer
 - **Parsing no browser:** os parsers de SPED e XML já existem e funcionam. O backend salva apenas o resultado (JSON) — não reprocessa o arquivo.
 - **Banco próprio:** projeto Supabase exclusivo do sistema-controle. Sem dependência de outros sistemas.
 - **Motor de regras:** função TypeScript pura que recebe dados parseados e devolve lista de alertas. Sem chamadas externas.
-- **Multi-tenant via RLS:** cada usuário/escritório vê apenas seus dados — o Supabase Row Level Security é a barreira principal. Sem filtros manuais duplicados no código.
+- **Multi-tenant por organização:** o isolamento é feito por `org_id` (não por `user_id`). Vários usuários do mesmo escritório compartilham o mesmo `org_id`. O Supabase RLS usa a função `is_member_of(org_id)` para verificar pertencimento.
+- **Admin client:** operações que precisam contornar o RLS (criação de org, aceitação de convite) usam `createAdminClient()` com `SUPABASE_SERVICE_ROLE_KEY`.
+- **Plano por organização:** nova org começa com `plano='pendente'`. O pagamento via Stripe ativa o plano para `'founder_access'`. O webhook do Stripe chama `POST /api/stripe/webhook`.
 
 ---
 
@@ -33,11 +35,12 @@ O módulo fiscal é o núcleo principal e o primeiro a ser disponibilizado comer
 | Requisito | Implementação |
 |-----------|--------------|
 | Multi-tenant seguro | Supabase RLS em todas as tabelas |
-| Isolamento por usuário | `user_id UUID REFERENCES auth.users` em tabelas críticas |
+| Isolamento por escritório | `org_id UUID` em tabelas críticas + política `is_member_of(org_id)` |
 | Isolamento por empresa | `empresa_id` + validação de CNPJ em toda importação |
 | Storage privado | Buckets sem acesso público; URLs assinadas com `createSignedUrl` |
 | Auth obrigatória | Toda API route verifica `supabase.auth.getUser()` e retorna 401 se ausente |
 | Validação de empresa | Toda importação (SPED, XML, PGDAS) valida empresa ativa e CNPJ |
+| Controle de plano | Layout fiscal redireciona para `/aguardando-ativacao` se `plano='pendente'` |
 
 ---
 
@@ -74,33 +77,43 @@ Princípio: **dados importados uma vez, reutilizados por todos os módulos**. Ne
 
 ```
 app/
-├── login/page.tsx                      login
-├── auth/callback/route.ts              callback OAuth
+├── login/page.tsx                         login (+ "Continuar logado" + link cadastro)
+├── cadastro/page.tsx                      cadastro de novo usuário
+├── aguardando-ativacao/page.tsx           tela de assinatura / ativação de plano
+├── auth/callback/route.ts                 callback OAuth
+├── configuracoes/novo-escritorio/page.tsx onboarding: criar org ou aceitar convite
 ├── (fiscal)/
-│   ├── layout.tsx                      sidebar + auth guard
-│   ├── page.tsx                        dashboard
-│   ├── empresas/page.tsx               cadastro de empresas
-│   ├── auditoria/page.tsx              lista de sessões
-│   ├── auditoria/[sessaoId]/page.tsx   detalhe de sessão
-│   ├── auditor_fiscal/page.tsx         SPED Fiscal × Contribuições (existente)
-│   ├── validador_entradas/page.tsx     XML + SPED C170 (existente)
-│   ├── inconsistencias/page.tsx        alertas consolidados
-│   ├── planejamento/page.tsx           simulador de regime
-│   └── obrigacoes/page.tsx             calendário de obrigações
+│   ├── layout.tsx                         sidebar + auth guard + check de plano
+│   ├── page.tsx                           dashboard
+│   ├── SidebarFiscal.tsx                  sidebar com nome da org
+│   ├── configuracoes/page.tsx             membros, plano, convites
+│   ├── empresas/page.tsx                  cadastro de empresas
+│   ├── auditor_fiscal/page.tsx            SPED Fiscal × Contribuições
+│   ├── validador_entradas/page.tsx        XML + SPED C170
+│   ├── inconsistencias/page.tsx           alertas consolidados
+│   ├── simples_nacional/page.tsx          PGDAS-D
+│   ├── planejamento/page.tsx              stub
+│   └── obrigacoes/page.tsx               stub
 └── api/
+    ├── organizacoes/route.ts              GET org do usuário; POST criar org
+    ├── membros/route.ts                   GET/POST/DELETE membros
+    ├── convites/route.ts                  GET convite pendente; POST aceitar
+    ├── stripe/checkout/route.ts           POST criar sessão Stripe Checkout
+    ├── stripe/webhook/route.ts            POST webhook Stripe (ativar/suspender plano)
+    ├── empresas/route.ts
+    ├── empresas/[id]/route.ts
     ├── sessoes/route.ts
-    ├── sessoes/[id]/route.ts
-    ├── arquivos-sped/route.ts
-    ├── arquivos-xml/route.ts
     ├── alertas/route.ts
     ├── alertas/[id]/route.ts
-    ├── apuracoes/route.ts
-    ├── planejamento/route.ts
-    └── obrigacoes/route.ts
+    ├── arquivos-sped/route.ts
+    ├── arquivos-xml/route.ts
+    └── simples_nacional/route.ts
 
 lib/
 ├── supabase/client.ts
 ├── supabase/server.ts
+├── supabase/admin.ts                      cliente service-role (bypassa RLS)
+├── supabase/org.ts                        helper getOrgId(supabase, userId)
 ├── rules/types.ts
 ├── rules/engine.ts
 ├── rules/executores/icms.ts
@@ -108,6 +121,9 @@ lib/
 ├── rules/executores/cfop.ts
 ├── rules/executores/ncm.ts
 └── types.ts
+
+components/
+└── SessionGuard.tsx                       guard de sessão client-side
 
 middleware.ts
 supabase_setup.sql
@@ -119,16 +135,28 @@ supabase_setup.sql
 
 Arquivo `supabase_setup.sql` contém DDL completo para:
 
+**Tabelas de organização (SaaS):**
+- `organizacoes` — escritórios; `plano` = `'pendente'` | `'founder_access'`
+- `membros_organizacao` — vínculo usuário × org; `papel` = `'admin'` | `'membro'`
+- `convites_organizacao` — convites por e-mail para orgs existentes
+
+**Tabelas de dados fiscais** (todas com `org_id`):
 - `empresas` — cadastro de empresas auditadas
 - `fa_sessoes_analise` — agrupa arquivos por empresa+período
 - `fa_arquivos_sped` — metadados + resultado parseado do SPED
 - `fa_arquivos_xml` — metadados + resultado parseado de NF-e
 - `fa_apuracoes_icms` — resultado E110
 - `fa_apuracoes_contrib` — resultado M200/M600
-- `fa_regras_fiscais` — catálogo de regras com seed inicial
+- `fa_regras_fiscais` — catálogo de regras com seed inicial (compartilhado)
 - `fa_alertas` — alertas gerados pelo motor
 - `fa_obrigacoes_acessorias` — controle de entrega de obrigações
 - `fa_planejamento_tributario` — simulações salvas
+- `sn_declaracoes` — declarações PGDAS-D
+
+**RLS — padrão por tabela de dados:**
+- SELECT/UPDATE/DELETE: `public.is_member_of(org_id)`
+- INSERT: `auth.role() = 'authenticated'` (workaround JWT Next.js 16.2 + `@supabase/ssr` 0.4.1)
+- Função `is_member_of(p_org_id)` SECURITY DEFINER — evita recursão em `membros_organizacao`
 
 ---
 
@@ -156,13 +184,22 @@ Regras seed incluídas no banco:
 
 ## Roadmap
 
-### Fase 0 — Fundação SaaS (próxima prioridade)
+### Fase 0 — Fundação SaaS ✅ CONCLUÍDA (2026-05-19)
 
-- [ ] Adicionar coluna `user_id UUID REFERENCES auth.users` nas tabelas: `empresas`, `fa_sessoes_analise`, `fa_arquivos_sped`, `fa_arquivos_xml`, `fa_alertas`, `sn_declaracoes`
-- [ ] Criar políticas RLS por `user_id` em todas as tabelas acima
-- [ ] Atualizar API routes para incluir `user_id` ao inserir registros
-- [ ] Garantir que Storage use bucket privado com URLs assinadas
-- [ ] Stub de tela de planos/assinatura (`/planos`) para o modelo Founder Access
+**Implementação real:** multi-tenant por organização (`org_id`), não por usuário individual. Escritórios têm múltiplos usuários no mesmo `org_id`.
+
+- [x] Tabelas `organizacoes`, `membros_organizacao`, `convites_organizacao`
+- [x] Todas as tabelas de dados com `org_id` + RLS via `is_member_of(org_id)`
+- [x] Função SECURITY DEFINER `is_member_of()` — evita recursão circular
+- [x] Fluxo de cadastro: `/cadastro` → `/configuracoes/novo-escritorio` → `/(fiscal)/`
+- [x] Controle de plano: org criada com `plano='pendente'`; layout redireciona para `/aguardando-ativacao`
+- [x] Stripe Checkout (`POST /api/stripe/checkout`) + webhook (`POST /api/stripe/webhook`) ativando `plano='founder_access'`
+- [x] Sistema de convites: admin convida por e-mail → `convites_organizacao` → aceito em `/configuracoes/novo-escritorio`
+- [x] Gestão de membros: página `/configuracoes` lista, adiciona e remove membros
+- [x] Sessão de browser: `sessionStorage` (expira ao fechar) + opt-in `localStorage` "Continuar logado"
+- [x] `lib/supabase/admin.ts` — cliente service-role para operações que contornam RLS
+- [x] `lib/supabase/org.ts` — helper `getOrgId(supabase, userId)`
+- [x] Deployment: GitHub → Vercel → `auditor.enfokus.com.br`
 
 ---
 

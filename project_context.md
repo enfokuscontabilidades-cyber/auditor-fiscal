@@ -2,7 +2,7 @@
 
 > Arquivo de referência para novas conversas com Claude Code.
 > Mantido manualmente. Atualizar sempre que houver mudança estrutural significativa.
-> Última atualização: 2026-05-19
+> Última atualização: 2026-05-19 (Fase 0 SaaS concluída)
 
 ---
 
@@ -49,10 +49,16 @@ O módulo fiscal é o núcleo principal e o primeiro disponibilizado comercialme
 
 ```
 app/
+  login/                ← Login (+ "Continuar logado" + link cadastro)
+  cadastro/             ← Cadastro de novo usuário
+  aguardando-ativacao/  ← Tela de assinatura/ativação de plano
+  configuracoes/
+    novo-escritorio/    ← Criar org ou aceitar convite (onboarding)
   (fiscal)/             ← Todas as páginas autenticadas
+    layout.tsx          ← Auth check + check de org + check de plano + sidebar
     page.tsx            ← Dashboard principal
-    SidebarFiscal.tsx   ← Sidebar global (compartilhada)
-    layout.tsx          ← Layout com auth check + sidebar
+    SidebarFiscal.tsx   ← Sidebar com nome da org + logout
+    configuracoes/      ← Gestão de membros, plano, convites
     auditor_fiscal/     ← Módulo SPED
     validador_entradas/ ← Módulo NF-e (mais completo)
     inconsistencias/    ← Módulo de alertas
@@ -60,11 +66,23 @@ app/
     empresas/           ← Cadastro e seleção de empresa
     planejamento/       ← Em desenvolvimento (stub criado)
     obrigacoes/         ← Em desenvolvimento (stub criado)
-  api/                  ← Rotas de API (Supabase server-side)
-  login/                ← Tela de login
-components/             ← Componentes compartilhados
+  api/
+    organizacoes/       ← GET org do usuário; POST criar org
+    membros/            ← GET/POST/DELETE membros da org
+    convites/           ← GET convite pendente; POST aceitar convite
+    stripe/
+      checkout/         ← POST criar sessão Stripe Checkout
+      webhook/          ← POST webhook Stripe (ativar/suspender plano)
+    empresas/           ← GET/POST; [id] GET/PUT
+    sessoes/ alertas/ arquivos-sped/ arquivos-xml/ simples_nacional/
+components/
+  SessionGuard.tsx      ← Guard client-side de sessão de browser
 lib/
-  supabase/             ← Clientes browser e server
+  supabase/
+    client.ts           ← Browser client
+    server.ts           ← Server client (SSR)
+    admin.ts            ← Service-role client (bypassa RLS)
+    org.ts              ← Helper getOrgId(supabase, userId)
   hooks/                ← useEmpresaAtiva
   rules/                ← Motor de regras fiscais
   simples/              ← Parser PGDAS-D (parsePgdas.ts)
@@ -88,29 +106,52 @@ Princípio central: **dados importados uma vez alimentam todos os módulos**. Ne
 
 ---
 
-## 1c. Requisitos SaaS — Segurança Multi-tenant
+## 1c. Requisitos SaaS — Segurança Multi-tenant ✅ Implementado
 
 | Requisito | Como garantir |
 |-----------|---------------|
-| Isolamento entre escritórios | Supabase RLS com política `user_id = auth.uid()` |
-| `user_id` obrigatório | Todas as tabelas críticas têm `user_id UUID REFERENCES auth.users` |
+| Isolamento entre escritórios | RLS com `public.is_member_of(org_id)` — só membros da org acessam |
+| `org_id` obrigatório | Todas as tabelas críticas têm `org_id UUID REFERENCES organizacoes(id)` |
+| INSERT protegido | Políticas INSERT usam `auth.role() = 'authenticated'` (workaround JWT Next.js 16.2) |
 | `empresa_id` obrigatório | Toda importação valida empresa ativa + CNPJ |
 | Storage privado | Buckets privados; URLs via `createSignedUrl` — sem acesso público |
 | Auth em toda API | Cada route verifica `supabase.auth.getUser()` e retorna 401 se ausente |
 | Validação de empresa | SPED: raiz CNPJ; XML terceiros: destinatário; XML próprios: emitente |
+| Controle de plano | `organizacoes.plano` — `'pendente'` bloqueia acesso ao sistema fiscal |
 
-> **Pendência crítica:** as tabelas atuais não possuem `user_id`. Isso significa que o isolamento hoje é apenas por `empresa_id` sem isolamento por escritório/usuário. A Fase 0 do roadmap resolve isso.
+**Modelo de organização:**
+- Cada escritório cria uma `organizacao`. O fundador vira `admin`.
+- Membros adicionais: admin convida por e-mail → `convites_organizacao` → novo usuário aceita em `/configuracoes/novo-escritorio`.
+- `is_member_of(p_org_id UUID)` é SECURITY DEFINER para evitar recursão no RLS de `membros_organizacao`.
+- Operações que contornam RLS (criação de org, aceitação de convite) usam `createAdminClient()` com `SUPABASE_SERVICE_ROLE_KEY`.
 
 ---
 
 ## 2. Funcionalidades Já Implementadas
 
-### Autenticação
+### Autenticação e SaaS
 
-- Login com e-mail e senha via Supabase Auth
-- Middleware Next.js protege todas as rotas exceto `/login` e `/auth`
-- Redirect automático: usuário não autenticado vai para `/login`; autenticado vai para `/`
-- Logout disponível na sidebar (apaga sessão e redireciona)
+- Login com e-mail e senha via Supabase Auth; "Continuar logado" (checkbox) persiste sessão em `localStorage`; por padrão sessão expira ao fechar o browser (`sessionStorage`)
+- Cadastro de novo usuário em `/cadastro` — após signup, redireciona para `/configuracoes/novo-escritorio`
+- Middleware Next.js protege todas as rotas exceto `/login`, `/cadastro`, `/auth` e `/api/stripe/webhook`
+- `SessionGuard` (client component no root layout) detecta browser fechado sem "Continuar logado" e desloga
+- Redirect automático: não autenticado → `/login`; autenticado sem org → `/configuracoes/novo-escritorio`; autenticado com org mas plano pendente → `/aguardando-ativacao`
+- Logout disponível na sidebar (limpa `sessionStorage` + `localStorage` + Supabase session)
+
+### Controle de Plano (Stripe)
+
+- Novas orgs criadas com `plano='pendente'` — acesso fiscal bloqueado
+- `/aguardando-ativacao`: mostra card de assinatura com preço; botão "Assinar agora" chama `POST /api/stripe/checkout`
+- Stripe Checkout cria sessão com `org_id` em `metadata`; modo `subscription`
+- Webhook `POST /api/stripe/webhook`: `checkout.session.completed` → `plano='founder_access'`; `customer.subscription.deleted` → `plano='pendente'`
+- Após pagamento aprovado, página verifica ativação polling `/api/organizacoes` a cada 2s (até 10 tentativas)
+
+### Gestão de Membros (`/configuracoes`)
+
+- Lista membros com e-mails e papéis (admin/membro); ícone coroa para admin
+- Adicionar membro por e-mail: se usuário existe → insert direto em `membros_organizacao`; se não existe → cria convite em `convites_organizacao`
+- Remover membro (admin only, não pode remover a si mesmo)
+- Novo usuário que recebe convite: ao acessar `/configuracoes/novo-escritorio`, detecta convite pendente e exibe opção "Entrar no escritório X"
 
 ### Dashboard (`/`)
 
@@ -364,14 +405,6 @@ sn_declaracoes (
 
 ## 5. Limitações Atuais
 
-### Isolamento multi-tenant incompleto
-
-As tabelas atuais não possuem coluna `user_id`. O isolamento é feito apenas por `empresa_id`, sem separação por escritório/usuário. Para um SaaS real, é necessário adicionar `user_id` + RLS por usuário em todas as tabelas críticas (Fase 0 do roadmap).
-
-### Sem billing / planos de assinatura
-
-Não há integração com gateway de pagamento nem controle de planos/cotas. O modelo Founder Access pode ser operado manualmente enquanto isso não estiver implementado.
-
 ### XMLs de NF-e não persistidos
 
 O Validador NF-e salva a sessão no banco mas `parsed_data` é null. Quando o usuário recarrega a página, as classificações são perdidas.
@@ -396,16 +429,6 @@ Existem apenas como páginas stub.
 
 ## 6. Próximos Passos Planejados
 
-As prioridades refletem a evolução para SaaS: primeiro garantir segurança multi-tenant, depois ampliar funcionalidades do módulo fiscal para o Founder Access.
-
-### 6.0 Fundação SaaS — multi-tenant seguro (Fase 0)
-
-- Adicionar `user_id UUID REFERENCES auth.users` nas tabelas: `empresas`, `fa_sessoes_analise`, `fa_arquivos_sped`, `fa_arquivos_xml`, `fa_alertas`, `sn_declaracoes`
-- Criar políticas RLS por `user_id` (`auth.uid() = user_id`) em todas as tabelas acima
-- Atualizar API routes para incluir `user_id` ao inserir registros
-- Garantir Storage com bucket privado e URLs assinadas
-- Stub de página `/planos` para modelo Founder Access
-
 ### 6.1 Persistência do Validador NF-e (Fase 5)
 
 - Salvar `LinhaEntrada[]` com classificações no `parsed_data` do `fa_arquivos_xml`
@@ -425,13 +448,7 @@ As prioridades refletem a evolução para SaaS: primeiro garantir segurança mul
 - Somar `valor_total` das NF-e de saída para o mesmo período
 - Comparar com `receita_bruta_mes` do PGDAS — alerta se diferença > 1%
 
-### 6.4 Onboarding SaaS — gestão de escritório
-
-- Tela de convite de usuários dentro do mesmo escritório
-- Controle de planos e cotas por escritório
-- Integração com gateway de pagamento (futuro)
-
-### 6.5 Módulos de Obrigações e Planejamento
+### 6.4 Módulos de Obrigações e Planejamento
 
 - Calendário de obrigações com controle de REINF / DCTFWeb / eSocial / DCTF / ECF
 - Simulador de carga tributária por regime (Simples × Presumido × Real)
@@ -443,11 +460,12 @@ As prioridades refletem a evolução para SaaS: primeiro garantir segurança mul
 
 ### Multi-tenant SaaS
 
-- Sempre incluir `user_id` ao inserir qualquer registro no banco
-- Confiar no RLS do Supabase para isolamento — não duplicar filtros `user_id` no código como segurança extra
+- Sempre incluir `org_id` ao inserir qualquer registro nas tabelas de dados; obtê-lo via `getOrgId(supabase, user.id)`
+- Confiar no RLS do Supabase para isolamento — não duplicar filtros `org_id` no código como segurança extra
 - Verificar `user` (via `supabase.auth.getUser()`) antes de qualquer operação de escrita
 - Nunca criar tabela sem RLS habilitado
 - Nunca expor URLs de Storage sem autenticação (usar `createSignedUrl`)
+- Usar `createAdminClient()` apenas onde genuinamente necessário (criação de org, aceitação de convite)
 
 ### Sistema multiempresa
 
@@ -498,6 +516,14 @@ Ações previstas:
 
 DDL completo: `supabase_setup.sql`
 
+**Tabelas SaaS:**
+| Tabela | Finalidade |
+|---|---|
+| `organizacoes` | Escritórios; `plano` = `pendente` / `founder_access` |
+| `membros_organizacao` | Vínculo usuário × org; `papel` = `admin` / `membro` |
+| `convites_organizacao` | Convites por e-mail para orgs existentes |
+
+**Tabelas fiscais** (todas com `org_id`):
 | Tabela | Finalidade |
 |---|---|
 | `empresas` | Cadastro de clientes (matriz, filial, regime) |
@@ -505,10 +531,15 @@ DDL completo: `supabase_setup.sql`
 | `fa_arquivos_sped` | SPED importados (parsed_data em JSONB) |
 | `fa_arquivos_xml` | XMLs de NF-e importados |
 | `fa_alertas` | Alertas gerados pelo motor de regras |
-| `fa_regras_fiscais` | Catálogo de regras configuráveis |
+| `fa_regras_fiscais` | Catálogo de regras configuráveis (compartilhado, sem org_id) |
 | `sn_declaracoes` | Declarações PGDAS-D do Simples Nacional (parsed_data em JSONB) |
 
 API routes disponíveis:
+- `GET/POST /api/organizacoes`
+- `GET/POST/DELETE /api/membros`
+- `GET/POST /api/convites`
+- `POST /api/stripe/checkout`
+- `POST /api/stripe/webhook`
 - `GET/POST /api/empresas`
 - `GET/PUT /api/empresas/[id]`
 - `GET/POST /api/sessoes`
@@ -525,13 +556,21 @@ API routes disponíveis:
 | Arquivo | Papel |
 |---|---|
 | `app/globals.css` | Tema, CSS vars, normalização visual |
-| `app/(fiscal)/SidebarFiscal.tsx` | Navegação + seletor de empresa |
+| `app/(fiscal)/SidebarFiscal.tsx` | Navegação + seletor de empresa + nome da org |
+| `app/(fiscal)/layout.tsx` | Auth guard + org guard + plano guard |
 | `components/ThemeProvider.tsx` | Context de tema claro/escuro |
+| `components/SessionGuard.tsx` | Guard client-side de sessão de browser |
 | `lib/hooks/useEmpresaAtiva.ts` | Estado global da empresa selecionada |
 | `lib/types.ts` | Todos os tipos TypeScript do domínio |
-| `middleware.ts` | Guard de autenticação |
+| `lib/supabase/admin.ts` | Cliente service-role (bypassa RLS) |
+| `lib/supabase/org.ts` | Helper `getOrgId(supabase, userId)` |
+| `middleware.ts` | Guard de autenticação (rotas públicas: `/login`, `/cadastro`, `/auth`, `/api/stripe/webhook`) |
 | `supabase_setup.sql` | DDL completo do banco |
-| `app/login/page.tsx` | Tela de login |
+| `app/login/page.tsx` | Tela de login (+ "Continuar logado" + link cadastro) |
+| `app/cadastro/page.tsx` | Cadastro de novo usuário |
+| `app/aguardando-ativacao/page.tsx` | Tela de assinatura / ativação de plano |
+| `app/configuracoes/novo-escritorio/page.tsx` | Onboarding: criar org ou aceitar convite |
+| `app/(fiscal)/configuracoes/page.tsx` | Gestão de membros e plano |
 | `app/(fiscal)/page.tsx` | Dashboard principal |
 | `app/(fiscal)/validador_entradas/page.tsx` | Módulo NF-e (arquivo principal, ~2400 linhas) |
 | `app/(fiscal)/auditor_fiscal/page.tsx` | Módulo SPED |
@@ -539,6 +578,11 @@ API routes disponíveis:
 | `app/(fiscal)/simples_nacional/page.tsx` | Módulo Simples Nacional — PGDAS-D |
 | `lib/simples/parsePgdas.ts` | Parser PDF do PGDAS-D (browser-side, pdfjs-dist) |
 | `app/api/simples_nacional/route.ts` | API Simples Nacional (GET/POST/DELETE) |
+| `app/api/organizacoes/route.ts` | API org (GET org do usuário; POST criar org) |
+| `app/api/membros/route.ts` | API membros (GET/POST/DELETE) |
+| `app/api/convites/route.ts` | API convites (GET pendente; POST aceitar) |
+| `app/api/stripe/checkout/route.ts` | Criar sessão Stripe Checkout |
+| `app/api/stripe/webhook/route.ts` | Webhook Stripe (ativar/suspender plano) |
 | `public/pdf.worker.min.mjs` | Worker pdfjs-dist (asset estático) |
 | `eslint.config.js` | Configuração ESLint v9 (flat config) |
 | `project_context.md` | Este arquivo — referência de estado do projeto |
@@ -546,6 +590,66 @@ API routes disponíveis:
 ---
 
 ## Histórico de Sessões
+
+### Sessão 2026-05-19 — Fase 0 SaaS: org model, Stripe, convites, deploy
+
+#### O que foi implementado
+
+**Multi-tenant por organização:**
+- Tabelas `organizacoes`, `membros_organizacao`, `convites_organizacao`
+- Todas as tabelas de dados com `org_id` + RLS via `is_member_of(org_id)` SECURITY DEFINER
+- `lib/supabase/admin.ts` — service-role client; `lib/supabase/org.ts` — helper `getOrgId`
+- Bug crítico resolvido: `membros_organizacao` com policy circular → fixado com `user_id = auth.uid() OR is_member_of(org_id)`
+
+**Fluxo de usuário:**
+- `/cadastro` — signup; após sucesso redireciona para `/configuracoes/novo-escritorio`
+- `/configuracoes/novo-escritorio` — cria org (admin) ou aceita convite (novo membro)
+- Layout `(fiscal)` verifica org → redireciona para `/configuracoes/novo-escritorio` se ausente
+- Layout `(fiscal)` verifica plano → redireciona para `/aguardando-ativacao` se `pendente`
+
+**Controle de sessão:**
+- "Continuar logado" (checkbox no login) persiste em `localStorage.stay_logged_in`
+- Por padrão sessão expira ao fechar browser (`sessionStorage.session_active`)
+- `SessionGuard` client component no root layout aplica a lógica
+
+**Stripe:**
+- `POST /api/stripe/checkout` — cria sessão Checkout com `org_id` em metadata, modo `subscription`
+- `POST /api/stripe/webhook` — `checkout.session.completed` → `plano='founder_access'`; `customer.subscription.deleted` → `plano='pendente'`
+- `/aguardando-ativacao` com card de assinatura e polling pós-pagamento
+
+**Gestão de membros:**
+- `GET/POST/DELETE /api/membros` — lista, convida (ou cria invite), remove
+- `/configuracoes` — lista membros com e-mails, papéis, ícone coroa para admin
+
+**Deployment:**
+- Código no GitHub; Vercel auto-deploy; domínio `auditor.enfokus.com.br`
+- `.env.local` com `SUPABASE_SERVICE_ROLE_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_APP_URL`
+
+#### Arquivos modificados
+
+| Arquivo | O que mudou |
+|---|---|
+| `supabase_setup.sql` | Reescrito completo: tabelas org, membros, convites, todas as tabelas com `org_id`, RLS org-based |
+| `lib/types.ts` | Interfaces `Organizacao`, `MembroOrganizacao`, `ConviteOrganizacao`; `org_id` nas interfaces de dados |
+| `lib/supabase/admin.ts` | Criado — service-role client |
+| `lib/supabase/org.ts` | Criado — helper `getOrgId` |
+| `middleware.ts` | Adicionado `/cadastro` e `/api/stripe/webhook` às rotas públicas |
+| `app/(fiscal)/layout.tsx` | Adicionado check de org e check de plano |
+| `app/(fiscal)/SidebarFiscal.tsx` | Nome da org + logout limpa storage |
+| `app/(fiscal)/configuracoes/page.tsx` | Criado — gestão de membros |
+| `app/login/page.tsx` | "Continuar logado" + link "Criar conta" |
+| `app/cadastro/page.tsx` | Criado — signup |
+| `app/aguardando-ativacao/page.tsx` | Criado — assinatura + polling |
+| `app/configuracoes/novo-escritorio/page.tsx` | Criado — onboarding |
+| `components/SessionGuard.tsx` | Criado — guard client-side |
+| `app/api/organizacoes/route.ts` | Criado |
+| `app/api/membros/route.ts` | Criado |
+| `app/api/convites/route.ts` | Criado |
+| `app/api/stripe/checkout/route.ts` | Criado |
+| `app/api/stripe/webhook/route.ts` | Criado |
+| `app/api/empresas/route.ts` e `[id]/route.ts` | `org_id` nas inserções |
+
+---
 
 ### Sessão 2026-04-29 — Validação pós-redesign + correções pré-desenvolvimento
 

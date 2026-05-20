@@ -27,7 +27,13 @@ export default function CadastroPage() {
     }
 
     setLoading(true)
-    const { data, error } = await supabase.auth.signUp({ email, password })
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`,
+      },
+    })
 
     if (error) {
       if (error.message.includes('already registered')) {

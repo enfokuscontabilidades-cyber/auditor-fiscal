@@ -25,3 +25,8 @@ yarn-error.log*
 # TypeScript
 *.tsbuildinfo
 next-env.d.ts
+
+# Arquivos de teste locais
+pgdas*.pdf
+pgdas*.zip
+pgdas_test*/
