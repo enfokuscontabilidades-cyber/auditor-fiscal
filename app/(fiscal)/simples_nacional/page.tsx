@@ -1,11 +1,11 @@
 "use client"
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Upload, X, FileText, AlertTriangle, ChevronDown, ChevronRight, Trash2, Download } from "lucide-react"
+import { Upload, X, FileText, AlertTriangle, ChevronDown, ChevronRight, Trash2, Download, TrendingUp } from "lucide-react"
 import * as XLSX from "xlsx"
 import { useEmpresaAtiva } from "@/lib/hooks/useEmpresaAtiva"
 import { parsePgdasPdf } from "@/lib/simples/parsePgdas"
-import type { SnDeclaracao, SnParsedData } from "@/lib/types"
+import type { SnDeclaracao, SnParsedData, ArquivoXml } from "@/lib/types"
 
 // ─── Estilos ──────────────────────────────────────────────────────────────────
 
@@ -25,6 +25,13 @@ const pct   = (v: number) => (v * 100).toFixed(2).replace('.', ',') + '%'
 
 function normalizaCnpj(cnpj: string | undefined | null) {
   return (cnpj ?? '').replace(/\D/g, '')
+}
+
+// "2025-01-15" ou "2025-01-15T..." → "01/2025"
+function dataParaCompetencia(dataEmissao: string): string {
+  const ymd = dataEmissao.split('T')[0].split('-')
+  if (ymd.length < 2) return ''
+  return `${ymd[1]}/${ymd[0]}`
 }
 
 // ─── Componentes auxiliares ───────────────────────────────────────────────────
@@ -328,12 +335,148 @@ function TabelaDeclaracoes({ declaracoes, onDelete }: { declaracoes: SnDeclaraca
   )
 }
 
+// ─── Aba Confronto NF-e × PGDAS ──────────────────────────────────────────────
+
+type ItemConfronto = {
+  comp: string
+  receitaPgdas: number
+  totalNfe: number
+  qtdNfe: number
+  diff: number
+  diffPct: number
+  status: 'ok' | 'alerta' | 'critico' | 'sem_pgdas' | 'sem_nfe'
+}
+
+function BadgeConfronto({ status }: { status: ItemConfronto['status'] }) {
+  const cfg: Record<ItemConfronto['status'], { label: string; bg: string; border: string; color: string }> = {
+    ok:        { label: 'OK',           bg: 'rgba(34,197,94,0.12)',   border: 'rgba(34,197,94,0.3)',   color: '#16a34a' },
+    alerta:    { label: 'Divergência',  bg: 'rgba(251,191,36,0.12)', border: 'rgba(251,191,36,0.35)', color: 'var(--af-warning)' },
+    critico:   { label: 'Crítico',      bg: 'rgba(239,68,68,0.12)',  border: 'rgba(239,68,68,0.3)',   color: 'var(--af-danger)' },
+    sem_pgdas: { label: 'Sem PGDAS',    bg: 'rgba(148,163,184,0.10)', border: 'rgba(148,163,184,0.25)', color: 'var(--af-muted)' },
+    sem_nfe:   { label: 'Sem NF-e',     bg: 'rgba(148,163,184,0.10)', border: 'rgba(148,163,184,0.25)', color: 'var(--af-muted)' },
+  }
+  const { label, bg, border, color } = cfg[status]
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', background: bg, border: `1px solid ${border}`, borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 700, color, whiteSpace: 'nowrap' as const }}>
+      {label}
+    </span>
+  )
+}
+
+function AbaConfronto({ items, carregando }: { items: ItemConfronto[]; carregando: boolean }) {
+  if (carregando) {
+    return (
+      <div style={{ ...S.card, padding: '48px 24px', textAlign: 'center', color: 'var(--af-muted)', fontSize: 13 }}>
+        Carregando NF-e…
+      </div>
+    )
+  }
+
+  if (items.length === 0) {
+    return (
+      <div style={{ ...S.card, padding: '48px 24px', textAlign: 'center' }}>
+        <TrendingUp size={32} style={{ color: 'var(--af-muted)', marginBottom: 12, opacity: 0.4 }} />
+        <p style={{ color: 'var(--af-muted)', fontSize: 14, fontWeight: 600, margin: '0 0 8px' }}>Nenhum dado para confrontar</p>
+        <p style={{ color: 'var(--af-muted)', fontSize: 12, margin: 0, lineHeight: 1.55 }}>
+          Importe declarações PGDAS-D nesta página e XMLs próprios (saída) no Validador NF-e para o mesmo período.
+        </p>
+      </div>
+    )
+  }
+
+  const criticos = items.filter(i => i.status === 'critico').length
+  const alertas  = items.filter(i => i.status === 'alerta').length
+
+  return (
+    <>
+      {(criticos > 0 || alertas > 0) && (
+        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 12, padding: '12px 16px', marginBottom: 16 }}>
+          <AlertTriangle size={16} style={{ color: 'var(--af-danger)', flexShrink: 0, marginTop: 1 }} />
+          <div style={{ fontSize: 13 }}>
+            {criticos > 0 && (
+              <span style={{ color: 'var(--af-danger)', fontWeight: 700 }}>
+                {criticos} período(s) com divergência crítica (&gt; 5%)
+              </span>
+            )}
+            {criticos > 0 && alertas > 0 && <span style={{ color: 'var(--af-muted)' }}> · </span>}
+            {alertas > 0 && (
+              <span style={{ color: 'var(--af-warning)', fontWeight: 600 }}>
+                {alertas} período(s) com divergência entre 1% e 5%
+              </span>
+            )}
+            <span style={{ color: 'var(--af-text-soft)', display: 'block', fontSize: 11, marginTop: 3 }}>
+              Receita declarada no PGDAS-D vs. soma das NF-e de saída importadas no Validador NF-e.
+            </span>
+          </div>
+        </div>
+      )}
+
+      <div style={{ ...S.card, padding: 0, overflow: 'hidden' }}>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                <th style={S.th}>Período</th>
+                <th style={S.thR}>Receita PGDAS</th>
+                <th style={S.thR}>NF-e Saídas</th>
+                <th style={{ ...S.th, textAlign: 'center' as const }}>Qtd. NF-e</th>
+                <th style={S.thR}>Diferença</th>
+                <th style={{ ...S.thR, paddingRight: 14 }}>Variação</th>
+                <th style={{ ...S.th, textAlign: 'center' as const }}>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map(item => {
+                const diffPositivo = item.diff >= 0
+                const corDiff = item.diff === 0 ? 'var(--af-muted)' : diffPositivo ? 'var(--af-warning)' : 'var(--af-danger)'
+                const corPct = item.diffPct === 0 ? 'var(--af-muted)' : item.diffPct <= 0.01 ? '#16a34a' : item.diffPct <= 0.05 ? 'var(--af-warning)' : 'var(--af-danger)'
+                const semDados = item.receitaPgdas === 0 && item.totalNfe === 0
+                return (
+                  <tr key={item.comp}>
+                    <td style={{ ...S.td, fontWeight: 700, color: 'var(--af-text)' }}>{item.comp}</td>
+                    <td style={S.tdNum}>
+                      {item.receitaPgdas > 0 ? money.format(item.receitaPgdas) : <span style={{ color: 'var(--af-muted)' }}>—</span>}
+                    </td>
+                    <td style={S.tdNum}>
+                      {item.totalNfe > 0 ? money.format(item.totalNfe) : <span style={{ color: 'var(--af-muted)' }}>—</span>}
+                    </td>
+                    <td style={{ ...S.td, textAlign: 'center' as const, color: 'var(--af-text-soft)' }}>
+                      {item.qtdNfe > 0 ? item.qtdNfe : <span style={{ color: 'var(--af-muted)' }}>—</span>}
+                    </td>
+                    <td style={{ ...S.tdNum, color: corDiff, fontWeight: 600 }}>
+                      {semDados ? '—' : `${diffPositivo ? '+' : ''}${money.format(item.diff)}`}
+                    </td>
+                    <td style={{ ...S.tdNum, color: corPct, fontWeight: 600 }}>
+                      {item.receitaPgdas > 0 ? pct(item.diffPct) : '—'}
+                    </td>
+                    <td style={{ ...S.td, textAlign: 'center' as const }}>
+                      <BadgeConfronto status={item.status} />
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' as const, marginTop: 12, fontSize: 11, color: 'var(--af-muted)' }}>
+        <span>OK = diferença ≤ 1%</span>
+        <span>Divergência = 1% a 5%</span>
+        <span>Crítico = &gt; 5%</span>
+        <span>NF-e positiva = NF-e &gt; PGDAS (possível sub-declaração)</span>
+      </div>
+    </>
+  )
+}
+
 // ─── Componente principal ─────────────────────────────────────────────────────
 
 export default function SimplesNacionalPage() {
   const { empresaAtiva } = useEmpresaAtiva()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  const [abaAtiva, setAbaAtiva]       = useState<'declaracoes' | 'confronto'>('declaracoes')
   const [declaracoes, setDeclaracoes] = useState<SnDeclaracao[]>([])
   const [carregando, setCarregando]   = useState(false)
   const [processando, setProcessando] = useState<string[]>([])
@@ -341,6 +484,8 @@ export default function SimplesNacionalPage() {
   const [modalItems, setModalItems]   = useState<ModalItem[] | null>(null)
   const [saving, setSaving]           = useState(false)
   const [saveError, setSaveError]     = useState<string | null>(null)
+  const [nfeSaidas, setNfeSaidas]     = useState<ArquivoXml[]>([])
+  const [carregandoNfe, setCarregandoNfe] = useState(false)
 
   const carregarDeclaracoes = useCallback(async (empresaId: string) => {
     setCarregando(true)
@@ -364,6 +509,25 @@ export default function SimplesNacionalPage() {
     carregarDeclaracoes(empresaAtiva.id)
   }, [empresaAtiva, carregarDeclaracoes])
 
+  const carregarNfeSaidas = useCallback(async (empresaId: string) => {
+    setCarregandoNfe(true)
+    try {
+      const res = await fetch(`/api/arquivos-xml?empresa_id=${empresaId}&tipo_operacao=saida`)
+      if (!res.ok) return
+      const rows: ArquivoXml[] = await res.json()
+      setNfeSaidas(Array.isArray(rows) ? rows : [])
+    } catch {
+      setNfeSaidas([])
+    } finally {
+      setCarregandoNfe(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!empresaAtiva) { setNfeSaidas([]); return }
+    if (abaAtiva === 'confronto') carregarNfeSaidas(empresaAtiva.id)
+  }, [empresaAtiva, abaAtiva, carregarNfeSaidas])
+
   const ultimaDeclaracao = useMemo(
     () => declaracoes.length === 0 ? null
       : [...declaracoes].sort((a, b) => b.competencia.localeCompare(a.competencia))[0],
@@ -371,6 +535,39 @@ export default function SimplesNacionalPage() {
   )
   const totalImposto = useMemo(() => declaracoes.reduce((s, d) => s + (d.valor_total_devido ?? 0), 0), [declaracoes])
   const totalReceita = useMemo(() => declaracoes.reduce((s, d) => s + (d.receita_bruta_mes   ?? 0), 0), [declaracoes])
+
+  const confrontoData = useMemo((): ItemConfronto[] => {
+    const nfeByComp = new Map<string, { count: number; total: number }>()
+    for (const nfe of nfeSaidas) {
+      if (!nfe.data_emissao) continue
+      const comp = dataParaCompetencia(nfe.data_emissao)
+      if (!comp) continue
+      const entry = nfeByComp.get(comp) ?? { count: 0, total: 0 }
+      entry.count++
+      entry.total += nfe.valor_total ?? 0
+      nfeByComp.set(comp, entry)
+    }
+    const allPeriods = new Set([
+      ...declaracoes.map(d => d.competencia),
+      ...nfeByComp.keys(),
+    ])
+    return [...allPeriods].sort((a, b) => b.localeCompare(a)).map(comp => {
+      const pgdas = declaracoes.find(d => d.competencia === comp)
+      const nfe   = nfeByComp.get(comp)
+      const receitaPgdas = pgdas?.receita_bruta_mes ?? 0
+      const totalNfe     = nfe?.total ?? 0
+      const qtdNfe       = nfe?.count ?? 0
+      const diff         = totalNfe - receitaPgdas
+      const diffPct      = receitaPgdas > 0 ? Math.abs(diff) / receitaPgdas : (totalNfe > 0 ? 1 : 0)
+      let status: ItemConfronto['status']
+      if (!pgdas)                    status = 'sem_pgdas'
+      else if (!nfe || totalNfe === 0) status = 'sem_nfe'
+      else if (diffPct <= 0.01)      status = 'ok'
+      else if (diffPct <= 0.05)      status = 'alerta'
+      else                           status = 'critico'
+      return { comp, receitaPgdas, totalNfe, qtdNfe, diff, diffPct, status }
+    })
+  }, [declaracoes, nfeSaidas])
 
   const handleFiles = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return
@@ -568,6 +765,31 @@ export default function SimplesNacionalPage() {
           </div>
         </div>
 
+        {/* Abas */}
+        {!semEmpresa && (
+          <div style={{ display: 'flex', borderBottom: '2px solid var(--af-border)', marginBottom: 20, gap: 0 }}>
+            {(['declaracoes', 'confronto'] as const).map(aba => {
+              const ativo = abaAtiva === aba
+              const label = aba === 'declaracoes' ? 'Declarações PGDAS-D' : 'Confronto NF-e'
+              return (
+                <button
+                  key={aba}
+                  onClick={() => setAbaAtiva(aba)}
+                  style={{
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    padding: '10px 20px', fontSize: 13, fontWeight: ativo ? 700 : 500,
+                    color: ativo ? 'var(--af-primary)' : 'var(--af-muted)',
+                    borderBottom: ativo ? '2px solid var(--af-primary)' : '2px solid transparent',
+                    marginBottom: -2, transition: 'color 0.15s',
+                  }}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+        )}
+
         {/* Sem empresa */}
         {semEmpresa && (
           <div style={{ ...S.card, padding: 20, color: "var(--af-warning)", display: "flex", gap: 10, alignItems: "center", marginBottom: 20 }}>
@@ -576,97 +798,107 @@ export default function SimplesNacionalPage() {
           </div>
         )}
 
-        {/* Erros de parse */}
-        {erros.length > 0 && (
-          <div style={{ ...S.card, padding: 16, marginBottom: 20, borderColor: "rgba(239,68,68,0.3)" }}>
-            {erros.map((e, i) => (
-              <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, color: "var(--af-danger)" }}>
-                <AlertTriangle size={14} style={{ marginTop: 1, flexShrink: 0 }} />
-                {e}
+        {/* Aba: Declarações PGDAS-D */}
+        {abaAtiva === 'declaracoes' && (
+          <>
+            {/* Erros de parse */}
+            {erros.length > 0 && (
+              <div style={{ ...S.card, padding: 16, marginBottom: 20, borderColor: "rgba(239,68,68,0.3)" }}>
+                {erros.map((e, i) => (
+                  <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, color: "var(--af-danger)" }}>
+                    <AlertTriangle size={14} style={{ marginTop: 1, flexShrink: 0 }} />
+                    {e}
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
-
-        {/* KPIs */}
-        {!semEmpresa && (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 14, marginBottom: 24 }}>
-            <KpiCard
-              title="Receita Último Período"
-              value={ultimaDeclaracao ? money.format(ultimaDeclaracao.receita_bruta_mes ?? 0) : "—"}
-              sub={ultimaDeclaracao?.competencia}
-            />
-            <KpiCard
-              title="Imposto Último Período"
-              value={ultimaDeclaracao ? money.format(ultimaDeclaracao.valor_total_devido ?? 0) : "—"}
-              color="var(--af-danger)"
-              sub={ultimaDeclaracao
-                ? `Alíq. ${pct((ultimaDeclaracao.valor_total_devido ?? 0) / (ultimaDeclaracao.receita_bruta_mes || 1))}`
-                : undefined}
-            />
-            <KpiCard
-              title={`Receita Total (${declaracoes.length} per.)`}
-              value={declaracoes.length > 0 ? money.format(totalReceita) : "—"}
-              color="var(--af-text)"
-            />
-            <KpiCard
-              title={`Imposto Total (${declaracoes.length} per.)`}
-              value={declaracoes.length > 0 ? money.format(totalImposto) : "—"}
-              color="var(--af-warning)"
-              sub={totalReceita > 0 ? `Alíq. média ${pct(totalImposto / totalReceita)}` : undefined}
-            />
-            {ultimaDeclaracao && (
-              <KpiCard
-                title="Acumulado 12 Meses"
-                value={money.format(ultimaDeclaracao.receita_bruta_acumulada_12m ?? 0)}
-                color="var(--af-muted)"
-                sub={`Limite: ${money.format(4800000)}`}
-              />
             )}
-          </div>
-        )}
 
-        {/* Drag & drop quando vazio */}
-        {!semEmpresa && declaracoes.length === 0 && processando.length === 0 && !carregando && (
-          <div onDrop={handleDrop} onDragOver={e => e.preventDefault()} onClick={() => fileInputRef.current?.click()}
-            style={{ ...S.card, border: "2px dashed var(--af-border)", textAlign: "center", padding: "48px 24px", cursor: "pointer", marginBottom: 24 }}>
-            <Upload size={32} style={{ color: "var(--af-primary)", marginBottom: 12 }} />
-            <p style={{ fontWeight: 600, fontSize: 14, margin: "0 0 6px" }}>Arraste PDFs do PGDAS-D aqui</p>
-            <p style={{ fontSize: 12, color: "var(--af-muted)", margin: 0 }}>ou clique para selecionar · Aceita múltiplos arquivos</p>
-          </div>
-        )}
-
-        {/* Loading */}
-        {carregando && declaracoes.length === 0 && (
-          <div style={{ ...S.card, padding: "48px 24px", textAlign: "center", color: "var(--af-muted)", fontSize: 13 }}>
-            Carregando declarações…
-          </div>
-        )}
-
-        {/* Tabela */}
-        {!semEmpresa && (declaracoes.length > 0 || carregando) && (
-          <div style={{ ...S.card, padding: 0, overflow: "hidden" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", borderBottom: "1px solid var(--af-border)" }}>
-              <span style={{ fontWeight: 700, fontSize: 14 }}>Declarações PGDAS-D</span>
-              <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" as const }}>
-                {carregando && <span style={{ fontSize: 12, color: "var(--af-muted)" }}>Atualizando…</span>}
-                <span style={{ fontSize: 12, color: "var(--af-muted)" }}>{declaracoes.length} período(s)</span>
-                <span style={{ fontSize: 11, color: "var(--af-muted)", display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ background: "rgba(251,191,36,0.12)", border: "1px solid rgba(251,191,36,0.35)", borderRadius: 20, padding: "1px 8px", fontSize: 10, fontWeight: 700, color: "var(--af-warning)" }}>Retificadora</span>
-                  = declaração corrigida
-                </span>
-                <button
-                  onClick={handleExportarExcel}
-                  title="Exportar para Excel"
-                  style={{ ...S.btn, padding: "6px 12px", background: "rgba(39,199,216,0.08)", border: "1px solid rgba(39,199,216,0.2)", color: "var(--af-primary)", fontSize: 12 }}
-                >
-                  <Download size={14} />
-                  Exportar Excel
-                </button>
+            {/* KPIs */}
+            {!semEmpresa && (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 14, marginBottom: 24 }}>
+                <KpiCard
+                  title="Receita Último Período"
+                  value={ultimaDeclaracao ? money.format(ultimaDeclaracao.receita_bruta_mes ?? 0) : "—"}
+                  sub={ultimaDeclaracao?.competencia}
+                />
+                <KpiCard
+                  title="Imposto Último Período"
+                  value={ultimaDeclaracao ? money.format(ultimaDeclaracao.valor_total_devido ?? 0) : "—"}
+                  color="var(--af-danger)"
+                  sub={ultimaDeclaracao
+                    ? `Alíq. ${pct((ultimaDeclaracao.valor_total_devido ?? 0) / (ultimaDeclaracao.receita_bruta_mes || 1))}`
+                    : undefined}
+                />
+                <KpiCard
+                  title={`Receita Total (${declaracoes.length} per.)`}
+                  value={declaracoes.length > 0 ? money.format(totalReceita) : "—"}
+                  color="var(--af-text)"
+                />
+                <KpiCard
+                  title={`Imposto Total (${declaracoes.length} per.)`}
+                  value={declaracoes.length > 0 ? money.format(totalImposto) : "—"}
+                  color="var(--af-warning)"
+                  sub={totalReceita > 0 ? `Alíq. média ${pct(totalImposto / totalReceita)}` : undefined}
+                />
+                {ultimaDeclaracao && (
+                  <KpiCard
+                    title="Acumulado 12 Meses"
+                    value={money.format(ultimaDeclaracao.receita_bruta_acumulada_12m ?? 0)}
+                    color="var(--af-muted)"
+                    sub={`Limite: ${money.format(4800000)}`}
+                  />
+                )}
               </div>
-            </div>
-            <TabelaDeclaracoes declaracoes={declaracoes} onDelete={handleDelete} />
-          </div>
+            )}
+
+            {/* Drag & drop quando vazio */}
+            {!semEmpresa && declaracoes.length === 0 && processando.length === 0 && !carregando && (
+              <div onDrop={handleDrop} onDragOver={e => e.preventDefault()} onClick={() => fileInputRef.current?.click()}
+                style={{ ...S.card, border: "2px dashed var(--af-border)", textAlign: "center", padding: "48px 24px", cursor: "pointer", marginBottom: 24 }}>
+                <Upload size={32} style={{ color: "var(--af-primary)", marginBottom: 12 }} />
+                <p style={{ fontWeight: 600, fontSize: 14, margin: "0 0 6px" }}>Arraste PDFs do PGDAS-D aqui</p>
+                <p style={{ fontSize: 12, color: "var(--af-muted)", margin: 0 }}>ou clique para selecionar · Aceita múltiplos arquivos</p>
+              </div>
+            )}
+
+            {/* Loading */}
+            {carregando && declaracoes.length === 0 && (
+              <div style={{ ...S.card, padding: "48px 24px", textAlign: "center", color: "var(--af-muted)", fontSize: 13 }}>
+                Carregando declarações…
+              </div>
+            )}
+
+            {/* Tabela */}
+            {!semEmpresa && (declaracoes.length > 0 || carregando) && (
+              <div style={{ ...S.card, padding: 0, overflow: "hidden" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", borderBottom: "1px solid var(--af-border)" }}>
+                  <span style={{ fontWeight: 700, fontSize: 14 }}>Declarações PGDAS-D</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" as const }}>
+                    {carregando && <span style={{ fontSize: 12, color: "var(--af-muted)" }}>Atualizando…</span>}
+                    <span style={{ fontSize: 12, color: "var(--af-muted)" }}>{declaracoes.length} período(s)</span>
+                    <span style={{ fontSize: 11, color: "var(--af-muted)", display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ background: "rgba(251,191,36,0.12)", border: "1px solid rgba(251,191,36,0.35)", borderRadius: 20, padding: "1px 8px", fontSize: 10, fontWeight: 700, color: "var(--af-warning)" }}>Retificadora</span>
+                      = declaração corrigida
+                    </span>
+                    <button
+                      onClick={handleExportarExcel}
+                      title="Exportar para Excel"
+                      style={{ ...S.btn, padding: "6px 12px", background: "rgba(39,199,216,0.08)", border: "1px solid rgba(39,199,216,0.2)", color: "var(--af-primary)", fontSize: 12 }}
+                    >
+                      <Download size={14} />
+                      Exportar Excel
+                    </button>
+                  </div>
+                </div>
+                <TabelaDeclaracoes declaracoes={declaracoes} onDelete={handleDelete} />
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Aba: Confronto NF-e */}
+        {abaAtiva === 'confronto' && !semEmpresa && (
+          <AbaConfronto items={confrontoData} carregando={carregandoNfe} />
         )}
 
       </div>

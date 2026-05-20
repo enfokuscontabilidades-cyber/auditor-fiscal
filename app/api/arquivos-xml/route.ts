@@ -66,13 +66,23 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url)
   const sessaoId = searchParams.get('sessao_id')
-  if (!sessaoId) return NextResponse.json({ error: 'sessao_id é obrigatório' }, { status: 400 })
+  const empresaId = searchParams.get('empresa_id')
+  const tipoOperacao = searchParams.get('tipo_operacao')
 
-  const { data, error } = await supabase
+  if (!sessaoId && !empresaId) {
+    return NextResponse.json({ error: 'sessao_id ou empresa_id é obrigatório' }, { status: 400 })
+  }
+
+  let query = supabase
     .from('fa_arquivos_xml')
-    .select('*')
-    .eq('sessao_id', sessaoId)
+    .select('id, empresa_id, sessao_id, chave_nfe, numero_nf, data_emissao, emitente_cnpj, emitente_nome, destinatario_cnpj, destinatario_nome, tipo_operacao, valor_total, status, created_at')
     .order('data_emissao', { ascending: true })
+
+  if (sessaoId) query = query.eq('sessao_id', sessaoId)
+  if (empresaId) query = query.eq('empresa_id', empresaId)
+  if (tipoOperacao) query = query.eq('tipo_operacao', tipoOperacao)
+
+  const { data, error } = await query
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
