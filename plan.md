@@ -280,28 +280,93 @@ CREATE TABLE sn_declaracoes (
 );
 ```
 
-### Fase 3 — Simples Nacional (Fase 2) — Confronto com NF-e (próximo)
+### Fase 3 — Simples Nacional (Fase 2) — Confronto PGDAS × NF-e ✅ CONCLUÍDA (2026-05-22)
 
-- [ ] Aba "Confronto NF-e" na página `/simples_nacional`
-- [ ] Somar `valor_total` das NF-e de saída do Validador para o mesmo período
-- [ ] Comparar com `receita_bruta_mes` do PGDAS — alerta se diferença > 1%
-- [ ] Identificar notas não consideradas na apuração
+- [x] Aba "Confronto NF-e" na página `/simples_nacional`
+- [x] Somar `valor_total` das NF-e de saída por período e comparar com PGDAS declarado
+- [x] Apuração do Sistema: calcular tributos pelos Anexos I–V com RBT12 real
+- [x] Comparar apuração calculada vs. PGDAS — destacar diferenças
 
-### Fase 4 — Simples Nacional (Fase 3) — Simulação via XML
+### Fase A — Base Fiscal Central + Apuração Simples Nacional ✅ CONCLUÍDA (2026-05-23)
 
-- [ ] Buscar XMLs do banco (`fa_arquivos_xml`) para o período
-- [ ] Aplicar tabelas dos Anexos I–V conforme CNAE da empresa
-- [ ] Calcular alíquota efetiva pela RBT12
-- [ ] Gerar breakdown simulado de tributos
-- [ ] Comparar com PGDAS declarado — destacar diferenças
+Implementação da camada de dados centralizada para documentos fiscais e apuração do Simples.
 
-### Fase 5 — Persistência NF-e + Cruzamento SPED × NF-e
+**Banco (migração `supabase_migration_fase_a.sql` — idempotente):**
+- [x] Coluna `competencia` (MM/YYYY) em `fa_arquivos_xml` + backfill de registros antigos
+- [x] Tabela `fa_documentos_fiscais` — cabeçalho central dos documentos (NF-e, NFC-e, etc.)
+- [x] Tabela `fa_documentos_itens` — itens dos documentos (1 linha por produto/serviço)
+- [x] Tabela `sn_receitas_mensais` — histórico de receita bruta por competência
+- [x] Tabela `sn_apuracoes` — resultado da apuração simulada por competência
+- [x] Tabela `sn_apuracoes_receitas` — breakdown por anexo dentro da apuração
+- [x] RLS + índices em todas as tabelas novas
 
-- [ ] Salvar `parsed_data` do Validador NF-e no banco (`fa_arquivos_xml`)
-- [ ] Restaurar estado ao recarregar (GET + PATCH `/api/arquivos-xml`)
+**API:**
+- [x] `GET /api/documentos-fiscais` — busca com paginação via `fetchAll`, suporte a `incluir_itens=true`
+- [x] `POST /api/documentos-fiscais/importar-nfe` — salva documento + itens em `fa_documentos_fiscais`/`fa_documentos_itens`
+- [x] `DELETE /api/fiscal/limpar-competencia` — remove todos os documentos e XMLs de uma competência
+
+**`lib/supabase/fetchAll.ts`:**
+- [x] Utilitário de paginação: busca todos os registros em lotes de 1000, supera o limite PostgREST
+
+**Validador NF-e (`/validador_entradas`):**
+- [x] `onConfirmarSessaoXml` salva em `fa_arquivos_xml` E em `fa_documentos_fiscais`/`fa_documentos_itens`
+- [x] `carregarSessaoAnterior` — fallback: se `parsed_data` não tem itens, busca de `fa_documentos_itens` via API e mapeia para `LinhaEntrada[]`/`LinhaSaida[]`
+- [x] Estado `salvouComSucesso` + banner de sucesso com botão "Ver Apuração do Sistema →"
+- [x] Função `limparCompetenciaDb()` — deleta do banco via `DELETE /api/fiscal/limpar-competencia` + `window.confirm`
+- [x] Botão "Limpar MM/YYYY" (vermelho) na toolbar, visível apenas quando há sessão ativa
+- [x] `useRouter` para navegação para `/simples_nacional?aba=apuracao_sistema&competencia=...`
+
+**Simples Nacional (`/simples_nacional`) — Aba "Apuração do Sistema":**
+- [x] `carregarXmlDocumentos` usa `fetchAll` (supera limite de 1000) + carrega `xmlItens` de `fa_documentos_itens`
+- [x] `useEffect` on mount lê `?aba=` e `?competencia=` via `window.location.search` (sem `useSearchParams`)
+- [x] Auto-formato do input de competência: `012025` → `01/2025` conforme digitação
+- [x] Removida tabela por-nota (apenas KPIs de faturamento permanecem)
+- [x] Removida UI de importação da aba Apuração (centralizada no Validador)
+- [x] Botão "Ir para o Validador NF-e →" no empty state (quando sem XMLs para competência buscada)
+- [x] `replace_sessao=true` no POST de arquivos-xml limpa XMLs de todas as sessões `apuracao_simples` da mesma empresa+competência
+
+### Fase B — Correções Críticas + Evolução da Apuração Simples Nacional ✅ CONCLUÍDA (2026-05-25)
+
+**Problemas corrigidos:**
+
+| # | Bug | Arquivo | Detalhe |
+|---|-----|---------|---------|
+| 1 | RBT12 manual salvo na competência apurada (jamais encontrado de volta) | `simples_nacional/page.tsx` | `handleConfirmarRbt12` agora distribui pelos 12 meses anteriores via `competenciasAnteriores()` com `origem: 'estimado'` |
+| 2 | Meses faltantes não identificados | `simples_nacional/page.tsx` | `mesesFaltantes` calculado via `useMemo`; modal RBT12 redesenhado com campo individual por mês + opção de total |
+| 3 | Empresas com <12 meses sem média proporcional | `simples_nacional/page.tsx` | `handleApurar` detecta `receitas12m.length > 0 && < 12` e calcula `rbt12 = (soma/n) * 12` com confirmação |
+| 4 | Desconto não deduzido na acumulação por anexo | `lib/simples/calcularSimples.ts:164` | Era `vItem = valor_total`; corrigido para `Math.max(0, valor_total - valor_desconto)` — base legal LC 123/2006 art. 3º §1º |
+| 5 | Rateio de desconto XML com double-counting | `validador_entradas/page.tsx` (`parseXml`) | Pré-scan calcula `vDescRestante = max(0, vDescNota − somaDescItens)` e distribui APENAS entre itens sem vDesc próprio (algoritmo igual ao `parseNfe.ts`) |
+
+**Melhorias implementadas:**
+
+- [x] `AbaApuracaoSistema` extraída como componente separado com props bem definidas (antes era inline na página)
+- [x] Helpers client-side: `competenciasAnteriores()`, `fmtCompetencia()`, `MESES_PT`
+- [x] Chips visuais `chipMovimento()` e `chipImpacto()` para os documentos fiscais
+- [x] `BlocoAnexo`, `LinhaReceitaExtrato`, `ExtratoPgdasSimulado` — componentes para extrato detalhado da apuração
+- [x] `xmlPreview` — preview dos XMLs antes de confirmar importação
+- [x] `rbt12Sugestao` — PGDAS-D sugere RBT12 mas não aplica automaticamente; exige confirmação no modal
+- [x] Campo `valor_total_nota` em `LinhaSaida` — fonte verdade vNF da nota (evita divergências com somas de itens)
+- [x] Deduplicação por `chave_nfe` ao restaurar sessão anterior no Validador NF-e
+- [x] `POST /api/simples_nacional` agora popula `sn_receitas_mensais` com o histórico mensal do PGDAS-D (sem sobrescrever entradas `origem='manual'`)
+- [x] Tipos TypeScript completos em `lib/types.ts`: `DocumentoFiscal`, `DocumentoFiscalItem`, `SnReceitaMensal`, `SnApuracao`, `SnApuracaoReceita` + enums auxiliares
+
+**Arquivos afetados:**
+
+| Arquivo | O que mudou |
+|---------|------------|
+| `lib/simples/calcularSimples.ts` | Linha 164 — dedução de desconto na acumulação por anexo |
+| `app/(fiscal)/simples_nacional/page.tsx` | Helpers, estados, `handleApurar`, `handleConfirmarRbt12`, modal meses individuais, `AbaApuracaoSistema`, chips, extrato |
+| `app/(fiscal)/validador_entradas/page.tsx` | Algoritmo de desconto `parseXml`, campo `valor_total_nota`, deduplicação, `salvouComSucesso`, `router` |
+| `app/api/simples_nacional/route.ts` | Popula `sn_receitas_mensais` no POST; respeita `origem='manual'` |
+| `lib/types.ts` | `DocumentoFiscal`, `DocumentoFiscalItem`, `SnReceitaMensal`, `SnApuracao`, `SnApuracaoReceita`, enums |
+
+---
+
+### Fase 5 — Cruzamento SPED × NF-e
+
 - [ ] Cruzamento SPED × NF-e: verificar se todos os XMLs do período estão no SPED
 - [ ] Exportação Excel no Auditor SPED
-- [ ] Regras UC_COM_CREDITO, IMOB_SEM_CIAP, CONTRIB_EXCLUSAO_INDEVIDA, NCM_ST_SEM_TRATAMENTO
+- [ ] Regras UC_COM_CREDITO, IMOB_SEM_CIAP, CONTRIB_EXCLUSAO_INDEVIDA, NCM_ST_SEM_TRATAMENTO automáticas
 
 ### Fase 6 — Inteligência (12+ semanas)
 

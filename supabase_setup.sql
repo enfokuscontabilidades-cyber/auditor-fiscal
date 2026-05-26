@@ -203,6 +203,7 @@ create table if not exists public.fa_arquivos_xml (
   org_id              uuid references public.organizacoes(id) on delete cascade not null,
   sessao_id           uuid references public.fa_sessoes_analise(id) on delete cascade not null,
   empresa_id          uuid references public.empresas(id) on delete cascade not null,
+  competencia         text,
   chave_nfe           text,
   numero_nf           text,
   data_emissao        date,

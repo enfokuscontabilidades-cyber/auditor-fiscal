@@ -117,6 +117,7 @@ export interface ArquivoXml {
   org_id?: string
   sessao_id: string
   empresa_id: string
+  competencia?: string
   chave_nfe?: string
   numero_nf?: string
   data_emissao?: string
@@ -271,5 +272,161 @@ export interface SnDeclaracao {
   numero_recibo?: string
   nome_arquivo?: string
   parsed_data?: SnParsedData
+  created_at: string
+}
+
+// ---------------------------------------------------------------
+// Base Fiscal Central — documentos e itens
+// ---------------------------------------------------------------
+
+export type TipoDocumento = 'nfe' | 'nfce' | 'nfse' | 'cte' | 'pgdas' | 'sped' | 'outro'
+export type OrigemDocumento = 'xml_nfe' | 'xml_nfce' | 'xml_nfse' | 'txt_nfse' | 'excel_nfse' | 'pdf_pgdas' | 'sped_txt' | 'manual' | 'outro'
+export type TipoMovimento = 'saida' | 'entrada' | 'devolucao_venda' | 'devolucao_compra' | 'remessa' | 'retorno' | 'transferencia' | 'outros'
+export type ImpactoReceita = 'soma_receita' | 'reduz_receita' | 'sem_impacto' | 'pendente_revisao'
+export type OrigemDevolucao = 'emitida_propria' | 'emitida_terceiro' | 'nao_aplicavel'
+export type StatusDocumentoFiscal = 'ok' | 'cancelada' | 'pendente' | 'erro'
+export type ClassificacaoItem = 'revenda' | 'insumo' | 'uso_consumo' | 'imobilizado' | 'servico' | 'outros'
+export type NaturezaReceitaSimples = 'tributada' | 'st' | 'monofasica' | 'isenta' | 'exportacao' | 'devolucao' | 'nao_receita' | 'pendente'
+
+export interface DocumentoFiscal {
+  id: string
+  org_id: string
+  empresa_id: string
+  sessao_id?: string
+  tipo_documento: TipoDocumento
+  origem: OrigemDocumento
+  chave_acesso?: string
+  numero?: string
+  serie?: string
+  modelo?: string
+  data_emissao?: string
+  data_competencia?: string
+  emitente_cnpj?: string
+  emitente_nome?: string
+  destinatario_cnpj?: string
+  destinatario_nome?: string
+  valor_total: number
+  valor_produtos: number
+  valor_servicos: number
+  valor_desconto: number
+  valor_frete: number
+  valor_icms: number
+  valor_pis: number
+  valor_cofins: number
+  valor_st: number
+  valor_ipi: number
+  tipo_movimento: TipoMovimento
+  impacto_receita: ImpactoReceita
+  origem_devolucao: OrigemDevolucao
+  ref_chave_acesso?: string
+  status: StatusDocumentoFiscal
+  cancelada_em?: string
+  nome_arquivo?: string
+  hash_arquivo?: string
+  parsed_data?: unknown
+  created_at: string
+  updated_at: string
+}
+
+export interface DocumentoFiscalItem {
+  id: string
+  org_id: string
+  empresa_id: string
+  documento_id: string
+  item_numero?: number
+  codigo_produto?: string
+  descricao?: string
+  ncm?: string
+  cest?: string
+  cfop?: string
+  unidade?: string
+  quantidade: number
+  valor_unitario: number
+  valor_total: number
+  valor_desconto: number
+  valor_frete: number
+  cst_icms?: string
+  csosn?: string
+  valor_bc_icms: number
+  aliquota_icms: number
+  valor_icms: number
+  valor_bc_st: number
+  valor_st: number
+  cst_pis?: string
+  valor_bc_pis: number
+  aliquota_pis: number
+  valor_pis: number
+  cst_cofins?: string
+  valor_bc_cofins: number
+  aliquota_cofins: number
+  valor_cofins: number
+  valor_ipi: number
+  classificacao: ClassificacaoItem
+  natureza_receita_simples: NaturezaReceitaSimples
+  tipo_movimento: TipoMovimento
+  impacto_receita: ImpactoReceita
+  anexo_sugerido?: 'I' | 'II' | 'III' | 'IV' | 'V'
+  regra_aplicada?: string
+  classificacao_manual: boolean
+  created_at: string
+}
+
+export type DocumentoFiscalInput = Omit<DocumentoFiscal, 'id' | 'org_id' | 'created_at' | 'updated_at'>
+export type DocumentoFiscalItemInput = Omit<DocumentoFiscalItem, 'id' | 'org_id' | 'created_at'>
+
+// ---------------------------------------------------------------
+// Simples Nacional — receitas mensais e apuração
+// ---------------------------------------------------------------
+
+export type OrigemRbt12 = 'pgdas' | 'xml' | 'manual' | 'estimado'
+
+export interface SnReceitaMensal {
+  id: string
+  org_id: string
+  empresa_id: string
+  competencia: string
+  receita_bruta_mes: number
+  origem: 'pgdas' | 'xml' | 'manual' | 'importacao_excel'
+  created_at: string
+  updated_at: string
+}
+
+export interface SnApuracao {
+  id: string
+  org_id: string
+  empresa_id: string
+  competencia: string
+  rbt12_utilizado?: number
+  origem_rbt12?: OrigemRbt12
+  receita_xml_total: number
+  receita_devolucoes: number
+  receita_liquida: number
+  receita_st: number
+  receita_pgdas_total?: number
+  valor_simples_calculado: number
+  valor_pgdas?: number
+  diferenca_valor?: number
+  diferenca_percentual?: number
+  status: 'ok' | 'divergente' | 'pendente_revisao'
+  detalhes?: unknown
+  created_at: string
+  updated_at: string
+}
+
+export interface SnApuracaoReceita {
+  id: string
+  org_id: string
+  empresa_id: string
+  apuracao_id: string
+  competencia: string
+  anexo?: 'I' | 'II' | 'III' | 'IV' | 'V'
+  tipo_receita?: string
+  valor_receita: number
+  valor_base_tributavel: number
+  aliquota_nominal: number
+  parcela_deduzir: number
+  aliquota_efetiva: number
+  valor_das: number
+  detalhes?: unknown
   created_at: string
 }

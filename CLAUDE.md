@@ -22,11 +22,14 @@ npx tsc --noEmit # verificar erros de TypeScript sem compilar
 - `app/aguardando-ativacao/` — tela de assinatura/ativação de plano (público)
 - `app/configuracoes/novo-escritorio/` — onboarding: criar org ou aceitar convite (público)
 - `app/api/` — rotas de API que se comunicam com o banco Supabase
-- `lib/supabase/` — clientes Supabase: `client.ts` (browser), `server.ts` (SSR), `admin.ts` (service-role), `org.ts` (helper)
+- `lib/supabase/` — clientes Supabase: `client.ts` (browser), `server.ts` (SSR), `admin.ts` (service-role), `org.ts` (helper), `fetchAll.ts` (paginação completa)
 - `lib/rules/` — motor de regras fiscais
+- `lib/simples/` — lógica do Simples Nacional: `calcularSimples.ts`, `cfopReceita.ts`, `tabelasAnexos.ts`
+- `lib/nfe/` — parsing de XML de NF-e
 - `lib/types.ts` — tipos TypeScript compartilhados
 - `middleware.ts` — guarda de autenticação (protege todas as rotas exceto `/login`, `/cadastro`, `/auth`, `/api/stripe/webhook`)
 - `supabase_setup.sql` — DDL completo do banco de dados
+- `supabase_migration_fase_a.sql` — migração idempotente: coluna `competencia` em `fa_arquivos_xml` + tabelas `fa_documentos_fiscais`, `fa_documentos_itens`, `sn_receitas_mensais`, `sn_apuracoes`, `sn_apuracoes_receitas`
 - `components/SessionGuard.tsx` — guard client-side de sessão de browser
 
 ## Variáveis de ambiente
@@ -99,10 +102,50 @@ Tabelas fiscais (todas com `org_id`):
 - `empresas` — cadastro das empresas clientes
 - `fa_sessoes_analise` — sessões de auditoria por empresa+período
 - `fa_arquivos_sped` — arquivos SPED importados (resultado parseado em JSONB)
-- `fa_arquivos_xml` — XMLs de NF-e importados
+- `fa_arquivos_xml` — XMLs de NF-e importados; coluna `competencia` adicionada via `supabase_migration_fase_a.sql`
+- `fa_documentos_fiscais` — cabeçalho centralizado de todos os documentos fiscais (NF-e, NFC-e, etc.) — criado via migração Fase A
+- `fa_documentos_itens` — itens dos documentos fiscais (1 linha por produto/serviço) — criado via migração Fase A
 - `fa_alertas` — alertas gerados pelo motor de regras
 - `fa_regras_fiscais` — catálogo de regras configuráveis (compartilhado, sem org_id)
 - `sn_declaracoes` — declarações PGDAS-D do Simples Nacional
+- `sn_receitas_mensais` — histórico de receita bruta mensal por competência — criado via migração Fase A
+- `sn_apuracoes` — resultado da apuração simulada do Simples Nacional por competência — criado via migração Fase A
+- `sn_apuracoes_receitas` — breakdown por anexo/tipo dentro de cada apuração — criado via migração Fase A
+
+Atenção: as 5 tabelas marcadas "via migração Fase A" não estão no `supabase_setup.sql` principal — aplicar `supabase_migration_fase_a.sql` separadamente no SQL Editor do Supabase Studio. O script é idempotente (pode ser executado múltiplas vezes).
+
+### Padrão de paginação Supabase
+
+O PostgREST retorna no máximo 1000 registros por query. Para buscar todos os registros, usar `fetchAll` de `lib/supabase/fetchAll.ts`:
+
+```typescript
+import { fetchAll } from '@/lib/supabase/fetchAll'
+const data = await fetchAll((from, to) =>
+  supabase.from('fa_arquivos_xml').select('*').eq('empresa_id', id).range(from, to)
+)
+```
+
+Nunca usar `.range(0, 9999)` — ignora o limite mas retorna dados inconsistentes em conjuntos maiores.
+
+### Navegação entre páginas fiscais (URL params)
+
+Para passar contexto entre `/validador_entradas` e `/simples_nacional`, usar `router.push` com query string:
+
+```typescript
+router.push(`/simples_nacional?aba=apuracao_sistema&competencia=${encodeURIComponent(competencia)}`)
+```
+
+Na página de destino, ler os params em `useEffect` via `window.location.search` (não `useSearchParams`, que exige `<Suspense>` e causa warnings no Next.js 16):
+
+```typescript
+useEffect(() => {
+  const params = new URLSearchParams(window.location.search)
+  const aba = params.get('aba')
+  const comp = params.get('competencia')
+  if (aba) setAbaAtiva(aba as AbaAtiva)
+  if (comp) setXmlCompetencia(comp)
+}, []) // eslint-disable-line react-hooks/exhaustive-deps
+```
 
 ## Legislação de referência (Goiás)
 

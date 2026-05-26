@@ -12,7 +12,7 @@ export async function GET(request: Request) {
 
   let query = supabase
     .from('fa_sessoes_analise')
-    .select('*, empresa:empresas(id, razao_social, cnpj)')
+    .select('*, empresa:empresas(id, razao_social, cnpj), xmls:fa_arquivos_xml(count)')
     .order('created_at', { ascending: false })
 
   if (empresaId) query = query.eq('empresa_id', empresaId)
