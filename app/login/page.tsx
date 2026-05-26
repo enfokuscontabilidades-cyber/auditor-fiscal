@@ -12,12 +12,11 @@ export default function LoginPage() {
   const [lembrar, setLembrar] = useState(false)
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
-  const supabase = createClient()
-
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
     setErro(null)
+    const supabase = createClient()
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) { setErro('E-mail ou senha incorretos.'); setLoading(false); return }
 

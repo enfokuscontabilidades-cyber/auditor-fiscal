@@ -13,9 +13,8 @@ export default function CadastroPage() {
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [sucesso, setSucesso] = useState(false)
-  const supabase = createClient()
-
   async function handleCadastro(e: React.FormEvent) {
+    const supabase = createClient()
     e.preventDefault()
     setErro(null)
 
