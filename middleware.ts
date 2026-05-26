@@ -7,7 +7,6 @@ function isPublicPath(pathname: string): boolean {
     pathname.startsWith('/cadastro') ||
     pathname.startsWith('/auth') ||
     pathname === '/api/stripe/webhook' ||
-    pathname === '/api/debug-env' ||
     pathname.startsWith('/_next/')
   )
 }
