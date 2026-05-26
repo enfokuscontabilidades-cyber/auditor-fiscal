@@ -1187,16 +1187,32 @@ export default function SimplesNacionalPage() {
       if (!resXml.ok) { setXmlDocumentos([]); setXmlItens([]); return }
       const xmlRows: ArquivoXml[] = await resXml.json()
 
-      // Filtra por competência e deduplica por chave_nfe (pode haver cópias de múltiplas sessões)
-      const seenChaves = new Set<string>()
-      const filtrados = (Array.isArray(xmlRows) ? xmlRows : [])
-        .filter(x => {
-          if (!x.data_emissao || dataParaCompetencia(x.data_emissao) !== competencia) return false
-          const key = x.chave_nfe || `${x.numero_nf}_${x.emitente_cnpj}_${x.data_emissao}`
-          if (seenChaves.has(key)) return false
-          seenChaves.add(key)
-          return true
-        })
+      // Deduplicação em dois passos para lidar com registros onde um tem chave_nfe
+      // preenchida e um duplicado tem chave_nfe=null (importações de sessões distintas).
+      // Passo 1: agrupa por chave_nfe (44 chars) quando disponível
+      // Passo 2: registros sem chave_nfe só entram se não há versão com chave para o mesmo (numero_nf, emitente, data)
+      const todosDaComp = (Array.isArray(xmlRows) ? xmlRows : [])
+        .filter(x => x.data_emissao && dataParaCompetencia(x.data_emissao) === competencia)
+
+      // Mapa: fallback key → true (registros COM chave_nfe válida)
+      const fallbacksComChave = new Set<string>()
+      const porChave = new Map<string, ArquivoXml>()
+      for (const x of todosDaComp) {
+        const chave = x.chave_nfe?.trim()
+        if (chave && chave.length >= 40) {
+          if (!porChave.has(chave)) porChave.set(chave, x)
+          fallbacksComChave.add(`${x.numero_nf}_${x.emitente_cnpj}_${x.data_emissao}`)
+        }
+      }
+      // Registros sem chave_nfe: só inclui se não existe versão com chave para o mesmo doc
+      const porFallback = new Map<string, ArquivoXml>()
+      for (const x of todosDaComp) {
+        const chave = x.chave_nfe?.trim()
+        if (chave && chave.length >= 40) continue // já tratado acima
+        const fk = `${x.numero_nf}_${x.emitente_cnpj}_${x.data_emissao}`
+        if (!fallbacksComChave.has(fk) && !porFallback.has(fk)) porFallback.set(fk, x)
+      }
+      const filtrados = [...porChave.values(), ...porFallback.values()]
       const docsConvertidos: DocumentoFiscal[] = filtrados.map(x => {
         // tipo_operacao='saida' → saída emitida pela empresa → soma_receita
         // tipo_operacao='entrada' com tipo_operacao → entrada de terceiro → sem_impacto
