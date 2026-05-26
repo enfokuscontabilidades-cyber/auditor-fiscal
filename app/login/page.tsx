@@ -16,19 +16,25 @@ export default function LoginPage() {
     e.preventDefault()
     setLoading(true)
     setErro(null)
-    const supabase = createClient()
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) { setErro('E-mail ou senha incorretos.'); setLoading(false); return }
-
-    // Marca sessão ativa para esta janela do navegador
-    sessionStorage.setItem('session_active', '1')
-    if (lembrar) {
-      localStorage.setItem('stay_logged_in', '1')
-    } else {
-      localStorage.removeItem('stay_logged_in')
+    try {
+      const supabase = createClient()
+      const { error } = await supabase.auth.signInWithPassword({ email, password })
+      if (error) {
+        setErro('E-mail ou senha incorretos.')
+        setLoading(false)
+        return
+      }
+      sessionStorage.setItem('session_active', '1')
+      if (lembrar) {
+        localStorage.setItem('stay_logged_in', '1')
+      } else {
+        localStorage.removeItem('stay_logged_in')
+      }
+      window.location.href = '/'
+    } catch (err) {
+      setErro(`Erro ao conectar: ${err instanceof Error ? err.message : 'tente novamente.'}`)
+      setLoading(false)
     }
-
-    window.location.href = '/'
   }
 
   const S: Record<string, React.CSSProperties> = {

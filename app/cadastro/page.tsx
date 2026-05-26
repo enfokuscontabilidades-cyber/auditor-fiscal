@@ -14,7 +14,6 @@ export default function CadastroPage() {
   const [erro, setErro] = useState<string | null>(null)
   const [sucesso, setSucesso] = useState(false)
   async function handleCadastro(e: React.FormEvent) {
-    const supabase = createClient()
     e.preventDefault()
     setErro(null)
 
@@ -28,31 +27,32 @@ export default function CadastroPage() {
     }
 
     setLoading(true)
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`,
-      },
-    })
+    try {
+      const supabase = createClient()
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`,
+        },
+      })
 
-    if (error) {
-      if (error.message.includes('already registered')) {
-        setErro('Este e-mail já possui uma conta. Faça login.')
-      } else {
-        setErro(error.message)
+      if (error) {
+        setErro(error.message.includes('already registered')
+          ? 'Este e-mail já possui uma conta. Faça login.'
+          : error.message)
+        setLoading(false)
+        return
       }
-      setLoading(false)
-      return
-    }
 
-    if (data.session) {
-      // Email confirmation disabled — already logged in
-      sessionStorage.setItem('session_active', '1')
-      window.location.href = '/configuracoes/novo-escritorio'
-    } else {
-      // Email confirmation required
-      setSucesso(true)
+      if (data.session) {
+        sessionStorage.setItem('session_active', '1')
+        window.location.href = '/configuracoes/novo-escritorio'
+      } else {
+        setSucesso(true)
+      }
+    } catch (err) {
+      setErro(`Erro ao conectar: ${err instanceof Error ? err.message : 'tente novamente.'}`)
     }
     setLoading(false)
   }
