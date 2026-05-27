@@ -12,6 +12,7 @@ import {
 import {
   executarBeneficioNaoAplicado,
   executarSpedZeradoComReceita,
+  executarNcmStSemTratamento,
 } from './executores/ncm'
 import { executarExclusaoIndevida } from './executores/pis_cofins'
 
@@ -23,6 +24,7 @@ const EXECUTORES: Record<string, ExecutorRegra> = {
   ICMS_CFOP_ENTRADA_EM_SAIDA:      executarCfopEntradaEmSaida,
   CFOP_INCOMPAT_CNAE:              executarCfopIncompatCnae,
   NCM_BENEFICIO_NAO_APLICADO:      executarBeneficioNaoAplicado,
+  NCM_ST_SEM_TRATAMENTO:           executarNcmStSemTratamento,
   OBRIG_SPED_ZERADO_COM_RECEITA:   executarSpedZeradoComReceita,
   CONTRIB_EXCLUSAO_INDEVIDA:       executarExclusaoIndevida,
 }

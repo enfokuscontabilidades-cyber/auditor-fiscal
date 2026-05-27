@@ -2,6 +2,7 @@
 
 import { Calculator, TrendingUp, Scale, BarChart3, ArrowRight } from 'lucide-react'
 import Link from 'next/link'
+import PageHeader from '@/components/ui/PageHeader'
 
 const FUNCIONALIDADES = [
   {
@@ -59,12 +60,11 @@ export default function PlanejamentoPage() {
 
   return (
     <div style={S.page}>
-      <div style={S.badge}>Em desenvolvimento</div>
-      <h1 style={S.title}>Planejamento Tributário</h1>
-      <p style={S.sub}>
-        Este módulo permitirá simular e comparar regimes tributários, analisar a carga efetiva de impostos
-        e preparar a empresa para as mudanças da Reforma Tributária (IBS e CBS).
-      </p>
+      <PageHeader
+        title="Planejamento Tributário"
+        subtitle="Simule e compare regimes tributários, analise carga efetiva e prepare-se para a Reforma Tributária."
+        badge={{ label: 'Em breve', color: 'var(--af-warning)' }}
+      />
 
       <div style={S.grid}>
         {FUNCIONALIDADES.map(({ icon: Icon, titulo, desc }) => (

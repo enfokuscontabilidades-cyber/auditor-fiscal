@@ -41,6 +41,11 @@
   --af-shadow: 0 18px 44px rgba(15, 23, 42, 0.08);
   --af-shadow-sm: 0 8px 22px rgba(15, 23, 42, 0.06);
   --af-focus: 0 0 0 3px rgba(11, 103, 194, 0.18);
+
+  /* Glassmorphism tokens */
+  --af-glass-bg: rgba(255, 255, 255, 0.72);
+  --af-glass-border: rgba(11, 103, 194, 0.14);
+  --af-glass-blur: blur(12px);
 }
 
 html[data-theme="escuro"] {
@@ -83,6 +88,10 @@ html[data-theme="escuro"] {
   --af-shadow: 0 18px 48px rgba(0, 0, 0, 0.38);
   --af-shadow-sm: 0 10px 26px rgba(0, 0, 0, 0.28);
   --af-focus: 0 0 0 3px rgba(56, 189, 248, 0.24);
+
+  /* Glassmorphism tokens - dark override */
+  --af-glass-bg: rgba(15, 27, 45, 0.60);
+  --af-glass-border: rgba(56, 189, 248, 0.15);
 }
 
 html,

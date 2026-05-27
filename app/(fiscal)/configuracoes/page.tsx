@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { Users, UserPlus, Trash2, Crown, Building2 } from 'lucide-react'
+import PageHeader from '@/components/ui/PageHeader'
 
 type Membro = {
   id: string
@@ -74,11 +75,12 @@ export default function ConfiguracoesPage() {
   }
 
   return (
-    <div style={{ padding: '32px 40px', maxWidth: 720, color: '#e2e8f0' }}>
-      <h1 style={{ fontSize: 22, fontWeight: 700, color: '#f1f5f9', margin: '0 0 6px' }}>
-        Configurações
-      </h1>
-      <p style={{ fontSize: 13, color: 'rgba(148,163,184,0.7)', margin: '0 0 36px' }}>
+    <div style={{ padding: '32px 40px', maxWidth: 720, color: 'var(--af-text)' }}>
+      <PageHeader
+        title="Configurações"
+        subtitle="Gerencie o escritório, membros, plano e preferências do sistema."
+      />
+      <p style={{ fontSize: 13, color: 'var(--af-muted)', margin: '0 0 36px' }}>
         Gerencie o escritório e os usuários com acesso ao sistema.
       </p>
 

@@ -2,6 +2,7 @@
 
 import { ClipboardList, Calendar, Bell, FileCheck, ArrowRight } from 'lucide-react'
 import Link from 'next/link'
+import PageHeader from '@/components/ui/PageHeader'
 
 const FUNCIONALIDADES = [
   {
@@ -59,12 +60,11 @@ export default function ObrigacoesPage() {
 
   return (
     <div style={S.page}>
-      <div style={S.badge}>Em desenvolvimento</div>
-      <h1 style={S.title}>Obrigações Acessórias</h1>
-      <p style={S.sub}>
-        Este módulo centralizará o controle de todas as obrigações acessórias da empresa,
-        com calendário de prazos, histórico de entregas e alertas automáticos de vencimento.
-      </p>
+      <PageHeader
+        title="Obrigações Acessórias"
+        subtitle="Controle de obrigações, calendário de prazos, histórico de entregas e alertas automáticos."
+        badge={{ label: 'Em breve', color: 'var(--af-warning)' }}
+      />
 
       <div style={S.grid}>
         {FUNCIONALIDADES.map(({ icon: Icon, titulo, desc }) => (

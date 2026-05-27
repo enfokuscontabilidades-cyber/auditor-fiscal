@@ -11,6 +11,7 @@ import { apurarSimples } from "@/lib/simples/calcularSimples"
 import type { SnDeclaracao, SnParsedData, ArquivoXml, DocumentoFiscal, DocumentoFiscalItem, DocumentoFiscalItemInput, SnReceitaMensal } from "@/lib/types"
 import type { ResultadoApuracao } from "@/lib/simples/calcularSimples"
 import type { NfeParseResult } from "@/lib/nfe/parseNfe"
+import PageHeader from "@/components/ui/PageHeader"
 
 // ─── Estilos ──────────────────────────────────────────────────────────────────
 
@@ -1038,7 +1039,7 @@ export default function SimplesNacionalPage() {
   const router = useRouter()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const [abaAtiva, setAbaAtiva]       = useState<'declaracoes' | 'apuracao_sistema' | 'confronto_apuracao' | 'configuracoes'>('declaracoes')
+  const [abaAtiva, setAbaAtiva]       = useState<'declaracoes' | 'apuracao_sistema' | 'confronto_apuracao' | 'configuracoes'>('apuracao_sistema')
   const [declaracoes, setDeclaracoes] = useState<SnDeclaracao[]>([])
   const [carregando, setCarregando]   = useState(false)
   const [processando, setProcessando] = useState<string[]>([])
@@ -1863,52 +1864,48 @@ export default function SimplesNacionalPage() {
       <div style={S.inner}>
 
         {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 24 }}>
-          <div>
-            <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>Simples Nacional</h1>
-            <p style={{ fontSize: 12, color: "var(--af-muted)", margin: "4px 0 0" }}>
-              {empresaAtiva
-                ? `${empresaAtiva.razao_social}${empresaAtiva.cnpj ? ` · ${empresaAtiva.cnpj}` : ''}`
-                : "Nenhuma empresa selecionada"}
-            </p>
-          </div>
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            {processando.length > 0 && (
-              <span style={{ fontSize: 12, color: "var(--af-primary)" }}>Processando {processando.length} arquivo(s)…</span>
-            )}
-            <input ref={fileInputRef} type="file" accept=".pdf,application/pdf" multiple
-              style={{ display: "none" }}
-              onChange={e => handleFiles(e.target.files)}
-              onClick={e => { (e.target as HTMLInputElement).value = '' }}
-            />
-            {declaracoes.length > 0 && (
+        <PageHeader
+          title="Simples Nacional"
+          subtitle="Apuração, confronto com PGDAS-D e conferência de declarações importadas."
+          actions={
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              {processando.length > 0 && (
+                <span style={{ fontSize: 12, color: "var(--af-primary)" }}>Processando {processando.length} arquivo(s)…</span>
+              )}
+              <input ref={fileInputRef} type="file" accept=".pdf,application/pdf" multiple
+                style={{ display: "none" }}
+                onChange={e => handleFiles(e.target.files)}
+                onClick={e => { (e.target as HTMLInputElement).value = '' }}
+              />
+              {declaracoes.length > 0 && (
+                <button
+                  disabled={processando.length > 0}
+                  onClick={handleLimparTudo}
+                  title="Remover todas as declarações desta empresa"
+                  style={{ ...S.btn, background: "rgba(239,68,68,0.10)", color: "var(--af-danger)", border: "1px solid rgba(239,68,68,0.25)" }}
+                >
+                  <Trash2 size={15} />
+                  Limpar tudo
+                </button>
+              )}
               <button
-                disabled={processando.length > 0}
-                onClick={handleLimparTudo}
-                title="Remover todas as declarações desta empresa"
-                style={{ ...S.btn, background: "rgba(239,68,68,0.10)", color: "var(--af-danger)", border: "1px solid rgba(239,68,68,0.25)" }}
+                disabled={semEmpresa || processando.length > 0}
+                onClick={() => fileInputRef.current?.click()}
+                style={{ ...S.btn, background: "var(--af-primary)", color: "#fff", opacity: semEmpresa ? 0.4 : 1 }}
               >
-                <Trash2 size={15} />
-                Limpar tudo
+                <Upload size={15} />
+                Importar PDF
               </button>
-            )}
-            <button
-              disabled={semEmpresa || processando.length > 0}
-              onClick={() => fileInputRef.current?.click()}
-              style={{ ...S.btn, background: "var(--af-primary)", color: "#fff", opacity: semEmpresa ? 0.4 : 1 }}
-            >
-              <Upload size={15} />
-              Importar PDF
-            </button>
-          </div>
-        </div>
+            </div>
+          }
+        />
 
         {/* Abas */}
         {!semEmpresa && (
           <div style={{ display: 'flex', borderBottom: '2px solid var(--af-border)', marginBottom: 20, gap: 0, flexWrap: 'wrap' as const }}>
             {([
-              ['declaracoes', 'PGDAS-D'],
               ['apuracao_sistema', 'Apuração pelo Sistema'],
+              ['declaracoes', 'PGDAS-D'],
               ['confronto_apuracao', 'Confronto'],
               ['configuracoes', 'Configurações'],
             ] as const).map(([aba, label]) => {

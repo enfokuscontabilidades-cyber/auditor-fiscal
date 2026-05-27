@@ -10,6 +10,7 @@ import {
 import * as XLSX from "xlsx";
 import ModalSessao, { type DadosSessao } from "@/components/ModalSessao";
 import { useEmpresaAtiva } from "@/lib/hooks/useEmpresaAtiva";
+import PageHeader from "@/components/ui/PageHeader";
 
 // ══════════════════════════════════════════════════════════════════════════════
 // TIPOS
@@ -2531,147 +2532,103 @@ export default function ValidadorPage() {
         onCancelar={() => { setXmlsPendentes([]); setModalAberto(false); }}
       />
 
-      {/* HEADER */}
-      <div style={{...S.card,padding:"24px 28px",marginBottom:16}}>
-        <div style={{display:"flex",flexWrap:"wrap" as const,gap:20,alignItems:"flex-start",justifyContent:"space-between"}}>
-          <div style={{display:"flex",alignItems:"center",gap:18}}>
-            <div>
-              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-                <a href="/" style={{fontSize:11,color:D?"var(--af-muted)":"#475569",textDecoration:"none",marginRight:4}}>← Início</a>
-                <div style={{fontSize:11,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase" as const,color:D?"var(--af-primary)":"var(--af-primary)"}}>Validador Fiscal</div>
-                <span style={{fontSize:10,fontWeight:700,background:D?"linear-gradient(135deg,var(--af-primary),#1a8fa0)":"linear-gradient(135deg,var(--af-primary),#2563eb)",color:"var(--af-surface)",borderRadius:20,padding:"2px 8px",letterSpacing:"0.04em"}}>v2.0</span>
-                {sessaoAtual && (
-                  <span style={{fontSize:10,fontWeight:700,background:D?"var(--af-primary-soft)":"#dbeafe",border:D?"1px solid rgba(39,199,216,0.25)":"1px solid #93c5fd",color:D?"var(--af-primary)":"var(--af-primary-hover)",borderRadius:20,padding:"2px 10px"}}>
-                    {sessaoAtual.empresaNome} · {sessaoAtual.competencia}
-                  </span>
-                )}
+      {/* ── CABEÇALHO ─────────────────────────────────────────────────────────── */}
+      <PageHeader
+        title="Validador de Entradas e Saídas"
+        subtitle="Importe XMLs de NF-e para análise de entradas, saídas, CFOP, NCM e benefícios fiscais (CBenef GO)."
+      />
+
+      {/* ── BARRA DE AÇÕES ────────────────────────────────────────────────────── */}
+      <div style={{display:"flex",flexWrap:"wrap" as const,alignItems:"center",gap:8,marginBottom:20,borderBottom:"1px solid var(--af-border)",paddingBottom:16}}>
+        {/* Sessão ativa — lado esquerdo */}
+        {sessaoAtual ? (
+          <span style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:12,fontWeight:600,background:D?"var(--af-primary-soft)":"#dbeafe",border:D?"1px solid rgba(39,199,216,0.25)":"1px solid #93c5fd",color:D?"var(--af-primary)":"var(--af-primary-hover)",borderRadius:20,padding:"4px 12px",whiteSpace:"nowrap" as const}}>
+            <span style={{width:6,height:6,borderRadius:"50%",background:"var(--af-primary)",display:"inline-block",flexShrink:0}}/>
+            {sessaoAtual.competencia}
+          </span>
+        ) : (
+          <span style={{fontSize:12,color:"var(--af-muted)"}}>Nenhuma sessão ativa</span>
+        )}
+
+        {/* Separador flexível */}
+        <div style={{flex:1}}/>
+
+        {/* Botões de importação */}
+        <label style={{...S.bG,cursor:empresa?"pointer":"not-allowed",opacity:empresa?1:0.45,background:D?"rgba(39,199,216,0.07)":"rgba(10,102,116,0.07)",borderColor:D?"rgba(39,199,216,0.3)":"rgba(10,102,116,0.3)"}} title={empresa?"Importar XMLs de fornecedores (notas de entrada)":"Selecione uma empresa antes de importar"}>
+          <ArrowDownLeft size={14}/>Terceiros (Entradas)
+          <input ref={refXmlTerceiros} type="file" accept=".xml" multiple style={{display:"none"}} onChange={onXmlTerceiros} disabled={!empresa}/>
+        </label>
+        <label style={{...S.bG,cursor:empresa?"pointer":"not-allowed",opacity:empresa?1:0.45,background:D?"rgba(52,211,153,0.07)":"rgba(5,100,60,0.07)",borderColor:D?"rgba(52,211,153,0.25)":"rgba(5,100,60,0.25)",color:D?"#34d399":"#156543"}} title={empresa?"Importar XMLs emitidos pela própria empresa (notas de saída)":"Selecione uma empresa antes de importar"}>
+          <ArrowUpRight size={14}/>Próprios (Saídas)
+          <input ref={refXmlProprio} type="file" accept=".xml" multiple style={{display:"none"}} onChange={onXmlProprio} disabled={!empresa}/>
+        </label>
+        <button type="button" onClick={()=>exportExcel(nf,saidas,null)} disabled={vazio} style={{...S.bG,opacity:vazio?0.35:1,cursor:vazio?"not-allowed":"pointer"}}><Download size={14}/>Exportar Excel</button>
+        <button type="button" onClick={limpar} style={S.bD}><Trash2 size={14}/>Limpar</button>
+        {sessaoAtual && (
+          <button type="button" onClick={limparCompetenciaDb} disabled={limpandoDb}
+            style={{...S.bD,background:"rgba(239,68,68,0.08)",color:"var(--af-danger)",borderColor:"rgba(239,68,68,0.2)",opacity:limpandoDb?0.6:1,cursor:limpandoDb?"wait":"pointer"}}>
+            <Trash2 size={14}/>{limpandoDb?`Limpando…`:`Limpar ${sessaoAtual.competencia}`}
+          </button>
+        )}
+        {/* Sessões salvas — dropdown */}
+        {empresa && sessoesSalvas.length > 0 && (
+          <div style={{position:"relative" as const}}>
+            <button type="button"
+              onClick={()=>setSessaoExpandida(v=>!v)}
+              style={{...S.bG,fontSize:11,color:"rgba(39,199,216,0.85)",background:"rgba(39,199,216,0.07)",borderColor:"rgba(39,199,216,0.25)",display:"flex",alignItems:"center",gap:5}}>
+              {carregandoSessoes ? "…" : `${sessoesSalvas.length} sessão(ões)`}
+              <span style={{fontSize:9,opacity:0.7}}>{sessaoExpandida?"▲":"▼"}</span>
+            </button>
+            {sessaoExpandida && (
+              <div style={{position:"absolute" as const,top:"calc(100% + 4px)",right:0,zIndex:400,background:D?"#071b2a":"var(--af-surface)",border:"1px solid rgba(39,199,216,0.2)",borderRadius:10,padding:"8px",minWidth:260,boxShadow:"0 12px 32px rgba(0,0,0,0.35)",marginTop:2}}>
+                <div style={{fontSize:10,fontWeight:700,color:"var(--af-muted)",textTransform:"uppercase" as const,letterSpacing:"0.08em",padding:"4px 8px 6px"}}>Reabrir sessão anterior</div>
+                {sessoesSalvas.map(s=>{
+                  const qtdXml = s.xmls?.[0]?.count ?? 0;
+                  return (
+                    <button key={s.id} type="button"
+                      onClick={()=>{ carregarSessaoAnterior(s); setSessaoExpandida(false); }}
+                      style={{display:"flex",alignItems:"center",justifyContent:"space-between",width:"100%",background:sessaoAtual?.sessaoId===s.id?"var(--af-primary-soft)":"transparent",border:"none",borderRadius:6,padding:"7px 10px",cursor:"pointer",gap:8,marginBottom:2,color:"var(--af-text)",fontSize:12}}
+                      onMouseEnter={ev=>(ev.currentTarget.style.background="var(--af-primary-soft)")}
+                      onMouseLeave={ev=>(ev.currentTarget.style.background=sessaoAtual?.sessaoId===s.id?"var(--af-primary-soft)":"transparent")}>
+                      <div style={{display:"flex",flexDirection:"column" as const,alignItems:"flex-start",gap:2}}>
+                        <span style={{fontWeight:600,color:"var(--af-primary)"}}>{s.competencia}</span>
+                        {qtdXml > 0 && <span style={{fontSize:10,color:"var(--af-muted)"}}>{qtdXml} XML{qtdXml!==1?"s":""}</span>}
+                      </div>
+                      <span style={{fontSize:10,color:"var(--af-muted)",flexShrink:0}}>{new Date(s.created_at).toLocaleDateString("pt-BR")}</span>
+                    </button>
+                  );
+                })}
               </div>
-              {erroSalvar && (
-                <div style={{fontSize:11,color:"var(--af-warning)",background:"rgba(255,150,50,0.08)",border:"1px solid rgba(255,150,50,0.2)",borderRadius:6,padding:"4px 10px",marginBottom:6}}>
-                  {erroSalvar}
-                </div>
-              )}
-              {salvouComSucesso && sessaoAtual && (
-                <div style={{display:"flex",alignItems:"center",gap:10,background:"rgba(39,199,216,0.08)",border:"1px solid rgba(39,199,216,0.25)",borderRadius:8,padding:"8px 12px",marginBottom:8,flexWrap:"wrap" as const}}>
-                  <CheckCircle2 size={14} style={{color:"var(--af-primary)",flexShrink:0}}/>
-                  <span style={{fontSize:12,flex:1,color:D?"var(--af-text)":"#0f766e",fontWeight:500}}>
-                    Sessão <strong>{sessaoAtual.competencia}</strong> salva — dados disponíveis na Apuração.
-                  </span>
-                  <button
-                    onClick={()=>router.push(`/simples_nacional?aba=apuracao_sistema&competencia=${encodeURIComponent(sessaoAtual.competencia)}`)}
-                    style={{display:"inline-flex",alignItems:"center",gap:6,background:"var(--af-primary)",color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",fontWeight:600,fontSize:12,cursor:"pointer",whiteSpace:"nowrap" as const}}
-                  >
-                    Ver Apuração do Sistema →
-                  </button>
-                </div>
-              )}
-              <h1 style={{margin:0,fontSize:22,fontWeight:700,color:D?"var(--af-text)":T.pageClr,letterSpacing:-0.3}}>Validação de Entradas e Saídas</h1>
-              <p style={{margin:"4px 0 0",fontSize:12,color:T.accentDim,lineHeight:1.5}}>Importe XMLs de NF-e para análise — entradas, saídas e benefícios fiscais (CBenef GO)</p>
-            </div>
-          </div>
-          <div style={{display:"flex",flexWrap:"wrap" as const,gap:8,alignItems:"center"}}>
-            <label style={{...S.bG,cursor:empresa?"pointer":"not-allowed",opacity:empresa?1:0.45,background:D?"rgba(39,199,216,0.07)":"rgba(10,102,116,0.07)",borderColor:D?"rgba(39,199,216,0.3)":"rgba(10,102,116,0.3)"}} title={empresa?"Importar XMLs de fornecedores (notas de entrada)":"Selecione uma empresa antes de importar"}>
-              <ArrowDownLeft size={14}/>Terceiros (Entradas)
-              <input ref={refXmlTerceiros} type="file" accept=".xml" multiple style={{display:"none"}} onChange={onXmlTerceiros} disabled={!empresa}/>
-            </label>
-            <label style={{...S.bG,cursor:empresa?"pointer":"not-allowed",opacity:empresa?1:0.45,background:D?"rgba(52,211,153,0.07)":"rgba(5,100,60,0.07)",borderColor:D?"rgba(52,211,153,0.25)":"rgba(5,100,60,0.25)",color:D?"#34d399":"#156543"}} title={empresa?"Importar XMLs emitidos pela própria empresa (notas de saída)":"Selecione uma empresa antes de importar"}>
-              <ArrowUpRight size={14}/>Próprios (Saídas)
-              <input ref={refXmlProprio} type="file" accept=".xml" multiple style={{display:"none"}} onChange={onXmlProprio} disabled={!empresa}/>
-            </label>
-            <button type="button" onClick={()=>exportExcel(nf,saidas,null)} disabled={vazio} style={{...S.bG,opacity:vazio?0.35:1,cursor:vazio?"not-allowed":"pointer"}}><Download size={14}/>Exportar Excel</button>
-            <button type="button" onClick={limpar} style={S.bD}><Trash2 size={14}/>Limpar</button>
-            {sessaoAtual && (
-              <button type="button" onClick={limparCompetenciaDb} disabled={limpandoDb}
-                style={{...S.bD,background:"rgba(239,68,68,0.08)",color:"var(--af-danger)",borderColor:"rgba(239,68,68,0.2)",opacity:limpandoDb?0.6:1,cursor:limpandoDb?"wait":"pointer"}}>
-                <Trash2 size={14}/>{limpandoDb?`Limpando…`:`Limpar ${sessaoAtual.competencia}`}
-              </button>
             )}
           </div>
+        )}
+      </div>
+
+      {/* ── NOTIFICAÇÕES INLINE (sem card) ─────────────────────────────────────── */}
+      {erroSalvar && (
+        <div style={{fontSize:12,color:"var(--af-warning)",background:"rgba(255,150,50,0.08)",border:"1px solid rgba(255,150,50,0.2)",borderRadius:8,padding:"8px 14px",marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
+          {erroSalvar}
         </div>
-
-        {/* CARD: EMPRESA EM ANÁLISE */}
-        <div style={{...S.card,padding:"14px 20px",marginBottom:12,display:"flex",alignItems:"center",gap:14,position:"relative" as const}}>
-          <div style={{fontSize:11,fontWeight:700,color:D?"var(--af-muted)":"var(--af-muted)",textTransform:"uppercase" as const,letterSpacing:"0.08em",flexShrink:0}}>
-            Empresa em análise
-          </div>
-          {empresa ? (
-            <>
-              <div style={{flex:1,minWidth:0}}>
-                <span style={{fontSize:13,fontWeight:700,color:D?"var(--af-text)":"var(--af-text)"}}>{empresa.razao_social}</span>
-                {empresa.cnpj && <span style={{fontSize:11,color:D?"var(--af-muted)":"var(--af-muted)",marginLeft:10}}>{empresa.cnpj}</span>}
-              </div>
-              <button type="button" onClick={()=>setMostrarSeletorEmpresa(v=>!v)}
-                style={{fontSize:11,fontWeight:600,color:"rgba(39,199,216,0.7)",background:"none",border:"1px solid rgba(39,199,216,0.2)",borderRadius:6,padding:"4px 10px",cursor:"pointer"}}>
-                Trocar
-              </button>
-            </>
-          ) : (
-            <div style={{flex:1,display:"flex",alignItems:"center",gap:10}}>
-              <span style={{fontSize:12,color:"var(--af-muted)"}}>Nenhuma empresa selecionada — selecione para identificar o tipo das NF-es</span>
-              <button type="button" onClick={()=>setMostrarSeletorEmpresa(true)}
-                style={{fontSize:11,fontWeight:700,color:"var(--af-primary)",background:"var(--af-primary-soft)",border:"1px solid rgba(39,199,216,0.25)",borderRadius:6,padding:"5px 12px",cursor:"pointer"}}>
-                Selecionar empresa
-              </button>
-            </div>
-          )}
-          {/* Sessões anteriores */}
-          {empresa && sessoesSalvas.length > 0 && (
-            <div style={{marginLeft:"auto",flexShrink:0}}>
-              <button type="button"
-                onClick={()=>setSessaoExpandida(v=>!v)}
-                style={{fontSize:11,fontWeight:600,color:"rgba(39,199,216,0.8)",background:"rgba(39,199,216,0.07)",border:"1px solid rgba(39,199,216,0.2)",borderRadius:6,padding:"4px 10px",cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
-                {carregandoSessoes ? "…" : `${sessoesSalvas.length} sessão(ões) salva(s)`}
-                <span style={{fontSize:9,opacity:0.7}}>{sessaoExpandida?"▲":"▼"}</span>
-              </button>
-              {sessaoExpandida && (
-                <div style={{position:"absolute" as const,top:"100%",right:0,zIndex:300,background:"#071b2a",border:"1px solid rgba(39,199,216,0.2)",borderRadius:10,padding:"8px",minWidth:260,boxShadow:"0 12px 32px rgba(0,0,0,0.5)",marginTop:4}}>
-                  <div style={{fontSize:10,fontWeight:700,color:"var(--af-muted)",textTransform:"uppercase" as const,letterSpacing:"0.08em",padding:"4px 8px 6px"}}>Reabrir sessão anterior</div>
-                  {sessoesSalvas.map(s=>{
-                    const qtdXml = s.xmls?.[0]?.count ?? 0;
-                    return (
-                      <button key={s.id} type="button"
-                        onClick={()=>carregarSessaoAnterior(s)}
-                        style={{display:"flex",alignItems:"center",justifyContent:"space-between",width:"100%",background:sessaoAtual?.sessaoId===s.id?"var(--af-primary-soft)":"transparent",border:"none",borderRadius:6,padding:"7px 10px",cursor:"pointer",gap:8,marginBottom:2,color:"var(--af-text)",fontSize:12}}
-                        onMouseEnter={ev=>(ev.currentTarget.style.background="var(--af-primary-soft)")}
-                        onMouseLeave={ev=>(ev.currentTarget.style.background=sessaoAtual?.sessaoId===s.id?"var(--af-primary-soft)":"transparent")}>
-                        <div style={{display:"flex",flexDirection:"column" as const,alignItems:"flex-start",gap:2}}>
-                          <span style={{fontWeight:600,color:"var(--af-primary)"}}>{s.competencia}</span>
-                          {qtdXml > 0 && <span style={{fontSize:10,color:"var(--af-muted)"}}>{qtdXml} XML{qtdXml!==1?"s":""}</span>}
-                        </div>
-                        <span style={{fontSize:10,color:"var(--af-muted)",flexShrink:0}}>{new Date(s.created_at).toLocaleDateString("pt-BR")}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Dropdown de seleção inline */}
-          {mostrarSeletorEmpresa && (
-            <div style={{position:"absolute" as const,top:"100%",right:0,zIndex:200,background:"#071b2a",border:"1px solid rgba(39,199,216,0.2)",borderRadius:10,padding:"12px",minWidth:300,boxShadow:"0 12px 32px rgba(0,0,0,0.5)"}}>
-              {carregandoEmpresas ? (
-                <div style={{fontSize:12,color:D?"var(--af-muted)":"var(--af-muted)"}}>Carregando...</div>
-              ) : listaEmpresas.length === 0 ? (
-                <div style={{fontSize:12,color:"var(--af-muted)"}}>Nenhuma empresa cadastrada.<br/><a href="/empresas" style={{color:"var(--af-primary)"}}>Cadastrar empresa →</a></div>
-              ) : (
-                listaEmpresas.map(e=>(
-                  <div key={e.id} onClick={()=>{definirEmpresaAtiva(e);setMostrarSeletorEmpresa(false);}}
-                    style={{padding:"8px 10px",borderRadius:6,cursor:"pointer",fontSize:12,color:D?"var(--af-text)":"var(--af-text)",display:"flex",flexDirection:"column" as const,gap:2,
-                      background:empresa?.id===e.id?"var(--af-primary-soft)":"transparent",marginBottom:2}}
-                    onMouseEnter={ev=>(ev.currentTarget.style.background="var(--af-primary-soft)")}
-                    onMouseLeave={ev=>(ev.currentTarget.style.background=empresa?.id===e.id?"var(--af-primary-soft)":"transparent")}>
-                    <span style={{fontWeight:600}}>{e.razao_social}</span>
-                    {e.cnpj && <span style={{fontSize:10,color:"var(--af-muted)"}}>{e.cnpj}</span>}
-                  </div>
-                ))
-              )}
-            </div>
-          )}
+      )}
+      {salvouComSucesso && sessaoAtual && (
+        <div style={{display:"flex",alignItems:"center",gap:10,background:"rgba(39,199,216,0.08)",border:"1px solid rgba(39,199,216,0.25)",borderRadius:10,padding:"10px 16px",marginBottom:12,flexWrap:"wrap" as const}}>
+          <CheckCircle2 size={14} style={{color:"var(--af-primary)",flexShrink:0}}/>
+          <span style={{fontSize:13,flex:1,color:D?"var(--af-text)":"#0f766e",fontWeight:500}}>
+            Sessão <strong>{sessaoAtual.competencia}</strong> salva — dados disponíveis na Apuração.
+          </span>
+          <button
+            onClick={()=>router.push(`/simples_nacional?aba=apuracao_sistema&competencia=${encodeURIComponent(sessaoAtual.competencia)}`)}
+            style={{display:"inline-flex",alignItems:"center",gap:6,background:"var(--af-primary)",color:"#fff",border:"none",borderRadius:8,padding:"7px 16px",fontWeight:600,fontSize:12,cursor:"pointer",whiteSpace:"nowrap" as const}}
+          >
+            Ver Apuração do Sistema →
+          </button>
         </div>
+      )}
 
-        {/* ENTRADAS */}
-        <div style={{marginTop:16}}>
+      {/* ── INDICADORES ────────────────────────────────────────────────────────── */}
+      <div style={{...S.card,padding:"16px 20px",marginBottom:16}}>
+        {/* Entradas */}
+        <div>
           <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.09em",textTransform:"uppercase" as const,color:D?"var(--af-muted)":"rgba(10,102,116,0.4)",marginBottom:8,display:"flex",alignItems:"center",gap:5}}><ArrowDownLeft size={11}/>Entradas</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10}}>
             {[{lb:"Notas",v:res.totalNotas,sub:`${res.totalItens} itens`,cor:"var(--af-primary)"},{lb:"Notas OK",v:res.totalNotas-res.notasAlerta,sub:"sem alertas",cor:"#86efac"},{lb:"Com Alerta",v:res.notasAlerta,sub:"revisar",cor:"var(--af-warning)"},{lb:"Valor Total",v:fmoe(res.totalValor),sub:"entradas",cor:"var(--af-primary)"},{lb:"ICMS",v:fmoe(res.totalIcms),sub:"a conferir",cor:"#a78bfa"}].map(s=>(
@@ -2683,14 +2640,14 @@ export default function ValidadorPage() {
             ))}
           </div>
         </div>
-        {/* SAIDAS — aparece apenas quando ha XMLs de saida */}
+        {/* Saídas — exibe apenas quando há XMLs de saída */}
         {saidas.length>0&&<div style={{marginTop:14}}>
-          <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.09em",textTransform:"uppercase" as const,color:"rgba(52,211,153,0.5)",marginBottom:8,display:"flex",alignItems:"center",gap:5}}><ArrowUpRight size={11}/>Saidas</div>
+          <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.09em",textTransform:"uppercase" as const,color:"rgba(52,211,153,0.5)",marginBottom:8,display:"flex",alignItems:"center",gap:5}}><ArrowUpRight size={11}/>Saídas</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10}}>
             {[
               {lb:"Notas",v:new Set(saidas.map(i=>`${i.numero_nota}__${i.destinatario}`)).size,sub:`${saidas.length} itens`,cor:"#34d399"},
               {lb:"Com Alerta",v:saidas.filter(i=>i.status==="ALERTA").length,sub:"verificar",cor:saidas.filter(i=>i.status==="ALERTA").length>0?"var(--af-warning)":"#86efac"},
-              {lb:"Valor Total",v:fmoe(totalSaidasVnf),sub:"saidas",cor:"#34d399"},
+              {lb:"Valor Total",v:fmoe(totalSaidasVnf),sub:"saídas",cor:"#34d399"},
               {lb:"ICMS",v:fmoe(saidas.reduce((a,i)=>a+i.valor_icms,0)),sub:"destacado",cor:"#a78bfa"},
               {lb:"PIS + COFINS",v:fmoe(saidas.reduce((a,i)=>a+i.valor_pis+i.valor_cofins,0)),sub:`${saidas.filter(i=>i.cbenef&&i.cbenef!=="SEM CBENEF").length} com CBenef`,cor:"#60a5fa"},
             ].map(s=>(
@@ -2703,12 +2660,8 @@ export default function ValidadorPage() {
           </div>
         </div>}
 
-        {empresa&&<div style={{marginTop:14,display:"flex",flexWrap:"wrap" as const,gap:20,background:D?"var(--af-primary-soft)":"var(--af-primary-soft)",border:D?"1px solid rgba(127,221,228,0.09)":"1px solid var(--af-border)",borderRadius:14,padding:"12px 18px",fontSize:12}}>
-          <div><span style={{color:T.accentDim}}>Empresa: </span><strong style={{color:T.pageClr}}>{empresa.razao_social}</strong></div>
-          <div><span style={{color:T.accentDim}}>CNPJ: </span><strong style={{color:T.pageClr}}>{empresa.cnpj ? fcnpj(empresa.cnpj) : "—"}</strong></div>
-          <div><span style={{color:T.accentDim}}>Tipo: </span><strong style={{color:ehIndustrial?"var(--af-success)":T.pageClr}}>{ehIndustrial?"Industrial/Equiparado":"Comércio/Serviço"}</strong></div>
-        </div>}
-        {erro&&<div style={{marginTop:12,background:D?"rgba(239,68,68,0.07)":"rgba(239,68,68,0.07)",border:D?"1px solid rgba(239,68,68,0.18)":"1px solid rgba(200,30,30,0.25)",borderRadius:10,padding:"10px 16px",fontSize:13,color:D?"var(--af-danger)":"#991b1b",display:"flex",gap:8,alignItems:"flex-start"}}><FileX size={15} style={{flexShrink:0,marginTop:1}}/>{erro}</div>}
+        {/* Erros de parsing */}
+        {erro&&<div style={{marginTop:12,background:"rgba(239,68,68,0.07)",border:"1px solid rgba(239,68,68,0.18)",borderRadius:10,padding:"10px 16px",fontSize:13,color:D?"var(--af-danger)":"#991b1b",display:"flex",gap:8,alignItems:"flex-start"}}><FileX size={15} style={{flexShrink:0,marginTop:1}}/>{erro}</div>}
         {infoCanc&&<div style={{marginTop:10,background:D?"rgba(167,139,250,0.07)":"rgba(130,100,250,0.08)",border:D?"1px solid rgba(167,139,250,0.22)":"1px solid rgba(100,70,200,0.25)",borderRadius:10,padding:"10px 16px",fontSize:13,color:D?"#c4b5fd":"#5b2dcc",display:"flex",gap:8,alignItems:"flex-start"}}>
           <span style={{fontSize:16,flexShrink:0}}>⚠</span>
           <span style={{flex:1,whiteSpace:"pre-line" as const,lineHeight:1.55}}>{infoCanc}</span>
@@ -2863,7 +2816,7 @@ export default function ValidadorPage() {
               </tbody>
             </table>
           </div>
-          {ifs.length>0&&<div style={{padding:"12px 20px",fontSize:11,color:T.statDim,borderTop:T.tdBrd,display:"flex",justifyContent:"space-between" as const,background:D?"transparent":"#f5fbfc"}}><span>{ifs.length} itens exibidos — {res.naoClassificados} sem classificação</span><span style={{opacity:0.5}}>Enfokus Validador Fiscal v2.0</span></div>}
+          {ifs.length>0&&<div style={{padding:"12px 20px",fontSize:11,color:T.statDim,borderTop:T.tdBrd,background:D?"transparent":"#f5fbfc"}}><span>{ifs.length} itens exibidos — {res.naoClassificados} sem classificação</span></div>}
         </div>}
       </>}
 

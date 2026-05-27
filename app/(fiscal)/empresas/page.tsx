@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import type { Empresa } from '@/lib/types'
 import { Plus, Building2, Pencil, Star, Search, RefreshCw, AlertCircle, Users, ChevronDown, ChevronUp } from 'lucide-react'
 import { useEmpresaAtiva } from '@/lib/hooks/useEmpresaAtiva'
+import PageHeader from '@/components/ui/PageHeader'
 
 type Socio = {
   nome: string
@@ -323,52 +324,19 @@ export default function EmpresasPage() {
       maxWidth: 1100,
     }}>
 
-      {/* Cabeçalho */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 28 }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-            <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: '-0.01em' }}>Empresas</h1>
-            {!loading && (
-              <span style={{
-                fontSize: 12,
-                fontWeight: 600,
-                color: 'var(--af-muted)',
-                background: 'var(--af-primary-soft)',
-                border: '1px solid var(--af-border)',
-                borderRadius: 10,
-                padding: '1px 8px',
-              }}>
-                {empresas.length}
-              </span>
-            )}
-          </div>
-          {empresaAtiva && (
-            <div style={{ fontSize: 12, color: 'rgba(250,204,21,0.7)', marginTop: 5, display: 'flex', alignItems: 'center', gap: 5 }}>
-              <Star size={10} fill="currentColor" />
-              Em análise: <strong style={{ color: 'var(--af-warning)' }}>{empresaAtiva.razao_social}</strong>
-            </div>
-          )}
-        </div>
-        <button
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            background: 'var(--af-primary)',
-            border: 'none',
-            borderRadius: 8,
-            color: '#050d17',
-            fontSize: 13,
-            fontWeight: 700,
-            padding: '9px 16px',
-            cursor: 'pointer',
-          }}
-          onClick={abrirNovo}
-        >
-          <Plus size={15} />
-          Nova empresa
-        </button>
-      </div>
+      <PageHeader
+        title="Empresas"
+        subtitle={empresaAtiva ? `Em análise: ${empresaAtiva.razao_social}` : 'Cadastro e gerenciamento das empresas clientes.'}
+        actions={
+          <button
+            style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--af-primary)', border: 'none', borderRadius: 8, color: '#fff', fontSize: 13, fontWeight: 700, padding: '9px 16px', cursor: 'pointer' }}
+            onClick={abrirNovo}
+          >
+            <Plus size={15} />
+            Nova empresa
+          </button>
+        }
+      />
 
       {/* Busca */}
       <div style={{

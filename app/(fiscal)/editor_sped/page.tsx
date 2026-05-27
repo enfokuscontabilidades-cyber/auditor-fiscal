@@ -5,6 +5,7 @@ import {
   Upload, FileText, CheckCircle2, XCircle, AlertTriangle, ChevronRight,
   Download, Loader2, RotateCcw, ArrowLeft, FilePen, Info,
 } from "lucide-react"
+import PageHeader from "@/components/ui/PageHeader"
 import * as XLSX from "xlsx"
 import { parseSpedEditor } from "@/lib/sped/editor/parser"
 import { mesclarSped, validarCnpjPeriodo, getProdutosNovos } from "@/lib/sped/editor/merger"
@@ -340,13 +341,10 @@ export default function EditorSpedPage() {
       <div style={S.inner}>
 
         {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
-          <FilePen size={28} style={{ color: "var(--af-primary)" }} />
-          <div>
-            <h1 style={{ fontSize: 22, fontWeight: 800, color: "var(--af-text)", margin: 0 }}>Editor SPED Fiscal</h1>
-            <p style={{ fontSize: 13, color: "var(--af-muted)", margin: 0 }}>Mescle dois arquivos SPED — base fiscal + Bloco K correto</p>
-          </div>
-        </div>
+        <PageHeader
+          title="Editor SPED Fiscal"
+          subtitle="Mescle dois arquivos SPED — base fiscal + Bloco K correto — em 7 etapas."
+        />
 
         <StepBar etapa={etapa} />
 

@@ -4,7 +4,7 @@
 import type {
   SpedFiscalParsed, SpedContribParsed, SpedCompany,
   SpedParticipant, SpedProduct, SpedDoc, SpedC190, SpedE110,
-  SpedC170Contrib, SpedApuracaoContrib,
+  SpedC170Item, SpedC170Contrib, SpedApuracaoContrib,
 } from "./types"
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -118,6 +118,7 @@ export function parseFiscal(content: string, sourceLabel: string): SpedFiscalPar
   const lines = content.split(/\r?\n/)
   const result: SpedFiscalParsed = {
     company: null, participants: {}, products: {}, docs: [], c190: [], e110: null,
+    c170Items: [], temCiap: false,
   }
 
   type DocCtx = {
@@ -165,6 +166,51 @@ export function parseFiscal(content: string, sourceLabel: string): SpedFiscalPar
       } as SpedC190 & { codPart: string })
     }
 
+    // C170 — itens individuais do documento fiscal (somente SPED Fiscal)
+    // Layout: |C170|NUM_ITEM|COD_ITEM|DESCR_COMPL|QTD|UNID|VL_ITEM|VL_DESC|IND_MOV|CST_ICMS|CFOP|
+    //         COD_ENQ|VL_BC_ICMS|ALIQ_ICMS|VL_ICMS|VL_BC_ICMS_ST|ALIQ_ST|VL_ICMS_ST|
+    //         IND_APUR|CST_IPI|COD_ENQ_IPI|VL_BC_IPI|ALIQ_IPI|VL_IPI|...
+    // Índices: [0]=C170,[1]=NUM_ITEM,[2]=COD_ITEM,[3]=DESCR_COMPL,[4]=QTD,[5]=UNID,
+    //          [6]=VL_ITEM,[7]=VL_DESC,[8]=IND_MOV,[9]=CST_ICMS,[10]=CFOP,
+    //          [11]=COD_ENQ,[12]=VL_BC_ICMS,[13]=ALIQ_ICMS,[14]=VL_ICMS,
+    //          [15]=VL_BC_ICMS_ST,[16]=ALIQ_ST,[17]=VL_ICMS_ST,[18]=IND_APUR,
+    //          [19]=CST_IPI,[20]=COD_ENQ_IPI,[21]=VL_BC_IPI,[22]=ALIQ_IPI,[23]=VL_IPI
+    if (reg === "C170" && ctx) {
+      const codItem    = row[2]?.trim() || ""
+      const produto    = result.products[codItem]
+      const part       = result.participants[ctx.codPart]
+      const periodo    = result.company
+        ? formatarPeriodo(result.company.periodoInicial)
+        : ctx.periodo
+      const item: SpedC170Item = {
+        docKey:             ctx.key,
+        numDoc:             ctx.numDoc,
+        dtDoc:              ctx.dtDoc,
+        participanteCodigo: ctx.codPart,
+        participanteCnpj:   part?.cnpj   || "",
+        participanteNome:   part?.nome    || ctx.participante,
+        numItem:            row[1]        || "",
+        codItem,
+        descrCompl:         row[3]        || "",
+        descricao:          produto?.descricao || row[3] || "",
+        ncm:                produto?.ncm  || "",
+        cfop:               row[10]       || "",
+        cstIcms:            row[9]        || "",
+        quantidade:         toNumber(row[4]),
+        unidade:            row[5]        || "",
+        vlItem:             toNumber(row[6]),
+        vlDesc:             toNumber(row[7]),
+        vlBcIcms:           toNumber(row[12]),
+        aliqIcms:           toNumber(row[13]),
+        vlIcms:             toNumber(row[14]),
+        vlBcSt:             toNumber(row[15]),
+        vlSt:               toNumber(row[17]),
+        vlIpi:              toNumber(row[23]),
+        periodo,
+      }
+      result.c170Items.push(item)
+    }
+
     if (reg === "E110") {
       const periodo = result.company ? `${result.company.periodoInicial}–${result.company.periodoFinal}` : ""
       result.e110 = {
@@ -174,6 +220,9 @@ export function parseFiscal(content: string, sourceLabel: string): SpedFiscalPar
       }
     }
   }
+
+  // Detectar bloco G (CIAP — crédito de ICMS de ativo imobilizado)
+  result.temCiap = lines.some(l => l.startsWith("|G125|"))
 
   // Agregar docs a partir do C190
   const docsMap = new Map<string, { base: SpedDoc; cfops: Set<string> }>()
@@ -328,6 +377,8 @@ export function mergeFiscalDatasets(datasets: SpedFiscalParsed[]): SpedFiscalPar
   const docsMap = new Map<string, SpedDoc>()
   const c190: SpedC190[] = []
   const e110List: SpedE110[] = []
+  const c170Items: SpedC170Item[] = []
+  let temCiap = false
 
   for (const ds of datasets) {
     Object.assign(participants, ds.participants)
@@ -335,6 +386,8 @@ export function mergeFiscalDatasets(datasets: SpedFiscalParsed[]): SpedFiscalPar
     ds.docs.forEach(d => docsMap.set(`${d.sourceCnpj}|${d.periodo}|${d.key}`, d))
     c190.push(...ds.c190)
     if (ds.e110) e110List.push(ds.e110)
+    c170Items.push(...(ds.c170Items ?? []))
+    if (ds.temCiap) temCiap = true
   }
 
   // Soma e110s de múltiplos períodos
@@ -347,7 +400,7 @@ export function mergeFiscalDatasets(datasets: SpedFiscalParsed[]): SpedFiscalPar
     periodo: e110List.length > 1 ? "Múltiplos períodos" : e.periodo,
   }), { vlTotDebitos: 0, vlTotCreditos: 0, vlSldApurado: 0, vlIcmsRecolher: 0, vlSldCredorTransportar: 0, periodo: "" })
 
-  return { company, participants, products, docs: Array.from(docsMap.values()), c190, e110 }
+  return { company, participants, products, docs: Array.from(docsMap.values()), c190, e110, c170Items, temCiap }
 }
 
 export function mergeContribDatasets(datasets: SpedContribParsed[]): SpedContribParsed | null {

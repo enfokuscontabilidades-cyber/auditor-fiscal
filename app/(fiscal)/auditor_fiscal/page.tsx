@@ -1,10 +1,11 @@
 "use client"
 
-import React, { useMemo, useState, useRef } from "react"
-import { Upload, Trash2, ChevronDown, ChevronRight, AlertTriangle, CheckCircle2, FileText, X } from "lucide-react"
+import React, { useMemo, useState, useRef, useCallback } from "react"
+import { Upload, Trash2, ChevronDown, ChevronRight, AlertTriangle, CheckCircle2, FileText, X, Zap } from "lucide-react"
 import { type DadosSessao, type DadosSessaoLote } from "@/components/ModalSessao"
 import ModalSessaoSped from "@/components/ModalSessaoSped"
 import { useEmpresaAtiva } from "@/lib/hooks/useEmpresaAtiva"
+import PageHeader from "@/components/ui/PageHeader"
 import {
   parseFiscal, parseContrib,
   mergeFiscalDatasets, mergeContribDatasets,
@@ -13,6 +14,10 @@ import {
 } from "@/lib/sped/parsers"
 import { cruzarDocumentos, validarTudo } from "@/lib/sped/validators"
 import type { SpedFiscalParsed, SpedContribParsed } from "@/lib/sped/types"
+import { validarItemSped, type ClassificacaoItem, type AlertaItemSped } from "@/lib/fiscal/classificacao"
+import { executarMotorRegras } from "@/lib/rules/engine"
+import { createClient as createBrowserClient } from "@/lib/supabase/client"
+import * as XLSX from "xlsx"
 
 // ─── Tipos locais ─────────────────────────────────────────────────────────────
 
@@ -73,16 +78,45 @@ function ChipNivel({ nivel }: { nivel: "alto" | "medio" | "baixo" }) {
   return <span style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: 20, padding: "2px 10px", fontSize: 11, fontWeight: 700, color: c.color, whiteSpace: "nowrap", letterSpacing: "0.04em" }}>{c.label}</span>
 }
 
+const CLASS_LABEL: Record<string, string> = {
+  revenda: "Revenda", insumo: "Insumo", uso_consumo: "Uso e Consumo",
+  imobilizado: "Imobilizado", combustivel: "Combustível", servico: "Serviço",
+}
+const CLASS_COLOR: Record<string, { bg: string; border: string; color: string }> = {
+  revenda:     { bg: "rgba(34,197,94,0.10)",   border: "rgba(34,197,94,0.25)",   color: "var(--af-success)" },
+  insumo:      { bg: "rgba(39,199,216,0.10)",  border: "rgba(39,199,216,0.25)",  color: "var(--af-primary)" },
+  uso_consumo: { bg: "rgba(251,191,36,0.10)",  border: "rgba(251,191,36,0.25)",  color: "var(--af-warning)" },
+  imobilizado: { bg: "rgba(167,139,250,0.10)", border: "rgba(167,139,250,0.25)", color: "#a78bfa" },
+  combustivel: { bg: "rgba(244,114,182,0.10)", border: "rgba(244,114,182,0.25)", color: "#f472b6" },
+  servico:     { bg: "rgba(96,165,250,0.10)",  border: "rgba(96,165,250,0.25)",  color: "#60a5fa" },
+}
+
+function ChipClass({ cls }: { cls: ClassificacaoItem }) {
+  if (!cls) return <span style={{ fontSize: 11, color: "var(--af-muted)" }}>—</span>
+  const c = CLASS_COLOR[cls] ?? { bg: "rgba(255,255,255,0.05)", border: "rgba(255,255,255,0.1)", color: "var(--af-text-soft)" }
+  return <span style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: 20, padding: "2px 10px", fontSize: 11, fontWeight: 600, color: c.color, whiteSpace: "nowrap" }}>{CLASS_LABEL[cls] ?? cls}</span>
+}
+
 // ─── Componente principal ─────────────────────────────────────────────────────
 
 export default function AuditorSpedPage() {
   const { empresaAtiva } = useEmpresaAtiva()
 
   const [arquivos, setArquivos] = useState<ArquivoCarregado[]>([])
-  const [aba, setAba] = useState<"cruzamento" | "apuracao" | "inconsistencias">("cruzamento")
+  const [aba, setAba] = useState<"cruzamento" | "apuracao" | "itens" | "inconsistencias">("cruzamento")
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set())
   const [filtroStatus, setFiltroStatus] = useState<"todos" | "OK" | "só fiscal" | "só contrib">("todos")
   const [busca, setBusca] = useState("")
+
+  // Filtros da aba Itens
+  const [filtroItemBusca, setFiltroItemBusca]       = useState("")
+  const [filtroItemClass, setFiltroItemClass]       = useState("")
+  const [filtroSomenteAlertas, setFiltroSomenteAlertas] = useState(false)
+
+  // Motor de regras
+  const [executandoRegras, setExecutandoRegras] = useState(false)
+  const [resultadoRegras, setResultadoRegras]   = useState<{ total: number } | null>(null)
+  const [erroRegras, setErroRegras]             = useState("")
 
   const [filaPendente, setFilaPendente] = useState<FilaPendente[]>([])
   const [modalAberto, setModalAberto] = useState(false)
@@ -184,6 +218,29 @@ export default function AuditorSpedPage() {
   const cruzamento = useMemo(() => cruzarDocumentos(fiscalMerged, contribMerged), [fiscalMerged, contribMerged])
   const inconsistencias = useMemo(() => validarTudo(fiscalMerged, contribMerged), [fiscalMerged, contribMerged])
 
+  // Itens SPED validados (Fase 5.4)
+  type ItemValidado = SpedFiscalParsed["c170Items"][0] & { classificacao: ClassificacaoItem; alertas: AlertaItemSped[] }
+  const itensValidados = useMemo((): ItemValidado[] => {
+    if (!fiscalMerged?.c170Items?.length) return []
+    return fiscalMerged.c170Items.map(item => {
+      const { classificacao, alertas } = validarItemSped(item, fiscalMerged.temCiap, false)
+      return { ...item, classificacao, alertas }
+    })
+  }, [fiscalMerged])
+
+  const itensFiltrados = useMemo(() => {
+    let lista = itensValidados
+    if (filtroSomenteAlertas) lista = lista.filter(i => i.alertas.length > 0)
+    if (filtroItemClass) lista = lista.filter(i => i.classificacao === filtroItemClass)
+    if (filtroItemBusca.trim()) {
+      const q = filtroItemBusca.trim().toLowerCase()
+      lista = lista.filter(i =>
+        [i.numDoc, i.descricao, i.ncm, i.cfop, i.participanteNome, i.codItem].some(v => v.toLowerCase().includes(q))
+      )
+    }
+    return lista
+  }, [itensValidados, filtroSomenteAlertas, filtroItemClass, filtroItemBusca])
+
   const cruzamentoFiltrado = useMemo(() => {
     let lista = cruzamento
     if (filtroStatus !== "todos") lista = lista.filter(i => i.status === filtroStatus)
@@ -200,6 +257,168 @@ export default function AuditorSpedPage() {
 
   function toggle(key: string) { setExpandidos(p => { const n = new Set(p); n.has(key) ? n.delete(key) : n.add(key); return n }) }
 
+  const executarAnalise = useCallback(async () => {
+    if (!empresaAtiva || !fiscalMerged) return
+    setExecutandoRegras(true)
+    setErroRegras("")
+    setResultadoRegras(null)
+    try {
+      const supabase = createBrowserClient()
+      const { data: regras } = await supabase.from("fa_regras_fiscais").select("*").eq("ativo", true)
+      if (!regras?.length) { setErroRegras("Nenhuma regra ativa encontrada."); return }
+
+      const competencia = fiscalMerged.company?.periodoInicial
+        ? `${fiscalMerged.company.periodoInicial.slice(2, 4)}/${fiscalMerged.company.periodoInicial.slice(4)}`
+        : ""
+
+      const ctx = {
+        fiscalData:  fiscalMerged  as unknown,
+        contribData: contribMerged as unknown,
+        empresa: { cnpj: empresaAtiva.cnpj, regime: "" },
+        competencia,
+        regras,
+      }
+
+      const alertas = executarMotorRegras(ctx)
+
+      // Salvar alertas
+      let salvos = 0
+      for (const alerta of alertas) {
+        const res = await fetch("/api/alertas", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            empresa_id: empresaAtiva.id,
+            competencia,
+            regra_codigo: alerta.regra_codigo,
+            nivel_risco:  alerta.nivel_risco,
+            titulo:       alerta.titulo,
+            descricao:    alerta.descricao,
+            detalhe:      alerta.detalhe,
+          }),
+        })
+        if (res.ok) salvos++
+      }
+
+      setResultadoRegras({ total: salvos })
+    } catch (err) {
+      setErroRegras(`Erro na análise: ${String(err)}`)
+    } finally {
+      setExecutandoRegras(false)
+    }
+  }, [empresaAtiva, fiscalMerged, contribMerged])
+
+  // ─── Exportação Excel ─────────────────────────────────────────────────────
+
+  function exportarExcel() {
+    const wb = XLSX.utils.book_new()
+
+    // Sheet 1: Cruzamento SPED
+    if (cruzamento.length > 0) {
+      const ws1 = XLSX.utils.json_to_sheet(cruzamento.map(c => ({
+        "Chave NF-e":       c.key,
+        "Nota":             c.numDoc,
+        "Data":             c.dtDoc,
+        "Participante":     c.participante,
+        "Valor Fiscal":     c.vlDocFiscal,
+        "Valor Contrib":    c.vlDocContrib,
+        "CFOP Fiscal":      c.cfopsFiscal,
+        "CFOP Contrib":     c.cfopsContrib,
+        "Status":           c.status,
+      })))
+      XLSX.utils.book_append_sheet(wb, ws1, "Cruzamento SPED")
+    }
+
+    // Sheet 2: Apuração
+    const apuracaoRows: Record<string, unknown>[] = []
+    if (fiscalMerged?.e110) {
+      apuracaoRows.push({
+        "Tributo": "ICMS",
+        "Total Débitos":         fiscalMerged.e110.vlTotDebitos,
+        "Total Créditos":        fiscalMerged.e110.vlTotCreditos,
+        "Saldo Apurado":         fiscalMerged.e110.vlSldApurado,
+        "A Recolher":            fiscalMerged.e110.vlIcmsRecolher,
+        "Saldo Credor":          fiscalMerged.e110.vlSldCredorTransportar,
+        "Período":               fiscalMerged.e110.periodo,
+      })
+    }
+    if (contribMerged?.m200) {
+      apuracaoRows.push({
+        "Tributo": "PIS",
+        "Receita Bruta":         contribMerged.m200.vlRecBrt,
+        "Base de Cálculo":       contribMerged.m200.vlBcCont,
+        "Contribuição NC":       contribMerged.m200.vlContNc,
+        "Contribuição Período":  contribMerged.m200.vlContPer,
+        "A Recolher":            contribMerged.m200.vlContPagar,
+        "Período":               contribMerged.m200.periodo,
+      })
+    }
+    if (contribMerged?.m600) {
+      apuracaoRows.push({
+        "Tributo": "COFINS",
+        "Receita Bruta":         contribMerged.m600.vlRecBrt,
+        "Base de Cálculo":       contribMerged.m600.vlBcCont,
+        "Contribuição NC":       contribMerged.m600.vlContNc,
+        "Contribuição Período":  contribMerged.m600.vlContPer,
+        "A Recolher":            contribMerged.m600.vlContPagar,
+        "Período":               contribMerged.m600.periodo,
+      })
+    }
+    if (apuracaoRows.length > 0) {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(apuracaoRows), "Apuração")
+    }
+
+    // Sheet 3: Inconsistências SPED
+    if (inconsistencias.length > 0) {
+      const ws3 = XLSX.utils.json_to_sheet(inconsistencias.map(inc => ({
+        "ID":        inc.id,
+        "Título":    inc.titulo,
+        "Descrição": inc.descricao,
+        "Nível":     inc.nivel,
+        "Categoria": inc.categoria,
+        "Impacto":   inc.valorImpacto ?? "",
+        "Registros": inc.registros.length,
+      })))
+      XLSX.utils.book_append_sheet(wb, ws3, "Inconsistências SPED")
+    }
+
+    // Sheet 4: Validação de Itens SPED
+    if (itensValidados.length > 0) {
+      const ws4 = XLSX.utils.json_to_sheet(itensValidados.map(item => ({
+        "Chave NF-e":           item.docKey,
+        "Número Nota":          item.numDoc,
+        "Data":                 item.dtDoc,
+        "CNPJ Participante":    item.participanteCnpj,
+        "Participante":         item.participanteNome,
+        "Cód. Produto":         item.codItem,
+        "Descrição":            item.descricao || item.descrCompl,
+        "NCM":                  item.ncm,
+        "CFOP":                 item.cfop,
+        "CST/CSOSN":            item.cstIcms,
+        "Quantidade":           item.quantidade,
+        "Valor Item":           item.vlItem,
+        "Desconto":             item.vlDesc,
+        "Base ICMS":            item.vlBcIcms,
+        "Alíq. ICMS (%)":       item.aliqIcms,
+        "Valor ICMS":           item.vlIcms,
+        "Base ST":              item.vlBcSt,
+        "Valor ST":             item.vlSt,
+        "Valor IPI":            item.vlIpi,
+        "Classificação":        item.classificacao ?? "",
+        "Nº Alertas":           item.alertas.length,
+        "Alerta Principal":     item.alertas[0]?.titulo ?? "",
+        "Nível Alerta":         item.alertas[0]?.nivel ?? "",
+        "Sugestão":             item.alertas[0]?.sugestao ?? "",
+        "Período":              item.periodo,
+      })))
+      XLSX.utils.book_append_sheet(wb, ws4, "Validação de Itens SPED")
+    }
+
+    const empresa = empresaAtiva?.razao_social?.replace(/[\\/:*?"<>|]/g, "") ?? "SPED"
+    const dt = new Date().toISOString().slice(0, 10)
+    XLSX.writeFile(wb, `AuditorSPED_${empresa}_${dt}.xlsx`)
+  }
+
   // ─── Renderização ──────────────────────────────────────────────────────────
 
   const temDados = arquivos.length > 0
@@ -209,14 +428,19 @@ export default function AuditorSpedPage() {
       <div style={S.inner}>
 
         {/* CABEÇALHO */}
-        <div style={{ marginBottom: 20 }}>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: "var(--af-text)", letterSpacing: "-0.01em" }}>
-            Auditor SPED
-          </h1>
-          <p style={{ margin: "3px 0 0", fontSize: 13, color: "var(--af-muted)" }}>
-            {empresaAtiva ? `${empresaAtiva.razao_social} — CNPJ ${empresaAtiva.cnpj}` : "Selecione uma empresa na barra lateral"}
-          </p>
-        </div>
+        <PageHeader
+          title="Auditor SPED"
+          subtitle="Importe e cruze SPED Fiscal e SPED Contribuições para análise de inconsistências."
+          actions={temDados ? (
+            <button
+              style={{ ...S.btn, background: "var(--af-surface)", border: "1px solid var(--af-border)", color: "var(--af-text-soft)", fontSize: 12 }}
+              onClick={exportarExcel}
+              title="Exportar dados em Excel"
+            >
+              ⬇ Exportar Excel
+            </button>
+          ) : undefined}
+        />
 
         {/* ÁREA DE IMPORTAÇÃO */}
         <div style={{ ...S.card, marginBottom: 16 }}>
@@ -231,11 +455,22 @@ export default function AuditorSpedPage() {
                 <Upload size={14} />Importar SPED Contrib
               </button>
             </div>
-            {arquivos.length > 0 && (
-              <button style={{ ...S.btn, background: "rgba(239,68,68,0.07)", border: "1px solid rgba(239,68,68,0.18)", color: "var(--af-danger)", fontSize: 12 }} onClick={() => { setArquivos([]); setExpandidos(new Set()); setBusca(""); setFiltroStatus("todos") }}>
-                <Trash2 size={13} />Limpar tudo
-              </button>
-            )}
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+              {arquivos.length > 0 && empresaAtiva && (
+                <button
+                  style={{ ...S.btn, background: executandoRegras ? "rgba(39,199,216,0.08)" : "rgba(39,199,216,0.10)", border: "1px solid rgba(39,199,216,0.3)", color: "var(--af-primary)", fontSize: 12 }}
+                  onClick={executarAnalise}
+                  disabled={executandoRegras}
+                >
+                  <Zap size={13} />{executandoRegras ? "Analisando…" : "Executar análise automática"}
+                </button>
+              )}
+              {arquivos.length > 0 && (
+                <button style={{ ...S.btn, background: "rgba(239,68,68,0.07)", border: "1px solid rgba(239,68,68,0.18)", color: "var(--af-danger)", fontSize: 12 }} onClick={() => { setArquivos([]); setExpandidos(new Set()); setBusca(""); setFiltroStatus("todos"); setResultadoRegras(null) }}>
+                  <Trash2 size={13} />Limpar tudo
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Erro de importação */}
@@ -250,6 +485,20 @@ export default function AuditorSpedPage() {
             <div style={{ marginTop: 12, padding: "10px 14px", background: "rgba(239,68,68,0.05)", border: "1px solid rgba(239,68,68,0.15)", borderRadius: 8, fontSize: 12 }}>
               <strong style={{ color: "var(--af-danger)" }}>Arquivos rejeitados:</strong>
               {rejeitados.map((r, i) => <div key={i} style={{ color: "var(--af-text-soft)", marginTop: 2 }}>• {r.nome}: {r.motivo}</div>)}
+            </div>
+          )}
+
+          {/* Resultado do motor de regras */}
+          {resultadoRegras && (
+            <div style={{ marginTop: 12, padding: "8px 14px", background: "rgba(39,199,216,0.07)", border: "1px solid rgba(39,199,216,0.2)", borderRadius: 8, fontSize: 12, color: "var(--af-primary)", display: "flex", alignItems: "center", gap: 8 }}>
+              <CheckCircle2 size={14} />
+              {resultadoRegras.total} alerta(s) gerado(s) e salvo(s). Veja em{" "}
+              <a href="/relatorios" style={{ color: "var(--af-primary)", fontWeight: 700, textDecoration: "underline" }}>Relatórios → Inconsistências</a>
+            </div>
+          )}
+          {erroRegras && (
+            <div style={{ marginTop: 12, padding: "8px 14px", background: "rgba(239,68,68,0.07)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 8, fontSize: 12, color: "var(--af-danger)" }}>
+              {erroRegras}
             </div>
           )}
 
@@ -286,6 +535,7 @@ export default function AuditorSpedPage() {
             {fiscalMerged?.e110 && <KpiCard title="ICMS a Recolher" value={money.format(fiscalMerged.e110.vlIcmsRecolher)} color="var(--af-text)" sub={fiscalMerged.e110.periodo} />}
             {contribMerged?.m200 && <KpiCard title="PIS do período"  value={money.format(contribMerged.m200.vlContPagar)} color="var(--af-text)" />}
             {contribMerged?.m600 && <KpiCard title="COFINS do período" value={money.format(contribMerged.m600.vlContPagar)} color="var(--af-text)" />}
+            {(fiscalMerged?.c170Items?.length ?? 0) > 0 && <KpiCard title="Itens C170" value={String(fiscalMerged!.c170Items.length)} color="var(--af-primary)" sub={itensValidados.filter(i => i.alertas.length > 0).length > 0 ? `${itensValidados.filter(i => i.alertas.length > 0).length} com alertas` : "Sem alertas"} />}
             <KpiCard title="Inconsistências" value={String(inconsistencias.length)} color={inconsistencias.length > 0 ? "var(--af-danger)" : "var(--af-success)"} sub={inconsistencias.filter(i => i.nivel === "alto").length > 0 ? `${inconsistencias.filter(i => i.nivel === "alto").length} de nível Alto` : undefined} />
           </div>
         )}
@@ -293,10 +543,11 @@ export default function AuditorSpedPage() {
         {/* ABAS */}
         {temDados && (
           <>
-            <div style={{ display: "flex", gap: 4, marginBottom: 10 }}>
+            <div style={{ display: "flex", gap: 4, marginBottom: 10, flexWrap: "wrap" }}>
               {([
                 { id: "cruzamento",      label: `Cruzamento${divergencias > 0 ? ` (${divergencias})` : ""}` },
                 { id: "apuracao",        label: "Apuração" },
+                { id: "itens",           label: `Itens${itensValidados.length > 0 ? ` (${itensValidados.length})` : ""}` },
                 { id: "inconsistencias", label: `Inconsistências${inconsistencias.length > 0 ? ` (${inconsistencias.length})` : ""}` },
               ] as const).map(a => (
                 <button key={a.id} onClick={() => setAba(a.id)} style={{ padding: "8px 18px", borderRadius: "12px 12px 0 0", fontSize: 13, fontWeight: 700, border: "none", cursor: "pointer", background: aba === a.id ? "var(--af-surface)" : "rgba(0,0,0,0.04)", color: aba === a.id ? "var(--af-primary)" : "var(--af-muted)", borderBottom: aba === a.id ? "2px solid var(--af-primary)" : "2px solid transparent" }}>
@@ -435,6 +686,111 @@ export default function AuditorSpedPage() {
                   </div>
                 ) : (
                   <div style={{ ...S.card, color: "var(--af-muted)", fontSize: 13 }}>Importe o SPED Contribuições para visualizar a apuração de PIS/COFINS (M200/M600).</div>
+                )}
+              </div>
+            )}
+
+            {/* ═══ ABA: ITENS C170 ═══ */}
+            {aba === "itens" && (
+              <div style={{ ...S.card, overflow: "hidden", padding: 0 }}>
+                {/* Filtros */}
+                <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--af-border)", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                  <input
+                    value={filtroItemBusca}
+                    onChange={e => setFiltroItemBusca(e.target.value)}
+                    placeholder="Buscar nota, produto, NCM…"
+                    style={{ background: "var(--af-surface-2)", border: "1px solid var(--af-border)", borderRadius: 8, color: "var(--af-text)", fontSize: 12, padding: "6px 10px", outline: "none", minWidth: 220, flex: "1 1 220px" }}
+                  />
+                  <select
+                    value={filtroItemClass}
+                    onChange={e => setFiltroItemClass(e.target.value)}
+                    style={{ background: "var(--af-surface-2)", border: "1px solid var(--af-border)", borderRadius: 8, color: "var(--af-text)", fontSize: 12, padding: "6px 10px" }}
+                  >
+                    <option value="">Todas as classificações</option>
+                    {Object.entries(CLASS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                  </select>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--af-text-soft)", cursor: "pointer", userSelect: "none" }}>
+                    <input
+                      type="checkbox"
+                      checked={filtroSomenteAlertas}
+                      onChange={e => setFiltroSomenteAlertas(e.target.checked)}
+                      style={{ accentColor: "var(--af-primary)" }}
+                    />
+                    Somente com alertas
+                  </label>
+                  <span style={{ fontSize: 11, color: "var(--af-muted)", marginLeft: "auto" }}>{itensFiltrados.length} itens</span>
+                </div>
+
+                {/* Conteúdo */}
+                {itensValidados.length === 0 ? (
+                  <div style={{ padding: "40px 24px", textAlign: "center", color: "var(--af-muted)", fontSize: 13 }}>
+                    Importe um SPED Fiscal com registros C170 para visualizar a validação de itens.
+                  </div>
+                ) : (
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                      <thead>
+                        <tr>
+                          {["Nota","Data","CNPJ Part.","Participante","Cód. Produto","Descrição","NCM","CFOP","CST","Qtd","Valor Item","Desc.","Base ICMS","Alíq.%","Vlr ICMS","Vlr ST","Classificação","Alerta","Nível","Sugestão"].map(h => (
+                            <th key={h} style={{ ...S.th, fontSize: 10 }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {itensFiltrados.length === 0 ? (
+                          <tr>
+                            <td colSpan={20} style={{ ...S.td, textAlign: "center", color: "var(--af-muted)", padding: "32px 20px" }}>
+                              Nenhum item com os filtros aplicados.
+                            </td>
+                          </tr>
+                        ) : (
+                          itensFiltrados.map((item, idx) => {
+                            const alerta = item.alertas[0]
+                            const bgRow = item.alertas.some(a => a.nivel === "alto")
+                              ? "rgba(239,68,68,0.03)"
+                              : item.alertas.some(a => a.nivel === "medio")
+                              ? "rgba(251,191,36,0.02)"
+                              : "transparent"
+                            return (
+                              <tr key={`${item.docKey}-${item.numItem}-${idx}`} style={{ background: bgRow }}>
+                                <td style={{ ...S.td, fontWeight: 600, color: "var(--af-text)", whiteSpace: "nowrap" }}>{item.numDoc || "—"}</td>
+                                <td style={{ ...S.td, whiteSpace: "nowrap" }}>{item.dtDoc || "—"}</td>
+                                <td style={{ ...S.td, fontFamily: "monospace", fontSize: 10, whiteSpace: "nowrap" }}>{item.participanteCnpj || "—"}</td>
+                                <td style={{ ...S.td, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.participanteNome}>{item.participanteNome || "—"}</td>
+                                <td style={{ ...S.td, fontFamily: "monospace" }}>{item.codItem || "—"}</td>
+                                <td style={{ ...S.td, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.descricao}>{item.descricao || item.descrCompl || "—"}</td>
+                                <td style={{ ...S.td, fontFamily: "monospace" }}>{item.ncm || "—"}</td>
+                                <td style={{ ...S.td, fontFamily: "monospace" }}>{item.cfop || "—"}</td>
+                                <td style={{ ...S.td, fontFamily: "monospace" }}>{item.cstIcms || "—"}</td>
+                                <td style={{ ...S.td, textAlign: "right", fontFamily: "monospace" }}>{item.quantidade.toLocaleString("pt-BR", { maximumFractionDigits: 3 })}</td>
+                                <td style={{ ...S.td, textAlign: "right", fontFamily: "monospace" }}>{money.format(item.vlItem)}</td>
+                                <td style={{ ...S.td, textAlign: "right", fontFamily: "monospace" }}>{item.vlDesc > 0 ? money.format(item.vlDesc) : "—"}</td>
+                                <td style={{ ...S.td, textAlign: "right", fontFamily: "monospace" }}>{item.vlBcIcms > 0 ? money.format(item.vlBcIcms) : "—"}</td>
+                                <td style={{ ...S.td, textAlign: "right", fontFamily: "monospace" }}>{item.aliqIcms > 0 ? `${item.aliqIcms}%` : "—"}</td>
+                                <td style={{ ...S.td, textAlign: "right", fontFamily: "monospace" }}>{item.vlIcms > 0 ? money.format(item.vlIcms) : "—"}</td>
+                                <td style={{ ...S.td, textAlign: "right", fontFamily: "monospace" }}>{item.vlBcSt > 0 ? money.format(item.vlBcSt) : "—"}</td>
+                                <td style={{ ...S.td }}><ChipClass cls={item.classificacao} /></td>
+                                <td style={{ ...S.td, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={alerta?.motivo}>
+                                  {alerta ? alerta.titulo : <span style={{ color: "var(--af-success)", fontSize: 10 }}>✓ OK</span>}
+                                </td>
+                                <td style={{ ...S.td }}>
+                                  {alerta ? <ChipNivel nivel={alerta.nivel} /> : "—"}
+                                </td>
+                                <td style={{ ...S.td, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={alerta?.sugestao}>
+                                  {alerta?.sugestao || "—"}
+                                </td>
+                              </tr>
+                            )
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                    {itensFiltrados.length > 500 && (
+                      <div style={{ padding: "8px 20px", fontSize: 11, color: "var(--af-muted)", borderTop: "1px solid var(--af-border)" }}>
+                        Exibindo todos os {itensFiltrados.length} itens. Use os filtros para refinar a busca.
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             )}
