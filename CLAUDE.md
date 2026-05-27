@@ -23,14 +23,19 @@ npx tsc --noEmit # verificar erros de TypeScript sem compilar
 - `app/configuracoes/novo-escritorio/` — onboarding: criar org ou aceitar convite (público)
 - `app/api/` — rotas de API que se comunicam com o banco Supabase
 - `lib/supabase/` — clientes Supabase: `client.ts` (browser), `server.ts` (SSR), `admin.ts` (service-role), `org.ts` (helper), `fetchAll.ts` (paginação completa)
-- `lib/rules/` — motor de regras fiscais
+- `lib/rules/` — motor de regras fiscais: `engine.ts`, `types.ts`, `executores/` (icms, cfop, pis_cofins, ncm)
+- `lib/fiscal/` — biblioteca compartilhada de classificação fiscal: `classificacao.ts` (NCM_UC/IMOB/COMB, famCFOP, analisarProduto, validarItemSped)
+- `lib/sped/` — tipos e parsers do SPED: `types.ts`, `parsers.ts`, `validators.ts`
 - `lib/simples/` — lógica do Simples Nacional: `calcularSimples.ts`, `cfopReceita.ts`, `tabelasAnexos.ts`
 - `lib/nfe/` — parsing de XML de NF-e
 - `lib/types.ts` — tipos TypeScript compartilhados
 - `middleware.ts` — guarda de autenticação (protege todas as rotas exceto `/login`, `/cadastro`, `/auth`, `/api/stripe/webhook`)
 - `supabase_setup.sql` — DDL completo do banco de dados
 - `supabase_migration_fase_a.sql` — migração idempotente: coluna `competencia` em `fa_arquivos_xml` + tabelas `fa_documentos_fiscais`, `fa_documentos_itens`, `sn_receitas_mensais`, `sn_apuracoes`, `sn_apuracoes_receitas`
+- `supabase_migration_cnpj_cache.sql` — migração idempotente: tabela `cnpj_cache` (cache de consultas CNPJ)
 - `components/SessionGuard.tsx` — guard client-side de sessão de browser
+- `components/ModalCnpj.tsx` — modal de resultado de consulta CNPJ (6 seções + botão cadastrar empresa)
+- `components/ui/` — componentes visuais compartilhados: `PageHeader`, `GlassCard`, `MetricCard`, `EmptyState`
 
 ## Variáveis de ambiente
 
@@ -65,8 +70,8 @@ NEXT_PUBLIC_APP_URL=...            # URL pública (sem trailing slash)
 - Nunca expor URLs de Storage sem autenticação (`createSignedUrl` obrigatório).
 
 ### Supabase
-- Sempre usar `createServerClient` (de `lib/supabase/server.ts`) nas API routes e Server Components
-- Sempre usar `createBrowserClient` (de `lib/supabase/client.ts`) em Client Components (`"use client"`)
+- Sempre usar `createClient` (de `lib/supabase/server.ts`) nas API routes e Server Components
+- Sempre usar `createClient` (de `lib/supabase/client.ts`) em Client Components (`"use client"`) — **atenção: a função exportada chama-se `createClient` em ambos os arquivos, não `createBrowserClient`**
 - Usar `createAdminClient` (de `lib/supabase/admin.ts`) apenas para operações que precisam contornar RLS — nunca expor ao browser
 - Nunca acessar o banco diretamente no browser fora de componentes com `"use client"`
 
@@ -75,6 +80,15 @@ NEXT_PUBLIC_APP_URL=...            # URL pública (sem trailing slash)
 - A função recebe `ContextoAnalise` e retorna `AlertaGerado[]`
 - Nunca lançar exceção dentro de um executor — capturar o erro e retornar array vazio
 - O código da regra (ex: `ICMS_UC_COM_CREDITO`) deve ser idêntico ao campo `codigo` na tabela `fa_regras_fiscais`
+- Regras registradas no engine: `ICMS_DIVERGENCIA_FISCAL_CONTRIB`, `ICMS_UC_COM_CREDITO`, `ICMS_IMOB_SEM_CIAP`, `ICMS_CFOP_SAIDA_EM_ENTRADA`, `ICMS_CFOP_ENTRADA_EM_SAIDA`, `CFOP_INCOMPAT_CNAE`, `NCM_BENEFICIO_NAO_APLICADO`, `NCM_ST_SEM_TRATAMENTO`, `OBRIG_SPED_ZERADO_COM_RECEITA`, `CONTRIB_EXCLUSAO_INDEVIDA`
+
+### Lib de classificação fiscal (`lib/fiscal/classificacao.ts`)
+- Constantes NCM: `NCM_UC`, `NCM_IMOB`, `NCM_COMB` — prefixos de NCM por destinação
+- `famCFOP(cfop)` → `'revenda' | 'industrializacao' | 'uso_consumo' | 'imobilizado' | 'outro'`
+- `analisarProduto(desc, ncm)` → `AnaliseSugestao` (sem perfil de empresa — versão SPED)
+- `sugerirClassificacao(ncm, desc, cfop, ehIndustrial?)` → `ClassificacaoItem`
+- `validarItemSped(item, temCiap, ehIndustrial)` → `{ classificacao, alertas: AlertaItemSped[] }`
+- **NÃO modifica** `validador_entradas/page.tsx` — essa lib é cópia independente para uso no SPED
 
 ### API routes
 - Sempre verificar autenticação no início: `const { data: { user } } = await supabase.auth.getUser()`
@@ -111,8 +125,9 @@ Tabelas fiscais (todas com `org_id`):
 - `sn_receitas_mensais` — histórico de receita bruta mensal por competência — criado via migração Fase A
 - `sn_apuracoes` — resultado da apuração simulada do Simples Nacional por competência — criado via migração Fase A
 - `sn_apuracoes_receitas` — breakdown por anexo/tipo dentro de cada apuração — criado via migração Fase A
+- `cnpj_cache` — cache de consultas à API pública CNPJ (publica.cnpj.ws) — criado via `supabase_migration_cnpj_cache.sql`
 
-Atenção: as 5 tabelas marcadas "via migração Fase A" não estão no `supabase_setup.sql` principal — aplicar `supabase_migration_fase_a.sql` separadamente no SQL Editor do Supabase Studio. O script é idempotente (pode ser executado múltiplas vezes).
+Atenção: as tabelas marcadas "via migração" não estão no `supabase_setup.sql` principal — aplicar as migrações separadamente no SQL Editor do Supabase Studio. Os scripts são idempotentes (podem ser executados múltiplas vezes).
 
 ### Padrão de paginação Supabase
 

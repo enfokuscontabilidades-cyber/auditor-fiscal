@@ -2,7 +2,7 @@
 
 > Arquivo de referência para novas conversas com Claude Code.
 > Mantido manualmente. Atualizar sempre que houver mudança estrutural significativa.
-> Última atualização: 2026-05-25 (Fase B — correções críticas RBT12, desconto XML, evolução Apuração Simples Nacional)
+> Última atualização: 2026-05-27 (Fase C reforma visual + Fase D correções + Fase 5 validação itens SPED + motor de regras)
 
 ---
 
@@ -56,12 +56,12 @@ app/
     novo-escritorio/    ← Criar org ou aceitar convite (onboarding)
   (fiscal)/             ← Todas as páginas autenticadas
     layout.tsx          ← Auth check + check de org + check de plano + sidebar
-    page.tsx            ← Dashboard principal
+    page.tsx            ← Dashboard principal (Client Component + Recharts + card CNPJ)
     SidebarFiscal.tsx   ← Sidebar com nome da org + logout
     configuracoes/      ← Gestão de membros, plano, convites
-    auditor_fiscal/     ← Módulo SPED
+    auditor_fiscal/     ← Módulo SPED (4 abas: Cruzamento | Apuração | Itens | Inconsistências)
     validador_entradas/ ← Módulo NF-e (mais completo)
-    inconsistencias/    ← Módulo de alertas
+    inconsistencias/    ← Módulo Relatórios (6 abas: Inconsistências, Documentos, Produtos, Participantes, CFOP, NCM)
     simples_nacional/   ← Módulo PGDAS-D (Simples Nacional)
     empresas/           ← Cadastro e seleção de empresa
     planejamento/       ← Em desenvolvimento (stub criado)
@@ -73,7 +73,12 @@ app/
     stripe/
       checkout/         ← POST criar sessão Stripe Checkout
       webhook/          ← POST webhook Stripe (ativar/suspender plano)
-    empresas/           ← GET/POST; [id] GET/PUT
+    empresas/
+      route.ts          ← GET/POST empresas
+      [id]/route.ts     ← GET/PUT empresa
+      cadastrar-por-cnpj/ ← POST cadastrar empresa a partir de dados CNPJ (com checagem de duplicatas)
+    cnpj-cache/         ← GET consulta CNPJ (API-first + cache Supabase fallback)
+    cnpj-debug/         ← GET debug — retorna JSON bruto da publica.cnpj.ws (temporário)
     sessoes/ alertas/ arquivos-sped/ arquivos-xml/ simples_nacional/
     documentos-fiscais/ ← GET (lista); POST importar-nfe; itens/ GET/PATCH/[id]
     fiscal/
@@ -81,17 +86,42 @@ app/
       periodos-importados/ ← GET períodos com XMLs
     simples/
       receitas-mensais/ ← GET/POST receitas por competência
+    relatorios/
+      documentos/       ← GET documentos fiscais agrupados por empresa/período
+      participantes/    ← GET fornecedores/clientes com totais
+      produtos/         ← GET produtos por NCM/CFOP
+      cfop/             ← GET análise de CFOPs utilizados
+      ncm/             ← GET análise de NCMs (com contagem de produtos)
 components/
   SessionGuard.tsx      ← Guard client-side de sessão de browser
+  ModalCnpj.tsx         ← Modal de resultado de consulta CNPJ (6 seções + cadastrar empresa)
+  ui/
+    PageHeader.tsx      ← Cabeçalho padronizado com título, subtitle, badge, actions
+    GlassCard.tsx       ← Card glassmorphism
+    MetricCard.tsx      ← Card de métrica com valor e label
+    EmptyState.tsx      ← Estado vazio padronizado
 lib/
   supabase/
-    client.ts           ← Browser client
+    client.ts           ← Browser client (exporta createClient — NÃO createBrowserClient)
     server.ts           ← Server client (SSR)
     admin.ts            ← Service-role client (bypassa RLS)
     org.ts              ← Helper getOrgId(supabase, userId)
     fetchAll.ts         ← Paginação completa (lotes de 1000, supera limite PostgREST)
   hooks/                ← useEmpresaAtiva
-  rules/                ← Motor de regras fiscais
+  rules/
+    engine.ts           ← executarMotorRegras() — orquestra todos os executores
+    types.ts            ← ContextoAnalise, AlertaGerado, ExecutorRegra
+    executores/
+      icms.ts           ← UC_COM_CREDITO, IMOB_SEM_CIAP, DIVERGENCIA_FISCAL_CONTRIB
+      cfop.ts           ← CFOP_SAIDA_EM_ENTRADA, CFOP_ENTRADA_EM_SAIDA, INCOMPAT_CNAE
+      pis_cofins.ts     ← CONTRIB_EXCLUSAO_INDEVIDA
+      ncm.ts            ← BENEFICIO_NAO_APLICADO, NCM_ST_SEM_TRATAMENTO, SPED_ZERADO_COM_RECEITA
+  fiscal/
+    classificacao.ts    ← NCM_UC/IMOB/COMB, famCFOP, analisarProduto, validarItemSped (uso no SPED)
+  sped/
+    types.ts            ← SpedFiscalParsed, SpedContribParsed, SpedC170Item, SpedC170Contrib, etc.
+    parsers.ts          ← parseFiscal (C170 + CIAP), parseContrib, mergeFiscalDatasets
+    validators.ts       ← validarTudo (8 validações V01–V08), cruzarDocumentos
   simples/              ← calcularSimples.ts, cfopReceita.ts, tabelasAnexos.ts, parsePgdas.ts
   nfe/                  ← Parser XML de NF-e
   types.ts              ← Tipos TypeScript globais
@@ -211,13 +241,14 @@ Simples Nacional / Apuração do Sistema
 
 ## 3. Módulos Existentes
 
-### 3.1 Auditor SPED (`/auditor_fiscal`) — Refatorado em 2026-05-06
+### 3.1 Auditor SPED (`/auditor_fiscal`) — Atualizado em 2026-05-27
 
-**Arquitetura (após refatoração):**
+**Arquitetura:**
 - Lógica de parsing extraída para `lib/sped/parsers.ts`
 - Validações fiscais em `lib/sped/validators.ts`
 - Tipos compartilhados em `lib/sped/types.ts`
-- Página limpa com 3 abas: Cruzamento | Apuração | Inconsistências
+- Classificação de itens em `lib/fiscal/classificacao.ts`
+- Página com **4 abas**: Cruzamento | Apuração | Itens | Inconsistências
 
 **O que faz:**
 - Importa e parseia SPED Fiscal e SPED Contribuições no browser (sem servidor)
@@ -225,15 +256,18 @@ Simples Nacional / Apuração do Sistema
 - Detecta automaticamente tipo (Fiscal ou Contribuições) pelo conteúdo (bloco M/E)
 - Suporta múltiplos arquivos por tipo (matriz + filiais, múltiplos períodos)
 - Salva sessão + arquivo no banco via `POST /api/sessoes` e `POST /api/arquivos-sped`
-- `parsed_data` salvo: Fiscal = { company, e110, c190_count } | Contrib = { company, isZeroed, m200, m600 }
+- **Botão "Executar análise automática"**: busca regras ativas (`fa_regras_fiscais`), monta `ContextoAnalise`, executa motor de regras, persiste alertas via `POST /api/alertas`
+- **Botão "Exportar Excel"**: gera arquivo com sheets: Cruzamento SPED, Apuração, Inconsistências SPED, Validação de Itens SPED
 
 **Registros parseados — SPED Fiscal:**
 - `0000`: identificação, CNPJ, período, UF, IE
 - `0150`: participantes (fornecedores e clientes)
 - `0200`: cadastro de produtos
 - `C100`: documentos fiscais (NF-e e outros)
+- `C170`: **itens individuais** — NCM, CFOP, CST ICMS, quantidades, valores, base/alíq/vlr ICMS, base/vlr ST, IPI → `SpedC170Item[]`
 - `C190`: resumo por CFOP do documento (com base ICMS e valor ICMS)
 - `E110`: apuração ICMS (débitos, créditos, saldo apurado, ICMS a recolher, saldo credor)
+- `G125`: detecção de CIAP — `temCiap = true` quando presente
 
 **Registros parseados — SPED Contribuições:**
 - `0000`: identificação (parsing heurístico por posição de CNPJ)
@@ -243,7 +277,7 @@ Simples Nacional / Apuração do Sistema
 - `M200`: apuração PIS (VL_REC_BRT, VL_BC_CONT, VL_CONT_NC, VL_CONT_PER, VL_CONT_PAGAR)
 - `M600`: apuração COFINS (mesma estrutura M200)
 
-**Validações automáticas (8 regras):**
+**Validações automáticas (8 regras — aba Inconsistências):**
 
 | ID | Descrição | Nível |
 |----|-----------|-------|
@@ -256,10 +290,15 @@ Simples Nacional / Apuração do Sistema
 | V07 | E110 diverge > 5% da soma dos C190 de saída | Médio |
 | V08 | Alíquota efetiva ICMS < 1% sobre o total de saídas | Médio |
 
-**Limitações atuais:**
-- Cruzamento com NF-e (XMLs) ainda não implementado — planejado para Fase 3
-- Sem exportação para Excel
-- `parsed_data` no banco é resumo — dados completos ficam apenas em memória
+**Aba "Itens" — Validação analítica de itens C170 (Fase 5.4):**
+- Tabela com 20 colunas: nota, data, CNPJ/nome participante, cód. produto, descrição, NCM, CFOP, CST, qtd, valor, desconto, base/alíq/vlr ICMS, vlr ST, classificação, alerta, nível, sugestão
+- Chips coloridos de classificação (`ChipClass`): Revenda (verde), Insumo (ciano), Uso e Consumo (amarelo), Imobilizado (lilás), Combustível (rosa), Serviço (azul)
+- Alertas gerados por `validarItemSped()`: `UC_CREDITO_INDEVIDO`, `IMOB_SEM_CIAP`, `CFOP_CLASSIFICACAO_INCOMPATIVEL`, `NCM_ST_CLASSIFICACAO`, `IMOB_COM_ST`
+- Filtros: busca por nota/produto/NCM, dropdown de classificação, checkbox "Somente com alertas"
+- KPI "Itens C170" com contagem de alertas no painel de KPIs
+
+**Pendente:**
+- Cruzamento NF-e × SPED (Fase 5.6): comparar `fa_documentos_fiscais` com docs do SPED por chave de acesso
 
 ### 3.2 Validador de NF-e (`/validador_entradas`)
 
@@ -304,19 +343,54 @@ Simples Nacional / Apuração do Sistema
 - Não há cruzamento automático com SPED
 - Classificações manuais feitas no Validador não são refletidas em `fa_documentos_itens` (o banco guarda os dados originais do XML, não as classificações do Validador)
 
-### 3.3 Módulo de Inconsistências (`/inconsistencias`)
+### 3.3 Módulo Relatórios (`/inconsistencias`) — Renomeado e ampliado em Fase C
+
+**O que faz (6 abas):**
+
+| Aba | Descrição |
+|-----|-----------|
+| Inconsistências | Lista alertas de `fa_alertas` com filtro por empresa ativa, nível de risco e status; ações: Em análise / Resolvido / Descartado |
+| Documentos | Documentos fiscais por empresa/período com totais de valor e impostos |
+| Produtos | Análise de produtos por NCM/CFOP com contagem e totais |
+| Participantes | Fornecedores/Clientes com totais de entrada/saída; filtro Fornecedores ↔ Clientes independente |
+| CFOP | CFOPs utilizados com contagens e valores |
+| NCM | NCMs com `count_produtos` e análise de destinação |
+
+**Alimentado por:**
+- `GET /api/relatorios/documentos` — documentos fiscais com limites corrigidos
+- `GET /api/relatorios/participantes` — com campo `tipo` para entrada/saída
+- `GET /api/relatorios/produtos`
+- `GET /api/relatorios/cfop`
+- `GET /api/relatorios/ncm` — retorna `count_produtos`
+
+**Motor de regras — integrado no Auditor SPED (Fase 5.5):**
+- Alertas gerados pelo botão "Executar análise automática" no Auditor SPED
+- Regras ativas buscadas de `fa_regras_fiscais`
+- Resultado salvo em `fa_alertas` e visível nesta aba
+
+### 3.7 Dashboard (`/`) — Atualizado em Fase C + Fase D
 
 **O que faz:**
-- Lista alertas da tabela `fa_alertas` do Supabase
-- **Filtro por empresa ativa** (usando `useEmpresaAtiva`) — exibe apenas alertas da empresa selecionada
-- Banner informativo quando nenhuma empresa está selecionada
-- Filtros por nível de risco (Crítico, Alto, Médio, Baixo) e status
-- Exibição expansível: título, empresa, competência, descrição, detalhe JSON, impacto estimado
-- Ações: marcar como "Em análise", "Resolvido" ou "Descartado"
+- Client Component com gráficos Recharts por empresa ativa
+- KPIs: alertas por nível (Crítico/Alto/Médio/Baixo), total empresas, sessões recentes
+- Acesso rápido para todos os módulos
+- **Card de consulta de CNPJ** (Fase D.5):
+  - Input com máscara progressiva automática `XX.XXX.XXX/XXXX-XX`
+  - Chama `GET /api/cnpj-cache?cnpj=...` — API-first (publica.cnpj.ws), cache como fallback
+  - Exibe `<ModalCnpj>` com dados normalizados em 6 seções
+  - Botão "Cadastrar empresa" com checagem de duplicata (`POST /api/empresas/cadastrar-por-cnpj`)
 
-**Limitações atuais:**
-- Alertas gerados manualmente — não há integração automática com SPED nem NF-e
-- Motor de regras (`lib/rules/engine.ts`) existe mas não está conectado ao fluxo de importação
+**`/api/cnpj-cache`:**
+- Sempre consulta `publica.cnpj.ws` primeiro; salva dado bruto no `cnpj_cache`
+- Normalização acontece na leitura (função `normalizar(raw, fonte, consultado_em)`)
+- Suporta Formato B (atual API, objeto `estabelecimento` aninhado) e Formato A (dados legados flat em cache)
+- Fallback: se API falhar, retorna dado normalizado do cache
+
+**`components/ModalCnpj.tsx`:**
+- 6 seções: Dados Principais, Endereço, Contato, Atividade Principal, Atividades Secundárias, QSA
+- Chip colorido de situação cadastral (ATIVA = verde, cancelada/baixada = vermelho, etc.)
+- Rodapé: fonte (Receita Federal ao vivo / cache local) + data da consulta
+- Botão "Cadastrar empresa" com estados: idle → ok/exists/error
 
 ### 3.4 Planejamento Tributário (`/planejamento`) — Em desenvolvimento
 
@@ -381,6 +455,32 @@ sn_apuracoes_receitas   — breakdown por anexo (apuracao_id, anexo, valor_recei
 
 ---
 
+## 3b. Biblioteca de Classificação Fiscal (`lib/fiscal/classificacao.ts`)
+
+Criada na Fase 5.1. Usada pelo Auditor SPED (aba Itens). **Não modifica** `validador_entradas/page.tsx`.
+
+**Constantes:**
+- `NCM_UC`: 35 prefixos de NCM de uso e consumo (alimentos, bebidas, higiene, domésticos, etc.)
+- `NCM_IMOB`: 27 prefixos de NCM de ativo imobilizado (máquinas, equipamentos, móveis)
+- `NCM_COMB`: 5 prefixos de NCM de combustíveis/lubrificantes
+
+**Funções:**
+- `famCFOP(cfop)`: retorna `'revenda' | 'industrializacao' | 'uso_consumo' | 'imobilizado' | 'outro'` baseado nos 2 últimos dígitos do CFOP
+- `analisarProduto(desc, ncm)`: retorna `AnaliseSugestao` (tipo + motivo + confiança) sem perfil de empresa
+- `sugerirClassificacao(ncm, desc, cfop, ehIndustrial?)`: combina análise de NCM/descrição com família CFOP
+- `validarItemSped(item, temCiap, ehIndustrial)`: aplica 5 regras e retorna `{ classificacao, alertas }`
+
+**Regras de `validarItemSped`:**
+| Código | Nível | Condição |
+|--------|-------|----------|
+| `UC_CREDITO_INDEVIDO` | Alto | classificacao=uso_consumo + vlIcms > 0 |
+| `IMOB_SEM_CIAP` | Alto | classificacao=imobilizado + vlIcms > 0 + !temCiap |
+| `CFOP_CLASSIFICACAO_INCOMPATIVEL` | Médio | CFOP incompatível com classificação sugerida |
+| `NCM_ST_CLASSIFICACAO` | Médio | NCM do RICMS/GO Anexo VIII + CST ∉ {10,30,60,70} |
+| `IMOB_COM_ST` | Baixo | classificacao=imobilizado + vlBcSt > 0 |
+
+---
+
 ## 4. Regras Já Implementadas
 
 ### Validação de CNPJ (importação)
@@ -409,12 +509,34 @@ sn_apuracoes_receitas   — breakdown por anexo (apuracao_id, anexo, valor_recei
 - `getOpcoesEntrada(cfopForn, natureza, ehIndustrial)` → lista completa para dropdown
 - `cfopEfetivo(item)` → usa `cfop_entrada_sugerido` para terceiros, `cfop` para os demais
 
-### Motor de regras (estrutura base)
+### Motor de regras (integrado ao Auditor SPED — Fase 5.5)
 
-- `lib/rules/engine.ts`: executor central
-- `lib/rules/types.ts`: tipos `ContextoAnalise`, `AlertaGerado`
-- Cada regra é função pura em `lib/rules/executores/`
-- Retorna `AlertaGerado[]` — nunca lança exceção
+- `lib/rules/engine.ts`: `executarMotorRegras(ctx)` — orquestra todos os executores registrados
+- `lib/rules/types.ts`: tipos `ContextoAnalise`, `AlertaGerado`, `ExecutorRegra`
+- Cada regra é função pura em `lib/rules/executores/` — nunca lança exceção
+- `ContextoAnalise.fiscalData` recebe `SpedFiscalParsed` (merged) para acesso a `c170Items`
+
+**Regras registradas no engine:**
+| Código | Arquivo | Descrição |
+|--------|---------|-----------|
+| `ICMS_DIVERGENCIA_FISCAL_CONTRIB` | icms.ts | Divergência Fiscal × Contrib |
+| `ICMS_UC_COM_CREDITO` | icms.ts | Uso e consumo com crédito ICMS |
+| `ICMS_IMOB_SEM_CIAP` | icms.ts | Imobilizado com crédito sem CIAP |
+| `ICMS_CFOP_SAIDA_EM_ENTRADA` | cfop.ts | CFOP de saída em entrada |
+| `ICMS_CFOP_ENTRADA_EM_SAIDA` | cfop.ts | CFOP de entrada em saída |
+| `CFOP_INCOMPAT_CNAE` | cfop.ts | CFOP incompatível com CNAE |
+| `NCM_BENEFICIO_NAO_APLICADO` | ncm.ts | Benefício fiscal sem cBenef |
+| `NCM_ST_SEM_TRATAMENTO` | ncm.ts | NCM do RICMS/GO Anexo VIII sem CST de ST |
+| `OBRIG_SPED_ZERADO_COM_RECEITA` | ncm.ts | SPED zerado com receita declarada |
+| `CONTRIB_EXCLUSAO_INDEVIDA` | pis_cofins.ts | Exclusão indevida na base PIS/COFINS |
+
+**Fluxo de execução no Auditor SPED:**
+1. Usuário clica "Executar análise automática" (⚡)
+2. Busca `fa_regras_fiscais` onde `ativo = true`
+3. Monta `ContextoAnalise` com `fiscalMerged` + `contribMerged` + empresa
+4. Chama `executarMotorRegras(ctx)` → `AlertaGerado[]`
+5. Salva via `POST /api/alertas` com `empresa_id`, `competencia`, etc.
+6. Exibe banner: "X alertas salvos → Ver em Relatórios"
 
 ---
 
@@ -424,17 +546,13 @@ sn_apuracoes_receitas   — breakdown por anexo (apuracao_id, anexo, valor_recei
 
 O Validador NF-e salva itens com os dados originais do XML (`fa_documentos_itens`). Quando o usuário muda a classificação manualmente (uso e consumo → revenda, etc.), essa mudança não é gravada no banco — fica apenas em memória. Ao recarregar, os itens voltam à classificação original.
 
-### Motor de regras não integrado automaticamente
+### Motor de regras não acionado automaticamente na importação
 
-Os alertas em `fa_alertas` precisam ser inseridos manualmente. O fluxo de importação não aciona o motor de regras.
+O motor de regras está integrado ao Auditor SPED via botão explícito "Executar análise automática". Não é acionado automaticamente ao importar SPEDs — requer disparo manual. O fluxo de importação de XMLs (Validador NF-e) também não aciona o motor.
 
-### Ausência de exportação no Auditor SPED
+### Cruzamento NF-e × SPED pendente (Fase 5.6)
 
-O Validador NF-e exporta para Excel. O Auditor SPED ainda não tem essa funcionalidade.
-
-### Ausência de cruzamento SPED × NF-e
-
-Não há comparação automática entre totais do SPED e os XMLs importados.
+Não há comparação automática entre `fa_documentos_fiscais` (XMLs importados) e `SpedFiscalParsed.docs` (SPEDs importados) por chave de acesso. Planejado para próxima sessão.
 
 ### Módulos de Obrigações e Planejamento sem lógica
 
@@ -444,26 +562,21 @@ Existem apenas como páginas stub.
 
 ## 6. Próximos Passos Planejados
 
-### 6.1 Persistência do Validador NF-e (Fase 5)
+### 6.1 Cruzamento NF-e × SPED (Fase 5.6 — pendente)
+
+Sub-seção na aba "Cruzamento" do Auditor SPED:
+- Buscar `fa_documentos_fiscais` para a empresa + competência ativa
+- Comparar `chave_acesso` com `fiscalMerged.docs[].key`
+- Categorizar: ✅ Em ambos / ⚠️ Só no SPED / ⚠️ Só como XML
+- Exibir contadores + tabelas expansíveis por categoria
+
+### 6.2 Persistência de classificações do Validador NF-e
 
 - Salvar `LinhaEntrada[]` com classificações no `parsed_data` do `fa_arquivos_xml`
 - Restaurar estado via `GET /api/arquivos-xml?sessao_id=...` ao carregar a página
 - Criar `PATCH /api/arquivos-xml/[id]` para persistir classificações ao alterar manualmente
 
-### 6.2 Cruzamento SPED × NF-e + Motor de regras automático
-
-- Cruzamento automático entre SPED e XMLs importados para o mesmo período
-- Motor de regras acionado automaticamente após importação (sem disparo manual)
-- Alertas gerados aparecem em `/inconsistencias` sem intervenção do usuário
-- Exportação Excel no Auditor SPED
-
-### 6.3 Confronto PGDAS × NF-e — Simples Nacional Fase 2
-
-- Aba "Confronto NF-e" na página `/simples_nacional`
-- Somar `valor_total` das NF-e de saída para o mesmo período
-- Comparar com `receita_bruta_mes` do PGDAS — alerta se diferença > 1%
-
-### 6.4 Módulos de Obrigações e Planejamento
+### 6.3 Módulos de Obrigações e Planejamento
 
 - Calendário de obrigações com controle de REINF / DCTFWeb / eSocial / DCTF / ECF
 - Simulador de carga tributária por regime (Simples × Presumido × Real)
@@ -583,49 +696,104 @@ API routes disponíveis:
 
 | Arquivo | Papel |
 |---|---|
-| `app/globals.css` | Tema, CSS vars, normalização visual |
+| `app/globals.css` | Tema, CSS vars, normalização visual (tokens glassmorphism) |
 | `app/(fiscal)/SidebarFiscal.tsx` | Navegação + seletor de empresa + nome da org |
 | `app/(fiscal)/layout.tsx` | Auth guard + org guard + plano guard |
 | `components/ThemeProvider.tsx` | Context de tema claro/escuro |
 | `components/SessionGuard.tsx` | Guard client-side de sessão de browser |
-| `lib/hooks/useEmpresaAtiva.ts` | Estado global da empresa selecionada |
+| `components/ModalCnpj.tsx` | Modal de resultado de consulta CNPJ (6 seções + cadastrar empresa) |
+| `components/ui/PageHeader.tsx` | Cabeçalho padronizado — title, subtitle, badge, actions |
+| `components/ui/GlassCard.tsx` | Card glassmorphism reutilizável |
+| `lib/hooks/useEmpresaAtiva.ts` | Estado global da empresa selecionada (localStorage + CustomEvent) |
 | `lib/types.ts` | Todos os tipos TypeScript do domínio |
 | `lib/supabase/admin.ts` | Cliente service-role (bypassa RLS) |
 | `lib/supabase/org.ts` | Helper `getOrgId(supabase, userId)` |
+| `lib/supabase/client.ts` | Browser client — exporta `createClient` (não `createBrowserClient`) |
+| `lib/fiscal/classificacao.ts` | NCM_UC/IMOB/COMB, famCFOP, analisarProduto, validarItemSped |
+| `lib/sped/types.ts` | Tipos SPED: SpedFiscalParsed, SpedC170Item, SpedContribParsed, etc. |
+| `lib/sped/parsers.ts` | parseFiscal (C170+CIAP), parseContrib, mergeFiscalDatasets |
+| `lib/sped/validators.ts` | validarTudo (8 regras V01–V08), cruzarDocumentos |
+| `lib/rules/engine.ts` | executarMotorRegras() — orquestra executores |
+| `lib/rules/executores/ncm.ts` | Executores NCM: benefício, ST sem tratamento, SPED zerado |
 | `middleware.ts` | Guard de autenticação (rotas públicas: `/login`, `/cadastro`, `/auth`, `/api/stripe/webhook`) |
 | `supabase_setup.sql` | DDL completo do banco (tabelas base) |
-| `supabase_migration_fase_a.sql` | Migração Fase A — idempotente (aplicar no SQL Editor do Supabase) |
+| `supabase_migration_fase_a.sql` | Migração Fase A — idempotente |
+| `supabase_migration_cnpj_cache.sql` | Migração cnpj_cache — idempotente |
 | `lib/supabase/fetchAll.ts` | Paginação completa Supabase (supera limite PostgREST de 1000 rows) |
-| `app/login/page.tsx` | Tela de login (+ "Continuar logado" + link cadastro) |
-| `app/cadastro/page.tsx` | Cadastro de novo usuário |
-| `app/aguardando-ativacao/page.tsx` | Tela de assinatura / ativação de plano |
-| `app/configuracoes/novo-escritorio/page.tsx` | Onboarding: criar org ou aceitar convite |
-| `app/(fiscal)/configuracoes/page.tsx` | Gestão de membros e plano |
-| `app/(fiscal)/page.tsx` | Dashboard principal |
-| `app/(fiscal)/validador_entradas/page.tsx` | Módulo NF-e — importação, validação, persistência, navegação (~2400+ linhas) |
-| `app/(fiscal)/auditor_fiscal/page.tsx` | Módulo SPED |
-| `app/(fiscal)/inconsistencias/page.tsx` | Módulo de alertas |
-| `app/(fiscal)/simples_nacional/page.tsx` | Módulo Simples Nacional — PGDAS-D + Apuração (4 abas, ~2000 linhas) |
+| `app/(fiscal)/page.tsx` | Dashboard principal (Client Component + Recharts + card CNPJ) |
+| `app/(fiscal)/validador_entradas/page.tsx` | Módulo NF-e — importação, validação, persistência (~2400+ linhas) |
+| `app/(fiscal)/auditor_fiscal/page.tsx` | Módulo SPED — 4 abas, motor de regras, Excel, validação itens |
+| `app/(fiscal)/inconsistencias/page.tsx` | Módulo Relatórios — 6 abas |
+| `app/(fiscal)/simples_nacional/page.tsx` | Módulo Simples Nacional — PGDAS-D + Apuração (~2000 linhas) |
+| `app/api/cnpj-cache/route.ts` | GET consulta CNPJ (API-first + normalizador dual-format + cache fallback) |
+| `app/api/empresas/cadastrar-por-cnpj/route.ts` | POST cadastrar empresa a partir de dados CNPJ |
+| `app/api/relatorios/documentos/route.ts` | GET documentos fiscais para aba Relatórios |
 | `lib/simples/parsePgdas.ts` | Parser PDF do PGDAS-D (browser-side, pdfjs-dist) |
 | `lib/simples/calcularSimples.ts` | Cálculo de apuração Simples Nacional pelos Anexos I–V |
-| `lib/simples/cfopReceita.ts` | Mapeamento CFOP → tipo de receita Simples Nacional |
-| `lib/simples/tabelasAnexos.ts` | Tabelas dos Anexos I–V do Simples Nacional |
 | `app/api/simples_nacional/route.ts` | API Simples Nacional PGDAS-D (GET/POST/DELETE) |
-| `app/api/documentos-fiscais/route.ts` | GET documentos fiscais (com paginação + incluir_itens) |
 | `app/api/documentos-fiscais/importar-nfe/route.ts` | POST importar NF-e → fa_documentos_fiscais + itens |
-| `app/api/fiscal/limpar-competencia/route.ts` | DELETE todos os documentos e XMLs de uma competência |
-| `app/api/organizacoes/route.ts` | API org (GET org do usuário; POST criar org) |
-| `app/api/membros/route.ts` | API membros (GET/POST/DELETE) |
-| `app/api/convites/route.ts` | API convites (GET pendente; POST aceitar) |
-| `app/api/stripe/checkout/route.ts` | Criar sessão Stripe Checkout |
 | `app/api/stripe/webhook/route.ts` | Webhook Stripe (ativar/suspender plano) |
 | `public/pdf.worker.min.mjs` | Worker pdfjs-dist (asset estático) |
-| `eslint.config.js` | Configuração ESLint v9 (flat config) |
 | `project_context.md` | Este arquivo — referência de estado do projeto |
 
 ---
 
 ## Histórico de Sessões
+
+### Sessão 2026-05-27 — Fase C, Fase D e Fase 5
+
+#### O que foi implementado
+
+**Fase C — Reforma Visual UI/UX:**
+- Tokens glassmorphism em `app/globals.css` (`--af-glass-bg`, `--af-glass-border`, `--af-glass-blur`)
+- 4 componentes em `components/ui/`: `PageHeader`, `GlassCard`, `MetricCard`, `EmptyState`
+- Dashboard convertido para Client Component com gráficos Recharts por empresa ativa
+- `/inconsistencias` → **Relatórios** com 6 abas + 5 novas rotas `/api/relatorios/*`
+- `PageHeader` padronizado em todas as páginas
+- `supabase_migration_cnpj_cache.sql` — tabela `cnpj_cache` criada e aplicada
+
+**Fase D — Correções Dashboard e Relatórios:**
+- D.1: `/api/relatorios/documentos` — limite corrigido para `200000`
+- D.2: Aba Participantes — estado local `tipoParticipante` independente do filtro global
+- D.3: Formatação CNPJ `XX.XXX.XXX/XXXX-XX` na aba Participantes
+- D.4: Campo `count_produtos ?? count ?? 0` na aba NCM
+- D.5: Card de consulta CNPJ no Dashboard + `components/ModalCnpj.tsx` + `/api/cnpj-cache` (API-first, normalizador dual-format) + `/api/empresas/cadastrar-por-cnpj`
+
+**Fase 5 — Validação de Itens SPED + Motor de Regras:**
+- 5.1: `lib/fiscal/classificacao.ts` — biblioteca compartilhada de classificação
+- 5.2: `lib/sped/parsers.ts` — C170 parseado + CIAP detectado; `mergeFiscalDatasets` atualizado
+- 5.3: `NCM_ST_SEM_TRATAMENTO` em `lib/rules/executores/ncm.ts` + registrado no engine
+- 5.4: Aba "Itens" no Auditor SPED — tabela analítica C170 com ChipClass, alertas, filtros
+- 5.5: Motor de regras integrado no Auditor SPED — botão "Executar análise automática"
+- 5.7: Exportação Excel no Auditor SPED (4 sheets)
+
+#### Arquivos criados/modificados
+
+| Arquivo | O que mudou |
+|---|---|
+| `lib/fiscal/classificacao.ts` | **NOVO** — classificação fiscal compartilhada |
+| `lib/sped/types.ts` | `SpedC170Item` + `c170Items`/`temCiap` em `SpedFiscalParsed` |
+| `lib/sped/parsers.ts` | C170 parsing + CIAP detection + merge atualizado |
+| `lib/rules/executores/ncm.ts` | `executarNcmStSemTratamento` adicionado |
+| `lib/rules/engine.ts` | `NCM_ST_SEM_TRATAMENTO` registrado |
+| `app/(fiscal)/auditor_fiscal/page.tsx` | 4ª aba Itens + motor de regras + Excel + ChipClass |
+| `app/(fiscal)/page.tsx` | Card consulta CNPJ + ModalCnpj + estados |
+| `app/(fiscal)/inconsistencias/page.tsx` | Módulo Relatórios (6 abas) + correções D.2/D.3/D.4 |
+| `components/ModalCnpj.tsx` | **NOVO** — modal consulta CNPJ (6 seções) |
+| `components/ui/PageHeader.tsx` | **NOVO** |
+| `components/ui/GlassCard.tsx` | **NOVO** |
+| `components/ui/MetricCard.tsx` | **NOVO** |
+| `components/ui/EmptyState.tsx` | **NOVO** |
+| `app/api/cnpj-cache/route.ts` | **NOVO** — API-first + normalizador dual-format |
+| `app/api/cnpj-debug/route.ts` | **NOVO** — debug endpoint (temporário) |
+| `app/api/empresas/cadastrar-por-cnpj/route.ts` | **NOVO** — cadastrar empresa pelo CNPJ |
+| `app/api/relatorios/{documentos,participantes,produtos,cfop,ncm}/route.ts` | **NOVOS** |
+| `supabase_migration_cnpj_cache.sql` | **NOVO** — tabela `cnpj_cache` |
+| `plan.md` | Fases C, D e 5 marcadas como concluídas |
+| `CLAUDE.md` | Estrutura e padrões atualizados |
+| `project_context.md` | Este arquivo |
+
+---
 
 ### Sessão 2026-05-19 — Fase 0 SaaS: org model, Stripe, convites, deploy
 
