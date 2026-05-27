@@ -1,11 +1,8 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
-import { useTheme } from '@/components/ThemeProvider'
-import { useEmpresaAtiva } from '@/lib/hooks/useEmpresaAtiva'
 import {
   LayoutDashboard,
   Building2,
@@ -13,19 +10,11 @@ import {
   BarChart3,
   Calculator,
   ClipboardList,
-  LogOut,
   FileText,
-  Moon,
-  Sun,
-  ChevronDown,
-  Search,
-  Star,
   Receipt,
   FilePen,
-  Settings,
 } from 'lucide-react'
 
-type EmpresaItem = { id: string; razao_social: string; cnpj: string | null; cnae_principal?: string | null }
 type OrgInfo = { id: string; nome: string; plano: string }
 
 const LINKS = [
@@ -38,61 +27,18 @@ const LINKS = [
   { href: '/editor_sped', label: 'Editor SPED', icon: FilePen },
   { href: '/planejamento', label: 'Planejamento', icon: Calculator },
   { href: '/obrigacoes', label: 'Obrigações', icon: ClipboardList },
-  { href: '/configuracoes', label: 'Configurações', icon: Settings },
 ]
 
 export default function SidebarFiscal() {
   const pathname = usePathname()
-  const supabase = createClient()
-  const { tema, alternarTema } = useTheme()
-  const { empresaAtiva, definirEmpresaAtiva } = useEmpresaAtiva()
-  const [empresas, setEmpresas] = useState<EmpresaItem[]>([])
-  const [empresaMenuAberto, setEmpresaMenuAberto] = useState(false)
-  const [buscaEmpresa, setBuscaEmpresa] = useState('')
   const [org, setOrg] = useState<OrgInfo | null>(null)
 
   useEffect(() => {
-    fetch('/api/empresas')
-      .then(r => r.json())
-      .then((d: unknown) => { if (Array.isArray(d)) setEmpresas(d as EmpresaItem[]) })
-      .catch(() => setEmpresas([]))
-
     fetch('/api/organizacoes')
       .then(r => r.json())
       .then((d: unknown) => { if (d && typeof d === 'object') setOrg(d as OrgInfo) })
       .catch(() => null)
   }, [])
-
-  const empresasFiltradas = useMemo(() => {
-    const termo = buscaEmpresa.trim().toLowerCase()
-    const termoNumerico = termo.replace(/\D/g, '')
-
-    if (!termo) return empresas.slice(0, 8)
-
-    return empresas.filter(emp => {
-      const nome = emp.razao_social.toLowerCase()
-      const cnpj = (emp.cnpj ?? '').replace(/\D/g, '')
-      return nome.includes(termo) || (!!termoNumerico && cnpj.includes(termoNumerico))
-    }).slice(0, 12)
-  }, [buscaEmpresa, empresas])
-
-  async function handleLogout() {
-    sessionStorage.removeItem('session_active')
-    localStorage.removeItem('stay_logged_in')
-    await supabase.auth.signOut()
-    window.location.href = '/login'
-  }
-
-  function selecionarEmpresaSidebar(emp: EmpresaItem) {
-    definirEmpresaAtiva({
-      id: emp.id,
-      razao_social: emp.razao_social,
-      cnpj: emp.cnpj ?? undefined,
-      cnae_principal: emp.cnae_principal ?? undefined,
-    })
-    setEmpresaMenuAberto(false)
-    setBuscaEmpresa('')
-  }
 
   function navLinkStyle(active: boolean): React.CSSProperties {
     return {
@@ -132,61 +78,6 @@ export default function SidebarFiscal() {
         </div>
       </div>
 
-      <div className="af-sidebar-active-company">
-        <button
-          type="button"
-          className="af-sidebar-active-company-button"
-          onClick={() => setEmpresaMenuAberto(v => !v)}
-          title="Alterar empresa em análise"
-        >
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div className="af-sidebar-active-company-label">Empresa em análise</div>
-            {empresaAtiva ? (
-              <>
-                <div className="af-sidebar-active-company-name">{empresaAtiva.razao_social}</div>
-                {empresaAtiva.cnpj && <div className="af-sidebar-active-company-cnpj">{empresaAtiva.cnpj}</div>}
-              </>
-            ) : (
-              <div className="af-sidebar-active-company-empty">Selecionar empresa</div>
-            )}
-          </div>
-          <ChevronDown size={14} className={empresaMenuAberto ? 'af-sidebar-company-chevron open' : 'af-sidebar-company-chevron'} />
-        </button>
-
-        {empresaMenuAberto && (
-          <div className="af-sidebar-company-popover">
-            <div className="af-sidebar-company-search">
-              <Search size={14} />
-              <input
-                value={buscaEmpresa}
-                onChange={(e) => setBuscaEmpresa(e.target.value)}
-                placeholder="Buscar nome ou CNPJ..."
-                autoFocus
-              />
-            </div>
-
-            <div className="af-sidebar-company-list">
-              {empresasFiltradas.length === 0 ? (
-                <div className="af-sidebar-company-empty-list">Nenhuma empresa encontrada.</div>
-              ) : empresasFiltradas.map(emp => (
-                <button
-                  key={emp.id}
-                  type="button"
-                  className={empresaAtiva?.id === emp.id ? 'af-sidebar-company-option active' : 'af-sidebar-company-option'}
-                  onClick={() => selecionarEmpresaSidebar(emp)}
-                >
-                  {empresaAtiva?.id === emp.id ? <Star size={13} fill="currentColor" /> : <Building2 size={13} />}
-                  <span>
-                    <strong>{emp.razao_social}</strong>
-                    {emp.cnpj && <small>{emp.cnpj}</small>}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
       <div style={{ flex: 1, padding: '12px 0 10px' }}>
         <div className="af-sidebar-section-title">Navegação</div>
 
@@ -201,25 +92,6 @@ export default function SidebarFiscal() {
         })}
       </div>
 
-      <div className="af-sidebar-footer">
-        <button
-          type="button"
-          className="af-theme-toggle"
-          onClick={alternarTema}
-          title={tema === 'escuro' ? 'Mudar para modo claro' : 'Mudar para modo escuro'}
-        >
-          <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {tema === 'escuro' ? <Sun size={16} /> : <Moon size={16} />}
-            {tema === 'escuro' ? 'Modo claro' : 'Modo escuro'}
-          </span>
-          <span className="af-theme-tag">Global</span>
-        </button>
-
-        <button className="af-logout-button" onClick={handleLogout}>
-          <LogOut size={16} />
-          Sair da conta
-        </button>
-      </div>
     </nav>
   )
 }

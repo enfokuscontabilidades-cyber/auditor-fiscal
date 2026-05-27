@@ -122,6 +122,14 @@ button:hover { transform: translateY(-1px); }
   color: var(--af-text) !important;
 }
 
+.fiscal-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  width: 0; /* junto com flex:1 garante que o item cresce mas não empurra o layout */
+}
+
 .fiscal-main {
   flex: 1;
   overflow: auto;
@@ -146,13 +154,6 @@ button:hover { transform: translateY(-1px); }
 
 .af-sidebar-header { padding: 22px 18px 18px; border-bottom: 1px solid rgba(148,163,184,0.14); }
 .af-sidebar-section-title { font-size: 10px; font-weight: 800; color: rgba(203,213,225,0.66); letter-spacing: 0.13em; text-transform: uppercase; padding: 2px 24px 7px; }
-.af-sidebar-footer { padding: 12px; border-top: 1px solid rgba(148,163,184,0.14); display: flex; flex-direction: column; gap: 8px; }
-.af-theme-toggle, .af-logout-button { display: flex; align-items: center; width: 100%; padding: 10px 12px; border-radius: 12px; font-size: 13px; cursor: pointer; text-align: left; }
-.af-theme-toggle { justify-content: space-between; gap: 10px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14); color: #f8fafc; font-weight: 750; }
-.af-theme-toggle:hover { background: rgba(255,255,255,0.13); }
-.af-theme-tag { font-size: 10px; color: rgba(226,232,240,0.72); text-transform: uppercase; }
-.af-logout-button { gap: 10px; background: rgba(255,255,255,0.045); border: 1px solid rgba(255,255,255,0.09); color: rgba(226,232,240,0.82); }
-.af-logout-button:hover { color: #fff; background: rgba(255,255,255,0.09); }
 
 /* Componentes utilitários enterprise */
 .af-card, .af-panel { background: var(--af-surface) !important; border: 1px solid var(--af-border) !important; border-radius: var(--af-radius) !important; box-shadow: var(--af-shadow-sm) !important; color: var(--af-text) !important; }
@@ -303,7 +304,7 @@ html[data-theme="escuro"] .af-icon-box svg * {
   .af-sidebar { width: 76px; }
   .af-logo-box { min-height: 54px; padding: 10px; }
   .af-logo-img { max-width: 44px; }
-  .af-sidebar-section-title, .af-theme-tag { display: none; }
+  .af-sidebar-section-title { display: none; }
 }
 
 /* Restauro de elementos de ação/badges após normalização global */

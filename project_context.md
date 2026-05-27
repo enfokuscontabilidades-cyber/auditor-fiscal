@@ -2,7 +2,7 @@
 
 > Arquivo de referência para novas conversas com Claude Code.
 > Mantido manualmente. Atualizar sempre que houver mudança estrutural significativa.
-> Última atualização: 2026-05-27 (Fase C reforma visual + Fase D correções + Fase 5 validação itens SPED + motor de regras)
+> Última atualização: 2026-05-27 (Fase E — reorganização UI: menu do usuário na topbar)
 
 ---
 
@@ -57,7 +57,7 @@ app/
   (fiscal)/             ← Todas as páginas autenticadas
     layout.tsx          ← Auth check + check de org + check de plano + sidebar
     page.tsx            ← Dashboard principal (Client Component + Recharts + card CNPJ)
-    SidebarFiscal.tsx   ← Sidebar com nome da org + logout
+    SidebarFiscal.tsx   ← Sidebar com nome da org (apenas navegação)
     configuracoes/      ← Gestão de membros, plano, convites
     auditor_fiscal/     ← Módulo SPED (4 abas: Cruzamento | Apuração | Itens | Inconsistências)
     validador_entradas/ ← Módulo NF-e (mais completo)
@@ -94,6 +94,7 @@ app/
       ncm/             ← GET análise de NCMs (com contagem de produtos)
 components/
   SessionGuard.tsx      ← Guard client-side de sessão de browser
+  TopbarFiscal.tsx      ← Topbar global: título, seletor de empresa, avatar + dropdown de usuário
   ModalCnpj.tsx         ← Modal de resultado de consulta CNPJ (6 seções + cadastrar empresa)
   ui/
     PageHeader.tsx      ← Cabeçalho padronizado com título, subtitle, badge, actions
@@ -187,7 +188,7 @@ Simples Nacional / Apuração do Sistema
 - Middleware Next.js protege todas as rotas exceto `/login`, `/cadastro`, `/auth` e `/api/stripe/webhook`
 - `SessionGuard` (client component no root layout) detecta browser fechado sem "Continuar logado" e desloga
 - Redirect automático: não autenticado → `/login`; autenticado sem org → `/configuracoes/novo-escritorio`; autenticado com org mas plano pendente → `/aguardando-ativacao`
-- Logout disponível na sidebar (limpa `sessionStorage` + `localStorage` + Supabase session)
+- Logout disponível no **dropdown do avatar na topbar** (limpa `sessionStorage` + `localStorage` + Supabase session)
 
 ### Controle de Plano (Stripe)
 
@@ -233,7 +234,7 @@ Simples Nacional / Apuração do Sistema
 
 - ThemeProvider em `components/ThemeProvider.tsx`
 - Persiste em `localStorage` (chave: `af-theme`)
-- Alterna com botão na sidebar (com indicador "Global")
+- Alterna pelo **dropdown do avatar na topbar** (ícone sol/lua conforme tema atual)
 - Aplica `data-theme="claro"` ou `data-theme="escuro"` no `<html>`
 - CSS vars completas para ambos os temas em `app/globals.css`
 
@@ -697,7 +698,8 @@ API routes disponíveis:
 | Arquivo | Papel |
 |---|---|
 | `app/globals.css` | Tema, CSS vars, normalização visual (tokens glassmorphism) |
-| `app/(fiscal)/SidebarFiscal.tsx` | Navegação + seletor de empresa + nome da org |
+| `app/(fiscal)/SidebarFiscal.tsx` | Navegação principal (logo, nome da org, 9 links) |
+| `components/TopbarFiscal.tsx` | Topbar global: título da página, seletor de empresa, avatar com dropdown (tema, configurações, logout) |
 | `app/(fiscal)/layout.tsx` | Auth guard + org guard + plano guard |
 | `components/ThemeProvider.tsx` | Context de tema claro/escuro |
 | `components/SessionGuard.tsx` | Guard client-side de sessão de browser |
@@ -739,6 +741,44 @@ API routes disponíveis:
 ---
 
 ## Histórico de Sessões
+
+### Sessão 2026-05-27 — Fase E: Reorganização UI — Menu do Usuário na Topbar
+
+#### O que foi implementado
+
+Reorganização das ações do usuário para tornar a sidebar mais limpa e o layout mais profissional (padrão SaaS).
+
+**SidebarFiscal.tsx:**
+- Removido `/configuracoes` da lista `LINKS` (9 links restantes)
+- Removido bloco `af-sidebar-footer` com botão de tema, botão de logout
+- Removidos imports desnecessários: `createClient`, `useTheme`, `LogOut`, `Moon`, `Sun`, `Settings`
+
+**TopbarFiscal.tsx:**
+- Avatar agora abre dropdown de usuário (`userMenuAberto` + `userMenuRef`)
+- Dropdown fecha ao clicar fora (segundo `useEffect` com `mousedown`)
+- 3 opções no dropdown:
+  - **Alternar tema** — ícone sol (modo escuro) ou lua (modo claro), fecha ao clicar
+  - **Configurações** — navega para `/configuracoes` via `router.push`, fecha o menu
+  - **Sair** — separador visual + texto em `var(--af-danger)`, reutiliza `handleLogout` idêntico ao que estava na sidebar
+- Avatar destacado quando menu aberto (`--af-primary-soft` + borda colorida)
+- ChevronDown anima 180° quando aberto
+- Visual do dropdown usa tokens CSS existentes para funcionar em ambos os temas
+
+**globals.css:**
+- Removidas classes: `.af-sidebar-footer`, `.af-theme-toggle`, `.af-theme-tag`, `.af-logout-button` e seus estados hover
+- Ajustada media query que referenciava `.af-theme-tag`
+
+#### Arquivos modificados
+
+| Arquivo | O que mudou |
+|---|---|
+| `app/(fiscal)/SidebarFiscal.tsx` | Removidos link Configurações, footer de ações e imports desnecessários |
+| `components/TopbarFiscal.tsx` | Avatar com dropdown: tema, configurações, logout |
+| `app/globals.css` | Removidas classes de sidebar footer (tema/logout) |
+| `plan.md` | Fase E marcada como concluída |
+| `project_context.md` | Este arquivo |
+
+---
 
 ### Sessão 2026-05-27 — Fase C, Fase D e Fase 5
 

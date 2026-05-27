@@ -397,6 +397,19 @@ Implementação da camada de dados centralizada para documentos fiscais e apura�
 - [ ] 5.6: Cruzamento NF-e × SPED — comparar `fa_documentos_fiscais` com `SpedFiscalParsed.docs` por chave de acesso (pendente)
 - [x] 5.7: Exportação Excel no Auditor SPED — sheets: Cruzamento SPED, Apuração, Inconsistências SPED, Validação de Itens SPED
 
+### Fase E — Reorganização UI: Menu do Usuário na Topbar ✅ CONCLUÍDA (2026-05-27)
+
+- [x] Removidos da sidebar: botão de alternância de tema, botão de logout, link de Configurações
+- [x] Sidebar mantém apenas navegação principal: logo, nome da org, 9 links operacionais
+- [x] `TopbarFiscal.tsx` — avatar agora abre dropdown de usuário ao clicar
+- [x] Dropdown com 3 opções: Alternar tema (sol/lua), Configurações, Sair (em vermelho com separador)
+- [x] Dropdown fecha ao clicar fora, ao selecionar opção e ao navegar
+- [x] Lógicas reaproveitadas: `useTheme()` (ThemeProvider), `router.push('/configuracoes')`, `supabase.auth.signOut()`
+- [x] CSS limpo em `globals.css`: removidas classes `.af-sidebar-footer`, `.af-theme-toggle`, `.af-logout-button`
+- [x] Visual do dropdown respeita tokens CSS de ambos os temas (`--af-elevated`, `--af-border`, `--af-surface-2`, `--af-danger`, `--af-danger-soft`)
+
+---
+
 ### Fase 6 — Inteligência (12+ semanas)
 
 - [ ] Simulador de planejamento tributário (Simples × Presumido × Real)
