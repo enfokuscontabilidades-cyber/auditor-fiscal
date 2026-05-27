@@ -192,7 +192,7 @@ export default function DashboardPage() {
   ]
 
   const S: Record<string, React.CSSProperties> = {
-    page:      { padding: '30px 36px 56px', color: 'var(--af-text)', maxWidth: 1360 },
+    page:      { padding: '30px 36px 56px', color: 'var(--af-text)', width: '100%' },
     grid3:     { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginBottom: 20 },
     grid2:     { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 18, marginBottom: 20 },
     rankItem:  { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--af-border-soft)' },

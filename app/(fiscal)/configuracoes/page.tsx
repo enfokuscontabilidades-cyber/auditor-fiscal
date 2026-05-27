@@ -75,7 +75,7 @@ export default function ConfiguracoesPage() {
   }
 
   return (
-    <div style={{ padding: '32px 40px', maxWidth: 720, color: 'var(--af-text)' }}>
+    <div style={{ padding: '32px 40px', maxWidth: 720, margin: '0 auto', color: 'var(--af-text)' }}>
       <PageHeader
         title="Configurações"
         subtitle="Gerencie o escritório, membros, plano e preferências do sistema."

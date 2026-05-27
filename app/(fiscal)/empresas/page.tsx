@@ -321,7 +321,7 @@ export default function EmpresasPage() {
       padding: '36px 40px 64px',
       fontFamily: 'var(--font-geist-sans)',
       color: 'var(--af-text)',
-      maxWidth: 1100,
+      width: '100%',
     }}>
 
       <PageHeader

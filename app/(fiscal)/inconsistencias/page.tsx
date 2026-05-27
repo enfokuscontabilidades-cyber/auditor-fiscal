@@ -193,7 +193,7 @@ export default function RelatoriosPage() {
     v.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')
 
   const S: Record<string, React.CSSProperties> = {
-    page:      { padding: '30px 36px 64px', color: 'var(--af-text)', maxWidth: 1200 },
+    page:      { padding: '30px 36px 64px', color: 'var(--af-text)', width: '100%' },
     tabBar:    { display: 'flex', borderBottom: '2px solid var(--af-border)', marginBottom: 24, gap: 0, flexWrap: 'wrap' as const },
     filterRow: { display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' as const, alignItems: 'center' },
     input:     { background: 'var(--af-surface)', border: '1px solid var(--af-border)', borderRadius: 7, color: 'var(--af-text)', fontSize: 12, padding: '7px 10px', outline: 'none' },

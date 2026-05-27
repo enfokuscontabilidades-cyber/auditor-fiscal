@@ -29,7 +29,7 @@ const FUNCIONALIDADES = [
 
 export default function ObrigacoesPage() {
   const S: Record<string, React.CSSProperties> = {
-    page: { padding: '36px 40px 64px', fontFamily: 'var(--font-geist-sans)', color: 'var(--af-text)', maxWidth: 1100 },
+    page: { padding: '36px 40px 64px', fontFamily: 'var(--font-geist-sans)', color: 'var(--af-text)', width: '100%' },
     badge: {
       display: 'inline-flex', alignItems: 'center', gap: 6,
       background: 'var(--af-warning-soft)', border: '1px solid color-mix(in srgb, var(--af-warning) 30%, transparent)',

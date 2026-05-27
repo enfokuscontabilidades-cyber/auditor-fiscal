@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getOrgId } from '@/lib/supabase/org'
 import { redirect } from 'next/navigation'
 import SidebarFiscal from './SidebarFiscal'
+import TopbarFiscal from '@/components/TopbarFiscal'
 
 export default async function FiscalLayout({
   children,
@@ -27,7 +28,10 @@ export default async function FiscalLayout({
   return (
     <div className="fiscal-shell">
       <SidebarFiscal />
-      <main className="fiscal-main">{children}</main>
+      <div className="fiscal-area">
+        <TopbarFiscal />
+        <main className="fiscal-main">{children}</main>
+      </div>
     </div>
   )
 }
