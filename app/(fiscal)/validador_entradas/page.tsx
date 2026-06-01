@@ -56,6 +56,7 @@ type LinhaEntrada = {
   tipo_nfe?: TipoNFe;           // terceiro = fornecedor emitiu para a empresa; proprio = empresa emitiu
   cfop_entrada_sugerido?: string; // CFOP sugerido para lançamento no SPED (apenas terceiros)
   cancelada?: boolean;
+  chave_nfe?: string;
 };
 
 type LinhaSaida = {
@@ -78,6 +79,7 @@ type LinhaSaida = {
   alertas_saida: string[]; status: StatusValidacao;
   cancelada?: boolean;
   valor_total_nota?: number;  // vNF da nota — fonte verdade para o total
+  chave_nfe?: string;
 };
 
 // Nota de saída agrupada
@@ -856,7 +858,7 @@ function parseSped(txt: string): {itens:LinhaEntrada[];empresa:DadosEmpresa|null
 
   type RC190={cfop:string;cst_icms:string;aliquota_icms:number;valor_contabil:number;base_icms:number;valor_icms:number};
   type NA={
-    numero_nota:string; fornecedor:string; data:string; temC170:boolean; c190:RC190[];
+    numero_nota:string; fornecedor:string; data:string; temC170:boolean; c190:RC190[]; chave_nfe:string;
     // Totais do C100 para rateio proporcional entre itens
     vl_nf:number;    // VL_DOC    — valor total da nota fiscal (inclui IPI pago)
     vl_merc:number;  // VL_MERC   — valor das mercadorias (soma dos VL_ITEM antes do IPI/frete)
@@ -972,7 +974,7 @@ function parseSped(txt: string): {itens:LinhaEntrada[];empresa:DadosEmpresa|null
         cfop:r.cfop,
         valor_produto:r.valor_contabil, valor_desconto:0, valor_frete:0,
         valor_despesas:0, valor_ipi_item:0, valor_total_nota:na.vl_nf,
-        valor_contabil:r.valor_contabil,
+        valor_contabil:r.valor_contabil, chave_nfe:na.chave_nfe,
         base_icms:r.base_icms, aliquota_icms:r.aliquota_icms, valor_icms:r.valor_icms,
         sugestao:{tipo:null,motivo:"",confianca:null} as AnaliseSugestao,
         classificacao:null as ClassificacaoManual, fonte:"c190" as const,
@@ -1005,6 +1007,7 @@ function parseSped(txt: string): {itens:LinhaEntrada[];empresa:DadosEmpresa|null
         data        : dd,
         temC170     : false,
         c190        : [],
+        chave_nfe   : fc(p,9)||"",
         // ── Campos do C100 para rateio ──────────────────────────────────
         // Layout: |C100|IND_OPER(2)|IND_EMIT(3)|COD_PART(4)|COD_MOD(5)|COD_SIT(6)|
         //         SER(7)|NUM_DOC(8)|CHV_NFE(9)|DT_DOC(10)|DT_E_S(11)|VL_DOC(12)|
@@ -1064,6 +1067,7 @@ function parseSped(txt: string): {itens:LinhaEntrada[];empresa:DadosEmpresa|null
         base_icms:vBcIcms, aliquota_icms:aliqIcms, valor_icms:vlIcms,
         sugestao:{tipo:null,motivo:"",confianca:null} as AnaliseSugestao,
         classificacao:null as ClassificacaoManual, fonte:"sped" as const,
+        chave_nfe:na.chave_nfe,
       };
       const cl2=sugerirClass(b,ehInd), res=validarItem(b,ehInd);
       itens.push({...b,...res,classificacao:cl2});
@@ -1446,7 +1450,7 @@ function agruparEntradas(linhas: LinhaEntrada[]): NotaEntrada[] {
   const m=new Map<string,NotaEntrada>();
   for(const l of linhas){
     const c=`${l.numero_nota}__${l.fornecedor}`;
-    if(!m.has(c)) m.set(c,{chave:c,numero_nota:l.numero_nota,fornecedor:l.fornecedor,data:l.data,total_itens:0,total_contabil:0,total_base_icms:0,total_valor_icms:0,status:"OK",itens:[],sugestoes:[],avisos:[],classificacaoPredominante:null});
+    if(!m.has(c)) m.set(c,{chave:l.chave_nfe||"",numero_nota:l.numero_nota,fornecedor:l.fornecedor,data:l.data,total_itens:0,total_contabil:0,total_base_icms:0,total_valor_icms:0,status:"OK",itens:[],sugestoes:[],avisos:[],classificacaoPredominante:null});
     const g=m.get(c)!;
     g.total_itens++;g.total_contabil+=l.valor_contabil;g.total_base_icms+=l.base_icms;g.total_valor_icms+=l.valor_icms;g.itens.push(l);
     if(l.status==="ALERTA") g.status="ALERTA";
@@ -1467,7 +1471,7 @@ function agruparSaidas(saidas: LinhaSaida[]): NotaSaida[] {
   const m=new Map<string,NotaSaida>();
   for(const s of saidas){
     const c=`${s.numero_nota}__${s.destinatario}`;
-    if(!m.has(c)) m.set(c,{chave:c,numero_nota:s.numero_nota,destinatario:s.destinatario,data:s.data,total_itens:0,total_contabil:0,total_icms:0,total_pis:0,total_cofins:0,total_ibs:0,total_cbs:0,status:"OK",itens:[],tem_cbenef:false,alertas:[]});
+    if(!m.has(c)) m.set(c,{chave:s.chave_nfe||"",numero_nota:s.numero_nota,destinatario:s.destinatario,data:s.data,total_itens:0,total_contabil:0,total_icms:0,total_pis:0,total_cofins:0,total_ibs:0,total_cbs:0,status:"OK",itens:[],tem_cbenef:false,alertas:[]});
     const g=m.get(c)!;
     g.total_itens++;g.total_contabil+=s.valor_contabil;g.total_icms+=s.valor_icms;g.total_pis+=s.valor_pis;g.total_cofins+=s.valor_cofins;g.total_ibs+=s.valor_ibs;g.total_cbs+=s.valor_cbs;
     g.itens.push(s);
@@ -1917,6 +1921,7 @@ export default function ValidadorPage() {
         if(forceTipo === "terceiro"){
           ne.push(...itensEntrada.map(i=>({
             ...i,
+            chave_nfe: chaveNFe,
             valor_contabil:0, valor_produto:0, valor_desconto:0, valor_frete:0,
             valor_despesas:0, valor_ipi_item:0,
             base_icms:0, aliquota_icms:0, valor_icms:0,
@@ -1929,6 +1934,7 @@ export default function ValidadorPage() {
         } else {
           ns.push(...itensSaida.map(i=>({
             ...i,
+            chave_nfe: chaveNFe,
             valor_contabil:0, valor_produto:0, valor_desconto:0, valor_frete:0,
             valor_despesas:0, valor_ipi_item:0,
             base_icms:0, valor_icms:0, valor_st:0, valor_ipi:0,
@@ -1946,6 +1952,7 @@ export default function ValidadorPage() {
             const temDev = devolucaoRefs.has(item.numero_nota) || devolucaoRefs.has(item.fornecedor);
             return {
               ...item,
+              chave_nfe: chaveNFe,
               tipo_nfe:"terceiro" as TipoNFe,
               cfop_entrada_sugerido: sugerirCfopEntrada(item.cfop, item.sugestao.tipo, ehIndustrial),
               ...(temDev ? {
@@ -1956,7 +1963,7 @@ export default function ValidadorPage() {
           }));
         } else {
           // Emissão própria: itens de saída vão para a aba Saídas
-          ns.push(...itensSaida.map(i => ({ ...i })));
+          ns.push(...itensSaida.map(i => ({ ...i, chave_nfe: chaveNFe })));
         }
       }
     }
