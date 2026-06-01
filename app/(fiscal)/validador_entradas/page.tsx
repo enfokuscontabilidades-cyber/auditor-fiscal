@@ -1491,7 +1491,7 @@ function exportExcel(notas: NotaEntrada[], saidas: LinhaSaida[], emp: DadosEmpre
   const wr=(ws:XLSX.WorkSheet,rows:XLSX.CellObject[][])=>rows.forEach((row,r)=>row.forEach((cl,col)=>{ws[XLSX.utils.encode_cell({r,c:col})]=cl;}));
 
   // Notas Entradas — uma linha por nota+CFOP para mostrar breakdown por CFOP
-  const hE=["Nº Nota","Data","Fornecedor","Itens","CFOP","Descrição CFOP","Valor (CFOP)","Base ICMS (CFOP)","ICMS (CFOP)","Valor Total Nota","Classificação","Alertas","Status"];
+  const hE=["Nº Nota","Chave de Acesso","Data","Fornecedor","Itens","CFOP","Descrição CFOP","Valor (CFOP)","Base ICMS (CFOP)","ICMS (CFOP)","Valor Total Nota","Classificação","Alertas","Status"];
   const rE:XLSX.CellObject[][]=[hE.map(h)];
   for(const n of notas){
     // Agrupa itens por CFOP dentro da nota
@@ -1505,6 +1505,7 @@ function exportExcel(notas: NotaEntrada[], saidas: LinhaSaida[], emp: DadosEmpre
     cfopList.forEach(([cfop,vals],idx)=>{
       rE.push([
         c(idx===0?n.numero_nota:"",idx===0),
+        c(idx===0?n.chave:""),
         c(idx===0?n.data:""),
         c(idx===0?n.fornecedor:""),
         c(idx===0?n.total_itens:"",false,undefined,"0"),
@@ -1520,20 +1521,21 @@ function exportExcel(notas: NotaEntrada[], saidas: LinhaSaida[], emp: DadosEmpre
       ]);
     });
   }
-  const wsE=XLSX.utils.aoa_to_sheet(rE.map(r=>r.map(x=>x.v)));wr(wsE,rE);wsE["!cols"]=[{wch:14},{wch:12},{wch:36},{wch:8},{wch:8},{wch:38},{wch:16},{wch:16},{wch:16},{wch:16},{wch:20},{wch:55},{wch:10}];
+  const wsE=XLSX.utils.aoa_to_sheet(rE.map(r=>r.map(x=>x.v)));wr(wsE,rE);wsE["!cols"]=[{wch:14},{wch:46},{wch:12},{wch:36},{wch:8},{wch:8},{wch:38},{wch:16},{wch:16},{wch:16},{wch:16},{wch:20},{wch:55},{wch:10}];
   XLSX.utils.book_append_sheet(wb,wsE,"Notas Entradas");
 
-  const hI=["Nº Nota","Data","Fornecedor","Cód.","Descrição","NCM","CFOP Forn.","CFOP Entrada","CST","Valor Produto","Frete Rateado","Despesas Rateadas","IPI Item","Desconto Rateado","Valor Contábil Total","Base ICMS","Alíq. ICMS","ICMS","Classificação","Sugestão","Confiança","Alertas","Status","Fonte"];
+  const hI=["Nº Nota","Chave de Acesso","Data","Fornecedor","Cód.","Descrição","NCM","CFOP Forn.","CFOP Entrada","CST","Valor Produto","Frete Rateado","Despesas Rateadas","IPI Item","Desconto Rateado","Valor Contábil Total","Base ICMS","Alíq. ICMS","ICMS","Classificação","Sugestão","Confiança","Alertas","Status","Fonte"];
   const rI:XLSX.CellObject[][]=[hI.map(h)];
-  for(const n of notas)for(const i of n.itens){const cl=i.classificacao;const st=i.sugestao.tipo?`${i.sugestao.tipo==="uso_consumo"?"UC":i.sugestao.tipo==="imobilizado"?"Imobilizado":"Combustível"} – ${i.sugestao.motivo}`:"";const fl=i.fonte==="xml"?"XML NF-e":i.fonte==="c190"?"C190 (resumo)":"SPED C170";rI.push([c(n.numero_nota,true),c(i.data),c(n.fornecedor),c(i.codigo_produto),c(i.descricao),c(i.ncm),c(i.cfop),c(i.tipo_nfe==="terceiro"?i.cfop_entrada_sugerido||"":"—"),c(i.cst_icms),c(i.valor_produto||i.valor_contabil,false,undefined,"#,##0.00"),c(i.valor_frete||0,false,undefined,"#,##0.00"),c(i.valor_despesas||0,false,undefined,"#,##0.00"),c(i.valor_ipi_item||0,false,undefined,"#,##0.00"),c(i.valor_desconto||0,false,undefined,"#,##0.00"),c(i.valor_contabil,false,undefined,"#,##0.00"),c(i.base_icms,false,undefined,"#,##0.00"),c(i.aliquota_icms,false,undefined,'0.00"%"'),c(i.valor_icms,false,undefined,"#,##0.00"),c(cl?CLASSIFICACAO_LABEL[cl]:"A classificar",false,cl?CCl[cl]:undefined),c(st),c(i.sugestao.confianca||""),c(i.avisos.filter(a=>a!=="Sem inconsistências.").join(" | ")),c(i.status,true,i.status==="ALERTA"?CA:CO),c(fl)]);}
-  const wsI=XLSX.utils.aoa_to_sheet(rI.map(r=>r.map(x=>x.v)));wr(wsI,rI);wsI["!cols"]=[{wch:12},{wch:12},{wch:36},{wch:12},{wch:44},{wch:12},{wch:8},{wch:8},{wch:8},{wch:14},{wch:14},{wch:12},{wch:14},{wch:22},{wch:45},{wch:10},{wch:55},{wch:10},{wch:14}];
+  for(const n of notas)for(const i of n.itens){const cl=i.classificacao;const st=i.sugestao.tipo?`${i.sugestao.tipo==="uso_consumo"?"UC":i.sugestao.tipo==="imobilizado"?"Imobilizado":"Combustível"} – ${i.sugestao.motivo}`:"";const fl=i.fonte==="xml"?"XML NF-e":i.fonte==="c190"?"C190 (resumo)":"SPED C170";rI.push([c(n.numero_nota,true),c(n.chave),c(i.data),c(n.fornecedor),c(i.codigo_produto),c(i.descricao),c(i.ncm),c(i.cfop),c(i.tipo_nfe==="terceiro"?i.cfop_entrada_sugerido||"":"—"),c(i.cst_icms),c(i.valor_produto||i.valor_contabil,false,undefined,"#,##0.00"),c(i.valor_frete||0,false,undefined,"#,##0.00"),c(i.valor_despesas||0,false,undefined,"#,##0.00"),c(i.valor_ipi_item||0,false,undefined,"#,##0.00"),c(i.valor_desconto||0,false,undefined,"#,##0.00"),c(i.valor_contabil,false,undefined,"#,##0.00"),c(i.base_icms,false,undefined,"#,##0.00"),c(i.aliquota_icms,false,undefined,'0.00"%"'),c(i.valor_icms,false,undefined,"#,##0.00"),c(cl?CLASSIFICACAO_LABEL[cl]:"A classificar",false,cl?CCl[cl]:undefined),c(st),c(i.sugestao.confianca||""),c(i.avisos.filter(a=>a!=="Sem inconsistências.").join(" | ")),c(i.status,true,i.status==="ALERTA"?CA:CO),c(fl)]);}
+  const wsI=XLSX.utils.aoa_to_sheet(rI.map(r=>r.map(x=>x.v)));wr(wsI,rI);wsI["!cols"]=[{wch:12},{wch:46},{wch:12},{wch:36},{wch:12},{wch:44},{wch:12},{wch:8},{wch:8},{wch:8},{wch:14},{wch:14},{wch:12},{wch:14},{wch:22},{wch:45},{wch:10},{wch:55},{wch:10},{wch:14}];
   XLSX.utils.book_append_sheet(wb,wsI,"Itens Entradas");
 
   if(saidas.length>0){
     // Resumo Notas Saídas — uma linha por nota + CFOP
-    const hNS=["Nº Nota","Data","Destinatário","CFOP","Descrição CFOP","Valor (CFOP)","Base ICMS (CFOP)","ICMS (CFOP)","Valor Total Nota","ICMS Total Nota","PIS Total","COFINS Total","Alertas","Status"];
+    const hNS=["Nº Nota","Chave de Acesso","Data","Destinatário","CFOP","Descrição CFOP","Valor (CFOP)","Base ICMS (CFOP)","ICMS (CFOP)","Valor Total Nota","ICMS Total Nota","PIS Total","COFINS Total","Alertas","Status"];
     const rNS:XLSX.CellObject[][]=[hNS.map(h)];
     const notasSaidasAgrup=agruparSaidas(saidas);
+    const chaveMapS=new Map<string,string>();for(const ns of notasSaidasAgrup)chaveMapS.set(ns.numero_nota,ns.chave);
     for(const n of notasSaidasAgrup){
       const cfopMapS=new Map<string,{valor:number;base:number;icms:number}>();
       for(const i of n.itens){if(!cfopMapS.has(i.cfop))cfopMapS.set(i.cfop,{valor:0,base:0,icms:0});const g=cfopMapS.get(i.cfop)!;g.valor+=i.valor_contabil;g.base+=i.base_icms;g.icms+=i.valor_icms;}
@@ -1541,6 +1543,7 @@ function exportExcel(notas: NotaEntrada[], saidas: LinhaSaida[], emp: DadosEmpre
       cfopListS.forEach(([cfop,vals],idx)=>{
         rNS.push([
           c(idx===0?n.numero_nota:"",idx===0),
+          c(idx===0?n.chave:""),
           c(idx===0?n.data:""),
           c(idx===0?n.destinatario:""),
           c(cfop,true),
@@ -1557,13 +1560,13 @@ function exportExcel(notas: NotaEntrada[], saidas: LinhaSaida[], emp: DadosEmpre
         ]);
       });
     }
-    const wsNS=XLSX.utils.aoa_to_sheet(rNS.map(r=>r.map(x=>x.v)));wr(wsNS,rNS);wsNS["!cols"]=[{wch:12},{wch:12},{wch:36},{wch:8},{wch:38},{wch:16},{wch:16},{wch:16},{wch:16},{wch:16},{wch:14},{wch:14},{wch:50},{wch:10}];
+    const wsNS=XLSX.utils.aoa_to_sheet(rNS.map(r=>r.map(x=>x.v)));wr(wsNS,rNS);wsNS["!cols"]=[{wch:12},{wch:46},{wch:12},{wch:36},{wch:8},{wch:38},{wch:16},{wch:16},{wch:16},{wch:16},{wch:16},{wch:14},{wch:14},{wch:50},{wch:10}];
     XLSX.utils.book_append_sheet(wb,wsNS,"Resumo Saídas");
 
-    const hS=["Nº Nota","Data","Destinatário","Cód.","Descrição","NCM","CFOP","CST ICMS","CST PIS","CST COFINS","Valor Produto","Frete Rateado","Despesas Rateadas","IPI Item","Desconto Rateado","Valor Contábil Total","Base ICMS","Alíq. ICMS","ICMS","ICMS-ST","IPI","PIS","COFINS","IBS","CBS","CBenef","Benefício Fiscal","Alertas","Status"];
+    const hS=["Nº Nota","Chave de Acesso","Data","Destinatário","Cód.","Descrição","NCM","CFOP","CST ICMS","CST PIS","CST COFINS","Valor Produto","Frete Rateado","Despesas Rateadas","IPI Item","Desconto Rateado","Valor Contábil Total","Base ICMS","Alíq. ICMS","ICMS","ICMS-ST","IPI","PIS","COFINS","IBS","CBS","CBenef","Benefício Fiscal","Alertas","Status"];
     const rS:XLSX.CellObject[][]=[hS.map(h)];
-    for(const s of saidas){rS.push([c(s.numero_nota,true),c(s.data),c(s.destinatario),c(s.codigo_produto),c(s.descricao),c(s.ncm),c(s.cfop),c(s.cst_icms),c(s.cst_pis),c(s.cst_cofins),c(s.valor_produto||s.valor_contabil,false,undefined,"#,##0.00"),c(s.valor_frete||0,false,undefined,"#,##0.00"),c(s.valor_despesas||0,false,undefined,"#,##0.00"),c(s.valor_ipi_item||0,false,undefined,"#,##0.00"),c(s.valor_desconto||0,false,undefined,"#,##0.00"),c(s.valor_contabil,false,undefined,"#,##0.00"),c(s.base_icms,false,undefined,"#,##0.00"),c(s.aliquota_icms,false,undefined,'0.00"%"'),c(s.valor_icms,false,undefined,"#,##0.00"),c(s.valor_st,false,undefined,"#,##0.00"),c(s.valor_ipi,false,undefined,"#,##0.00"),c(s.valor_pis,false,undefined,"#,##0.00"),c(s.valor_cofins,false,undefined,"#,##0.00"),c(s.valor_ibs,false,undefined,"#,##0.00"),c(s.valor_cbs,false,undefined,"#,##0.00"),c(s.cbenef,false,s.cbenef?"FFE8E0FA":undefined),c(s.cbenef_descricao),c(s.alertas_saida.join(" | ")),c(s.status,true,s.status==="ALERTA"?CA:CO)]);}
-    const wsS=XLSX.utils.aoa_to_sheet(rS.map(r=>r.map(x=>x.v)));wr(wsS,rS);wsS["!cols"]=[{wch:12},{wch:12},{wch:38},{wch:12},{wch:42},{wch:12},{wch:8},{wch:8},{wch:10},{wch:10},{wch:14},{wch:14},{wch:12},{wch:14},{wch:14},{wch:12},{wch:12},{wch:12},{wch:12},{wch:12},{wch:14},{wch:55},{wch:55},{wch:10}];
+    for(const s of saidas){rS.push([c(s.numero_nota,true),c(chaveMapS.get(s.numero_nota)||""),c(s.data),c(s.destinatario),c(s.codigo_produto),c(s.descricao),c(s.ncm),c(s.cfop),c(s.cst_icms),c(s.cst_pis),c(s.cst_cofins),c(s.valor_produto||s.valor_contabil,false,undefined,"#,##0.00"),c(s.valor_frete||0,false,undefined,"#,##0.00"),c(s.valor_despesas||0,false,undefined,"#,##0.00"),c(s.valor_ipi_item||0,false,undefined,"#,##0.00"),c(s.valor_desconto||0,false,undefined,"#,##0.00"),c(s.valor_contabil,false,undefined,"#,##0.00"),c(s.base_icms,false,undefined,"#,##0.00"),c(s.aliquota_icms,false,undefined,'0.00"%"'),c(s.valor_icms,false,undefined,"#,##0.00"),c(s.valor_st,false,undefined,"#,##0.00"),c(s.valor_ipi,false,undefined,"#,##0.00"),c(s.valor_pis,false,undefined,"#,##0.00"),c(s.valor_cofins,false,undefined,"#,##0.00"),c(s.valor_ibs,false,undefined,"#,##0.00"),c(s.valor_cbs,false,undefined,"#,##0.00"),c(s.cbenef,false,s.cbenef?"FFE8E0FA":undefined),c(s.cbenef_descricao),c(s.alertas_saida.join(" | ")),c(s.status,true,s.status==="ALERTA"?CA:CO)]);}
+    const wsS=XLSX.utils.aoa_to_sheet(rS.map(r=>r.map(x=>x.v)));wr(wsS,rS);wsS["!cols"]=[{wch:12},{wch:46},{wch:12},{wch:38},{wch:12},{wch:42},{wch:12},{wch:8},{wch:8},{wch:10},{wch:10},{wch:14},{wch:14},{wch:12},{wch:14},{wch:14},{wch:12},{wch:12},{wch:12},{wch:12},{wch:12},{wch:14},{wch:55},{wch:55},{wch:10}];
     XLSX.utils.book_append_sheet(wb,wsS,"Notas Saídas");
   }
 
