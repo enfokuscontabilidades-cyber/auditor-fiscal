@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { getOrgId } from '@/lib/supabase/org'
+import { validarEmpresaDaOrg, respostaForbidden } from '@/lib/supabase/validation'
 import { NextResponse } from 'next/server'
 
 /**
@@ -31,6 +32,10 @@ export async function DELETE(request: Request) {
   const orgId = await getOrgId(supabase, user.id)
   if (!orgId) return NextResponse.json({ error: 'Usuário sem organização' }, { status: 403 })
 
+  if (!await validarEmpresaDaOrg(supabase, empresaId, orgId)) {
+    return respostaForbidden('empresa_id')
+  }
+
   let documentosRemovidos = 0
   let xmlsRemovidos = 0
 
@@ -56,9 +61,6 @@ export async function DELETE(request: Request) {
     .eq('competencia', competencia)
 
   if (!errXmlComp?.message?.includes('competencia')) {
-    // Coluna existe — contamos separadamente via select antes (já foram deletados)
-    // Neste path o delete já ocorreu; buscar contagem não é possível após delete sem select
-    // Informamos apenas que ocorreu a limpeza
     xmlsRemovidos = -1  // indica "limpeza realizada, contagem não disponível"
   } else {
     // Tentativa B: coluna não existe (migração pendente) — limpar via sessões

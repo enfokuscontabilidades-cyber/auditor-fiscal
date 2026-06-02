@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { getOrgId } from '@/lib/supabase/org'
+import { validarEmpresaDaOrg, respostaForbidden } from '@/lib/supabase/validation'
 import { NextResponse } from 'next/server'
 
 export async function GET(request: Request) {
@@ -38,6 +39,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'descricao e vencimento são obrigatórios' }, { status: 400 })
   }
 
+  // empresa_id é opcional em cobranças, mas se informado deve pertencer à org
+  if (empresa_id) {
+    if (!await validarEmpresaDaOrg(supabase, empresa_id, orgId)) {
+      return respostaForbidden('empresa_id')
+    }
+  }
+
   const { data, error } = await supabase
     .from('cobrancas')
     .insert({
@@ -67,6 +75,15 @@ export async function PUT(request: Request) {
 
   const body = await request.json()
   const { status, pago_em, empresa_id, descricao, valor, vencimento, observacao } = body
+
+  // Se empresa_id for alterado, validar que pertence à org
+  if (empresa_id !== undefined && empresa_id !== null) {
+    const orgId = await getOrgId(supabase, user.id)
+    if (!orgId) return NextResponse.json({ error: 'Sem organização' }, { status: 403 })
+    if (!await validarEmpresaDaOrg(supabase, empresa_id, orgId)) {
+      return respostaForbidden('empresa_id')
+    }
+  }
 
   const { data, error } = await supabase
     .from('cobrancas')

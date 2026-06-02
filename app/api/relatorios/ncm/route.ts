@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getOrgId } from '@/lib/supabase/org'
+import { validarEmpresaDaOrg, respostaForbidden } from '@/lib/supabase/validation'
 
 export async function GET(req: Request) {
   const supabase = await createClient()
@@ -13,6 +15,13 @@ export async function GET(req: Request) {
   const limit = parseInt(url.searchParams.get('limit') ?? '15', 10)
 
   if (!empresaId) return NextResponse.json({ error: 'empresa_id obrigatório' }, { status: 400 })
+
+  const orgId = await getOrgId(supabase, user.id)
+  if (!orgId) return NextResponse.json({ error: 'Usuário sem organização' }, { status: 403 })
+
+  if (!await validarEmpresaDaOrg(supabase, empresaId, orgId)) {
+    return respostaForbidden('empresa_id')
+  }
 
   let query = supabase
     .from('fa_documentos_itens')

@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { getOrgId } from '@/lib/supabase/org'
+import { validarEmpresaDaOrg, respostaForbidden } from '@/lib/supabase/validation'
 import { NextResponse } from 'next/server'
 import type { DocumentoFiscalInput, DocumentoFiscalItemInput } from '@/lib/types'
 
@@ -28,6 +29,10 @@ export async function POST(request: Request) {
   const orgId = await getOrgId(supabase, user.id)
   if (!orgId) return NextResponse.json({ error: 'Usuário sem organização' }, { status: 403 })
 
+  if (!await validarEmpresaDaOrg(supabase, empresa_id, orgId)) {
+    return respostaForbidden('empresa_id')
+  }
+
   let salvos = 0
   const duplicados = 0  // mantido na resposta para compatibilidade; sempre 0 agora
   const erros: string[] = []
@@ -36,9 +41,6 @@ export async function POST(request: Request) {
     const doc = documentos[idx]
 
     try {
-      // Verificar se é evento de cancelamento
-      // (tratado pelo frontend antes de chamar esta API)
-
       // Upsert documento — atualiza se já existir (garante que reimports reflitam
       // eventuais correções no parser sem exigir "Limpar competência" manualmente)
       const { data: docData, error: docErr } = await supabase
@@ -105,6 +107,13 @@ export async function PATCH(request: Request) {
 
   if (!empresa_id || !chave_acesso) {
     return NextResponse.json({ error: 'empresa_id e chave_acesso são obrigatórios' }, { status: 400 })
+  }
+
+  const orgId = await getOrgId(supabase, user.id)
+  if (!orgId) return NextResponse.json({ error: 'Usuário sem organização' }, { status: 403 })
+
+  if (!await validarEmpresaDaOrg(supabase, empresa_id, orgId)) {
+    return respostaForbidden('empresa_id')
   }
 
   const { error } = await supabase
