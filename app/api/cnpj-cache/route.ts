@@ -57,6 +57,21 @@ function normalizar(
   // ── Campos comuns (raiz em ambos os formatos) ────────────────────────────────
   const nj  = (raw.natureza_juridica  ?? {}) as Record<string, unknown>
   const pt  = (raw.porte              ?? {}) as Record<string, unknown>
+  const simplesObj = (
+    raw.simples && typeof raw.simples === 'object'
+      ? raw.simples as Record<string, unknown>
+      : {}
+  )
+
+  function b(v: unknown): boolean | undefined {
+    if (typeof v === 'boolean') return v
+    if (typeof v === 'string') {
+      const t = v.trim().toLowerCase()
+      if (['true', 'sim', 's', '1'].includes(t)) return true
+      if (['false', 'nao', 'não', 'n', '0'].includes(t)) return false
+    }
+    return undefined
+  }
 
   // capital_social: STRING no Formato B, number no Formato A
   const capRaw = raw.capital_social ?? estab.capital_social
@@ -210,6 +225,12 @@ function normalizar(
     porte:                   d(pt, typeof raw.porte === 'string' ? raw.porte : undefined),
     tipo,
     capital_social:          capitalSocial,
+    opcao_simples:           b(simplesObj.simples ?? raw.opcao_simples),
+    opcao_mei:               b(simplesObj.mei ?? raw.opcao_mei),
+    data_opcao_simples:      s(simplesObj.data_opcao_simples ?? raw.data_opcao_simples),
+    data_exclusao_simples:   s(simplesObj.data_exclusao_simples ?? raw.data_exclusao_simples),
+    data_opcao_mei:          s(simplesObj.data_opcao_mei ?? raw.data_opcao_mei),
+    data_exclusao_mei:       s(simplesObj.data_exclusao_mei ?? raw.data_exclusao_mei),
 
     endereco: {
       logradouro,

@@ -1,68 +1,101 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { getOrgId } from '@/lib/supabase/org'
-import { validarEmpresaDaOrg, respostaForbidden } from '@/lib/supabase/validation'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { competenciasEntre } from '@/lib/fiscal/competencia'
+
+const SERVER_TIMEOUT_MS = 12_000
+
+async function withTimeout<T>(promise: PromiseLike<T>, label: string): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  const timer = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => reject(new Error(`${label} demorou mais de ${SERVER_TIMEOUT_MS / 1000}s`)), SERVER_TIMEOUT_MS)
+  })
+
+  try {
+    return await Promise.race([promise, timer])
+  } finally {
+    if (timeout) clearTimeout(timeout)
+  }
+}
 
 export async function GET(req: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
+  if (!user) return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
 
   const url = new URL(req.url)
   const empresaId = url.searchParams.get('empresa_id')
   const competenciaInicio = url.searchParams.get('competencia_inicio')
   const competenciaFim = url.searchParams.get('competencia_fim')
-  const limit = parseInt(url.searchParams.get('limit') ?? '15', 10)
-  const tipoMovimento = url.searchParams.get('tipo_movimento') // 'entrada' | 'saida' | null
+  const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '5000', 10) || 5000, 5000)
+  const tipoMovimento = url.searchParams.get('tipo_movimento')
+  const competenciasFiltro = competenciasEntre(competenciaInicio, competenciaFim)
 
-  if (!empresaId) return NextResponse.json({ error: 'empresa_id obrigatório' }, { status: 400 })
+  if (!empresaId) return NextResponse.json({ error: 'empresa_id obrigatorio' }, { status: 400 })
 
-  const orgId = await getOrgId(supabase, user.id)
-  if (!orgId) return NextResponse.json({ error: 'Usuário sem organização' }, { status: 403 })
-
-  if (!await validarEmpresaDaOrg(supabase, empresaId, orgId)) {
-    return respostaForbidden('empresa_id')
+  if (competenciasFiltro.length === 0) {
+    return NextResponse.json({ error: 'Informe uma competencia inicial ou final para carregar o relatorio.' }, { status: 400 })
   }
 
-  let query = supabase
-    .from('fa_documentos_itens')
-    .select('descricao, ncm, cfop, valor_total, quantidade, fa_documentos_fiscais!inner(status, tipo_movimento, data_competencia)')
+  const admin = createAdminClient()
+  const { data: membro, error: membroError } = await withTimeout(
+    admin
+      .from('membros_organizacao')
+      .select('org_id')
+      .eq('user_id', user.id)
+      .limit(1)
+      .maybeSingle(),
+    'Validacao da organizacao',
+  )
+
+  if (membroError) {
+    return NextResponse.json({ error: `Falha ao validar organizacao: ${membroError.message}` }, { status: 500 })
+  }
+
+  const orgId = typeof membro?.org_id === 'string' ? membro.org_id : null
+  if (!orgId) return NextResponse.json({ error: 'Usuario sem organizacao' }, { status: 403 })
+
+  const { data: empresa, error: empresaError } = await withTimeout(
+    admin
+      .from('empresas')
+      .select('id')
+      .eq('id', empresaId)
+      .eq('org_id', orgId)
+      .limit(1)
+      .maybeSingle(),
+    'Validacao da empresa',
+  )
+
+  if (empresaError) {
+    return NextResponse.json({ error: `Falha ao validar empresa: ${empresaError.message}` }, { status: 500 })
+  }
+
+  if (!empresa) {
+    return NextResponse.json({ error: 'empresa_id invalido ou sem permissao' }, { status: 403 })
+  }
+
+  let query = admin
+    .from('rel_resumo_produtos_mensal')
+    .select('competencia, tipo_movimento, descricao, ncm, valor_total, quantidade, count')
+    .eq('org_id', orgId)
     .eq('empresa_id', empresaId)
+    .in('competencia', competenciasFiltro)
 
-  if (competenciaInicio) query = query.gte('fa_documentos_fiscais.data_competencia', competenciaInicio)
-  if (competenciaFim) query = query.lte('fa_documentos_fiscais.data_competencia', competenciaFim)
-  if (tipoMovimento) query = query.eq('fa_documentos_fiscais.tipo_movimento', tipoMovimento)
+  if (tipoMovimento) query = query.eq('tipo_movimento', tipoMovimento)
 
-  const { data, error } = await query.limit(50000)
+  const { data, error } = await withTimeout(
+    query
+      .order('valor_total', { ascending: false })
+      .limit(limit),
+    'Consulta do resumo mensal de produtos',
+  )
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-
-  // Agregar por (descricao + ncm)
-  const mapa = new Map<string, { descricao: string; ncm: string; valor_total: number; quantidade: number; count: number }>()
-
-  for (const item of (data ?? [])) {
-    const docs = item.fa_documentos_fiscais as unknown as { status: string; tipo_movimento: string } | null
-    if (docs?.status === 'cancelada') continue
-
-    const chave = `${item.descricao}||${item.ncm ?? ''}`
-    if (!mapa.has(chave)) {
-      mapa.set(chave, {
-        descricao: item.descricao ?? '',
-        ncm: item.ncm ?? '',
-        valor_total: 0,
-        quantidade: 0,
-        count: 0,
-      })
-    }
-    const m = mapa.get(chave)!
-    m.valor_total += item.valor_total ?? 0
-    m.quantidade += item.quantidade ?? 0
-    m.count++
+  if (error) {
+    return NextResponse.json(
+      { error: `Resumo mensal de produtos indisponivel. Detalhe: ${error.message}` },
+      { status: 500 },
+    )
   }
 
-  const resultado = Array.from(mapa.values())
-    .sort((a, b) => b.valor_total - a.valor_total)
-    .slice(0, limit)
-
-  return NextResponse.json(resultado)
+  return NextResponse.json(Array.isArray(data) ? data : [])
 }

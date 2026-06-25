@@ -2,12 +2,14 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from 'next/navigation'
-import { Upload, X, FileText, AlertTriangle, ChevronDown, ChevronRight, Trash2, Download, TrendingUp, Calculator, Settings, RefreshCw, CheckCircle2, Info } from "lucide-react"
+import { Upload, X, FileText, AlertTriangle, ChevronDown, ChevronRight, Trash2, Download, TrendingUp, Calculator, Settings, RefreshCw, CheckCircle2, Info, Printer } from "lucide-react"
 import * as XLSX from "xlsx"
 import { useEmpresaAtiva } from "@/lib/hooks/useEmpresaAtiva"
 import { parsePgdasPdf } from "@/lib/simples/parsePgdas"
 import { parseNfeParaDocumento, detectarCancelamento } from "@/lib/nfe/parseNfe"
 import { apurarSimples } from "@/lib/simples/calcularSimples"
+import { classificarCfop } from "@/lib/simples/cfopReceita"
+import { extrairXmlsDeArquivos } from "@/lib/fiscal/xmlArchive"
 import type { SnDeclaracao, SnParsedData, ArquivoXml, DocumentoFiscal, DocumentoFiscalItem, DocumentoFiscalItemInput, SnReceitaMensal } from "@/lib/types"
 import type { ResultadoApuracao } from "@/lib/simples/calcularSimples"
 import type { NfeParseResult } from "@/lib/nfe/parseNfe"
@@ -41,6 +43,222 @@ function dataParaCompetencia(dataEmissao: string): string {
 }
 
 // Retorna os N meses anteriores à competência informada (mesmo algoritmo da API)
+type ParsedXmlItens = {
+  documento?: {
+    tipo_movimento?: unknown
+    impacto_receita?: unknown
+  }
+  metadados?: {
+    tpNF?: unknown
+    emitente_cnpj?: unknown
+  }
+  itens?: Array<Partial<DocumentoFiscalItem>>
+  itens_entrada?: Array<{ cfop?: unknown; cfop_entrada_sugerido?: unknown; descricao?: unknown; ncm?: unknown; valor_contabil?: unknown; valor_total?: unknown }>
+  itens_saida?: Array<{ cfop?: unknown; descricao?: unknown; ncm?: unknown; valor_contabil?: unknown; valor_total?: unknown }>
+}
+
+function movimentoPorCfopXml(cfop: unknown): 'entrada' | 'saida' | null {
+  if (typeof cfop !== 'string') return null
+  const primeiro = cfop.trim().charAt(0)
+  if (['1', '2', '3'].includes(primeiro)) return 'entrada'
+  if (['5', '6', '7'].includes(primeiro)) return 'saida'
+  return null
+}
+
+function movimentoPorItensXml(parsedData: unknown): 'entrada' | 'saida' | null {
+  if (!parsedData || typeof parsedData !== 'object') return null
+  const parsed = parsedData as ParsedXmlItens
+  let entradas = 0
+  let saidas = 0
+
+  for (const item of parsed.itens_entrada ?? []) {
+    const movimento = movimentoPorCfopXml(item.cfop_entrada_sugerido) ?? movimentoPorCfopXml(item.cfop)
+    if (movimento === 'entrada') entradas++
+    if (movimento === 'saida') saidas++
+  }
+
+  for (const item of parsed.itens_saida ?? []) {
+    const movimento = movimentoPorCfopXml(item.cfop)
+    if (movimento === 'entrada') entradas++
+    if (movimento === 'saida') saidas++
+  }
+
+  for (const item of parsed.itens ?? []) {
+    const movimento = movimentoPorCfopXml(item.cfop)
+    if (movimento === 'entrada') entradas++
+    if (movimento === 'saida') saidas++
+  }
+
+  if (entradas === 0 && saidas === 0) return null
+  return saidas > entradas ? 'saida' : 'entrada'
+}
+
+function impactoPorParsedXml(parsedData: unknown): 'soma_receita' | 'reduz_receita' | 'sem_impacto' | 'pendente_revisao' | null {
+  if (!parsedData || typeof parsedData !== 'object') return null
+  const parsed = parsedData as ParsedXmlItens
+  const impactos = (parsed.itens ?? []).map(item => item.impacto_receita).filter(Boolean)
+  if (impactos.some(impacto => impacto === 'soma_receita')) return 'soma_receita'
+  if (impactos.some(impacto => impacto === 'reduz_receita')) return 'reduz_receita'
+  if (impactos.length > 0 && impactos.every(impacto => impacto === 'sem_impacto')) return 'sem_impacto'
+  const impacto = parsed.documento?.impacto_receita
+  if (impacto === 'soma_receita' || impacto === 'reduz_receita' || impacto === 'sem_impacto' || impacto === 'pendente_revisao') return impacto
+  return null
+}
+
+function numeroXml(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+function itensPorParsedXml(doc: DocumentoFiscal, cnpjEmpresa: string, ehIndustrial: boolean): DocumentoFiscalItem[] {
+  if (!doc.parsed_data || typeof doc.parsed_data !== 'object') return []
+  const parsed = doc.parsed_data as ParsedXmlItens
+  const itens: DocumentoFiscalItem[] = []
+  const tpNF = typeof parsed.metadados?.tpNF === 'string' ? parsed.metadados.tpNF : (doc.tipo_movimento === 'saida' ? '1' : '0')
+  const emitente = typeof parsed.metadados?.emitente_cnpj === 'string' ? parsed.metadados.emitente_cnpj : doc.emitente_cnpj ?? ''
+
+  for (const [idx, item] of (parsed.itens ?? []).entries()) {
+    const cfop = typeof item.cfop === 'string' ? item.cfop : ''
+    if (!cfop) continue
+    const classificacao = classificarCfop(cfop, tpNF, emitente, cnpjEmpresa, ehIndustrial)
+    itens.push({
+      id: `${doc.id}-xml-${idx}`,
+      org_id: doc.org_id,
+      empresa_id: doc.empresa_id,
+      documento_id: doc.id,
+      item_numero: typeof item.item_numero === 'number' ? item.item_numero : idx + 1,
+      codigo_produto: item.codigo_produto,
+      descricao: item.descricao,
+      ncm: item.ncm,
+      cest: item.cest,
+      cfop,
+      unidade: item.unidade,
+      quantidade: numeroXml(item.quantidade) || 1,
+      valor_unitario: numeroXml(item.valor_unitario),
+      valor_total: numeroXml(item.valor_total),
+      valor_desconto: numeroXml(item.valor_desconto),
+      valor_frete: numeroXml(item.valor_frete),
+      cst_icms: item.cst_icms,
+      csosn: item.csosn,
+      valor_bc_icms: numeroXml(item.valor_bc_icms),
+      aliquota_icms: numeroXml(item.aliquota_icms),
+      valor_icms: numeroXml(item.valor_icms),
+      valor_bc_st: numeroXml(item.valor_bc_st),
+      valor_st: numeroXml(item.valor_st),
+      cst_pis: item.cst_pis,
+      valor_bc_pis: numeroXml(item.valor_bc_pis),
+      aliquota_pis: numeroXml(item.aliquota_pis),
+      valor_pis: numeroXml(item.valor_pis),
+      cst_cofins: item.cst_cofins,
+      valor_bc_cofins: numeroXml(item.valor_bc_cofins),
+      aliquota_cofins: numeroXml(item.aliquota_cofins),
+      valor_cofins: numeroXml(item.valor_cofins),
+      valor_ipi: numeroXml(item.valor_ipi),
+      classificacao: item.classificacao ?? 'outros',
+      natureza_receita_simples: classificacao.natureza_receita_simples,
+      tipo_movimento: classificacao.tipo_movimento,
+      impacto_receita: classificacao.impacto_receita,
+      anexo_sugerido: classificacao.anexo_sugerido ?? undefined,
+      regra_aplicada: classificacao.regra_aplicada,
+      classificacao_manual: item.classificacao_manual ?? false,
+      created_at: doc.created_at,
+    })
+  }
+
+  for (const [idx, item] of (parsed.itens_saida ?? []).entries()) {
+    const cfop = typeof item.cfop === 'string' ? item.cfop : ''
+    if (!cfop) continue
+    const classificacao = classificarCfop(cfop, '1', emitente, cnpjEmpresa, ehIndustrial)
+    itens.push({
+      id: `${doc.id}-saida-${idx}`,
+      org_id: doc.org_id,
+      empresa_id: doc.empresa_id,
+      documento_id: doc.id,
+      item_numero: idx + 1,
+      cfop,
+      quantidade: 1,
+      valor_unitario: numeroXml(item.valor_contabil ?? item.valor_total),
+      valor_total: numeroXml(item.valor_contabil ?? item.valor_total),
+      valor_desconto: 0,
+      valor_frete: 0,
+      valor_bc_icms: 0,
+      aliquota_icms: 0,
+      valor_icms: 0,
+      valor_bc_st: 0,
+      valor_st: 0,
+      valor_bc_pis: 0,
+      aliquota_pis: 0,
+      valor_pis: 0,
+      valor_bc_cofins: 0,
+      aliquota_cofins: 0,
+      valor_cofins: 0,
+      valor_ipi: 0,
+      classificacao: 'outros',
+      natureza_receita_simples: classificacao.natureza_receita_simples,
+      tipo_movimento: classificacao.tipo_movimento,
+      impacto_receita: classificacao.impacto_receita,
+      anexo_sugerido: classificacao.anexo_sugerido ?? undefined,
+      regra_aplicada: classificacao.regra_aplicada,
+      classificacao_manual: false,
+      created_at: doc.created_at,
+    })
+  }
+
+  for (const [idx, item] of (parsed.itens_entrada ?? []).entries()) {
+    const cfop = typeof item.cfop_entrada_sugerido === 'string'
+      ? item.cfop_entrada_sugerido
+      : typeof item.cfop === 'string'
+        ? item.cfop
+        : ''
+    if (!cfop) continue
+    const classificacao = classificarCfop(cfop, '0', emitente, cnpjEmpresa, ehIndustrial)
+    itens.push({
+      id: `${doc.id}-entrada-${idx}`,
+      org_id: doc.org_id,
+      empresa_id: doc.empresa_id,
+      documento_id: doc.id,
+      item_numero: idx + 1,
+      descricao: typeof item.descricao === 'string' ? item.descricao : undefined,
+      ncm: typeof item.ncm === 'string' ? item.ncm : undefined,
+      cfop,
+      quantidade: 1,
+      valor_unitario: numeroXml(item.valor_contabil ?? item.valor_total),
+      valor_total: numeroXml(item.valor_contabil ?? item.valor_total),
+      valor_desconto: 0,
+      valor_frete: 0,
+      valor_bc_icms: 0,
+      aliquota_icms: 0,
+      valor_icms: 0,
+      valor_bc_st: 0,
+      valor_st: 0,
+      valor_bc_pis: 0,
+      aliquota_pis: 0,
+      valor_pis: 0,
+      valor_bc_cofins: 0,
+      aliquota_cofins: 0,
+      valor_cofins: 0,
+      valor_ipi: 0,
+      classificacao: 'outros',
+      natureza_receita_simples: classificacao.natureza_receita_simples,
+      tipo_movimento: classificacao.tipo_movimento,
+      impacto_receita: classificacao.impacto_receita,
+      anexo_sugerido: classificacao.anexo_sugerido ?? undefined,
+      regra_aplicada: classificacao.regra_aplicada,
+      classificacao_manual: false,
+      created_at: doc.created_at,
+    })
+  }
+
+  return itens
+}
+
+function impactoPorItensDocumento(itens: DocumentoFiscalItem[]): 'soma_receita' | 'reduz_receita' | 'sem_impacto' | 'pendente_revisao' | null {
+  if (itens.length === 0) return null
+  if (itens.some(item => item.impacto_receita === 'reduz_receita')) return 'reduz_receita'
+  if (itens.some(item => item.impacto_receita === 'soma_receita')) return 'soma_receita'
+  if (itens.some(item => item.impacto_receita === 'pendente_revisao')) return 'pendente_revisao'
+  return 'sem_impacto'
+}
+
 function competenciasAnteriores(competencia: string, meses = 12): string[] {
   const [mm, yyyy] = competencia.split('/')
   if (!mm || !yyyy) return []
@@ -377,6 +595,10 @@ type ItemConfronto = {
   status: 'ok' | 'alerta' | 'critico' | 'sem_pgdas' | 'sem_nfe'
 }
 
+type DocumentoFiscalComItens = DocumentoFiscal & {
+  fa_documentos_itens?: DocumentoFiscalItem[]
+}
+
 function BadgeConfronto({ status }: { status: ItemConfronto['status'] }) {
   const cfg: Record<ItemConfronto['status'], { label: string; bg: string; border: string; color: string }> = {
     ok:        { label: 'OK',           bg: 'rgba(34,197,94,0.12)',   border: 'rgba(34,197,94,0.3)',   color: '#16a34a' },
@@ -408,7 +630,7 @@ function AbaConfronto({ items, carregando }: { items: ItemConfronto[]; carregand
         <TrendingUp size={32} style={{ color: 'var(--af-muted)', marginBottom: 12, opacity: 0.4 }} />
         <p style={{ color: 'var(--af-muted)', fontSize: 14, fontWeight: 600, margin: '0 0 8px' }}>Nenhum dado para confrontar</p>
         <p style={{ color: 'var(--af-muted)', fontSize: 12, margin: 0, lineHeight: 1.55 }}>
-          Importe declarações PGDAS-D nesta página e XMLs próprios (saída) no Validador NF-e para o mesmo período.
+          Importe declarações PGDAS-D nesta página e XMLs no Validador NF-e para o mesmo período.
         </p>
       </div>
     )
@@ -435,7 +657,7 @@ function AbaConfronto({ items, carregando }: { items: ItemConfronto[]; carregand
               </span>
             )}
             <span style={{ color: 'var(--af-text-soft)', display: 'block', fontSize: 11, marginTop: 3 }}>
-              Receita declarada no PGDAS-D vs. soma das NF-e de saída importadas no Validador NF-e.
+              Receita declarada no PGDAS-D vs. receita XML considerada na apuração.
             </span>
           </div>
         </div>
@@ -448,8 +670,8 @@ function AbaConfronto({ items, carregando }: { items: ItemConfronto[]; carregand
               <tr>
                 <th style={S.th}>Período</th>
                 <th style={S.thR}>Receita PGDAS</th>
-                <th style={S.thR}>NF-e Saídas</th>
-                <th style={{ ...S.th, textAlign: 'center' as const }}>Qtd. NF-e</th>
+                <th style={S.thR}>Receita XML considerada</th>
+                <th style={{ ...S.th, textAlign: 'center' as const }}>Qtd. docs</th>
                 <th style={S.thR}>Diferença</th>
                 <th style={{ ...S.thR, paddingRight: 14 }}>Variação</th>
                 <th style={{ ...S.th, textAlign: 'center' as const }}>Status</th>
@@ -494,7 +716,7 @@ function AbaConfronto({ items, carregando }: { items: ItemConfronto[]; carregand
         <span>OK = diferença ≤ 1%</span>
         <span>Divergência = 1% a 5%</span>
         <span>Crítico = &gt; 5%</span>
-        <span>NF-e positiva = NF-e &gt; PGDAS (possível sub-declaração)</span>
+        <span>XML positivo = XML &gt; PGDAS (possível sub-declaração)</span>
       </div>
     </>
   )
@@ -540,6 +762,50 @@ function chipImpacto(imp: string) {
   return <span style={{ color: 'var(--af-warning)', fontSize: 11 }}>Pendente</span>
 }
 
+function RelatorioConferenciaSimples({
+  xmlItens,
+  declaracaoPgdas,
+}: {
+  xmlItens: DocumentoFiscalItem[]
+  declaracaoPgdas: SnDeclaracao | null
+}) {
+  const valorItem = (item: DocumentoFiscalItem) => Math.max(0, (item.valor_total ?? 0) - (item.valor_desconto ?? 0))
+  const itensReceita = xmlItens.filter(item => item.impacto_receita === 'soma_receita')
+  const itensDevolucao = xmlItens.filter(item => item.impacto_receita === 'reduz_receita')
+  const totalFaturamento = itensReceita.reduce((s, item) => s + valorItem(item), 0)
+  const totalDevolucao = itensDevolucao.reduce((s, item) => s + valorItem(item), 0)
+  const totalXml = totalFaturamento - totalDevolucao
+  const totalPgdas = declaracaoPgdas?.receita_bruta_mes ?? null
+  const diferenca = totalPgdas == null ? null : totalXml - totalPgdas
+
+  if (xmlItens.length === 0 && !declaracaoPgdas) return null
+
+  return (
+    <div style={{ background: 'var(--af-surface)', border: '1px solid var(--af-border)', borderRadius: 14, overflow: 'hidden', marginBottom: 20 }}>
+      <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--af-border)' }}>
+        <div style={{ fontSize: 15, fontWeight: 800 }}>Conferência XML x Simples</div>
+        <div style={{ fontSize: 12, color: 'var(--af-muted)', marginTop: 4 }}>
+          Compara a receita considerada pelo sistema contra a receita informada no PGDAS-D.
+        </div>
+      </div>
+      <div style={{ padding: 18 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+          <KpiCard title="Faturamento XML" value={fmtBRL.format(totalFaturamento)} sub="operações de receita" />
+          <KpiCard title="Devoluções XML" value={fmtBRL.format(totalDevolucao)} sub="redutor da receita" color="var(--af-danger)" />
+          <KpiCard title="Receita XML considerada" value={fmtBRL.format(totalXml)} sub="faturamento - devoluções" />
+          <KpiCard title="Receita PGDAS-D" value={totalPgdas == null ? '—' : fmtBRL.format(totalPgdas)} sub={declaracaoPgdas?.competencia ?? 'sem PGDAS importado'} />
+          <KpiCard
+            title="Diferença"
+            value={diferenca == null ? '—' : fmtBRL.format(diferenca)}
+            sub={diferenca == null ? 'importe o PGDAS-D para comparar' : diferenca > 0 ? 'XML maior que PGDAS-D' : 'PGDAS-D maior que XML'}
+            color={diferenca && Math.abs(diferenca) > 0.01 ? 'var(--af-warning)' : 'var(--af-primary)'}
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function AbaApuracaoSistema({
   empresaAtiva, xmlCompetencia, setXmlCompetencia,
   xmlDocumentos, xmlItens, carregandoXmlDocs, limpandoCompetencia,
@@ -565,8 +831,14 @@ function AbaApuracaoSistema({
 }) {
   const docsSomam = xmlDocumentos.filter(d => d.impacto_receita === 'soma_receita' && d.status !== 'cancelada')
   const docsReduzem = xmlDocumentos.filter(d => d.impacto_receita === 'reduz_receita' && d.status !== 'cancelada')
-  const totalBruto = docsSomam.reduce((s, d) => s + (d.valor_total ?? 0), 0)
-  const totalDev = docsReduzem.reduce((s, d) => s + (d.valor_total ?? 0), 0)
+  const itensSomam = xmlItens.filter(i => i.impacto_receita === 'soma_receita')
+  const itensReduzem = xmlItens.filter(i => i.impacto_receita === 'reduz_receita')
+  const docsSomamPorItem = new Set(itensSomam.map(i => i.documento_id))
+  const totalBrutoItens = itensSomam.reduce((s, i) => s + Math.max(0, (i.valor_total ?? 0) - (i.valor_desconto ?? 0)), 0)
+  const totalDevItens = itensReduzem.reduce((s, i) => s + Math.max(0, (i.valor_total ?? 0) - (i.valor_desconto ?? 0)), 0)
+  const totalBruto = xmlItens.length > 0 ? totalBrutoItens : docsSomam.reduce((s, d) => s + (d.valor_total ?? 0), 0)
+  const totalDev = xmlItens.length > 0 ? totalDevItens : docsReduzem.reduce((s, d) => s + (d.valor_total ?? 0), 0)
+  const qtdDocsSomam = xmlItens.length > 0 ? docsSomamPorItem.size : docsSomam.length
   const totalLiq = totalBruto - totalDev
   const temHistorico = receitas12m.length >= 12
   const mesesFaltantesLocal = useMemo(() => {
@@ -657,8 +929,7 @@ function AbaApuracaoSistema({
             </div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14, marginBottom: 20 }}>
-              <KpiCard title="Notas de Venda" value={String(docsSomam.length)} sub={fmtBRL.format(totalBruto)} />
-              <KpiCard title="Devoluções" value={String(docsReduzem.length)} sub={fmtBRL.format(totalDev)} color="var(--af-danger)" />
+              <KpiCard title="Notas de Venda" value={String(qtdDocsSomam)} sub={fmtBRL.format(totalBruto)} />
               <KpiCard title="Receita Líquida" value={fmtBRL.format(totalLiq)} color="var(--af-primary)" />
               <KpiCard
                 title="RBT12"
@@ -676,6 +947,13 @@ function AbaApuracaoSistema({
           )}
 
           {/* Aviso de RBT12 indisponível */}
+          {xmlDocumentos.length > 0 && (
+            <RelatorioConferenciaSimples
+              xmlItens={xmlItens}
+              declaracaoPgdas={declaracaoPgdas}
+            />
+          )}
+
           {!temHistorico && rbt12Carregado == null && xmlDocumentos.length > 0 && (
             <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: 10, padding: '12px 16px', marginBottom: 16 }}>
               <AlertTriangle size={15} style={{ color: 'var(--af-warning)', flexShrink: 0, marginTop: 1 }} />
@@ -860,6 +1138,7 @@ function ExtratoPgdasSimulado({
   declaracaoPgdas: SnDeclaracao | null
 }) {
   const anexos = Object.entries(apuracao.por_anexo)
+  const printRef = useRef<HTMLDivElement>(null)
   const dasPgdas = declaracaoPgdas?.valor_total_devido ?? null
   const diffDas = dasPgdas != null ? apuracao.valor_das_total - dasPgdas : null
   const diffDasPct = dasPgdas && dasPgdas > 0 ? Math.abs((diffDas ?? 0)) / dasPgdas : null
@@ -868,13 +1147,121 @@ function ExtratoPgdasSimulado({
     : diffDasPct <= 0.05 ? 'alerta'
     : 'critico'
   const baseDas = apuracao.receita_liquida - apuracao.receita_st
+  const handleGerarPdf = () => {
+    const conteudo = printRef.current?.innerHTML
+    if (!conteudo) return
+    const janela = window.open('', '_blank', 'width=1024,height=768')
+    if (!janela) return
+    janela.document.write(`<!doctype html>
+      <html>
+        <head>
+          <title>Apuração Simples Nacional - ${apuracao.competencia}</title>
+          <style>
+            :root {
+              --af-surface: #ffffff;
+              --af-surface-2: #f1f5f9;
+              --af-border: #cbd5e1;
+              --af-text: #0f172a;
+              --af-text-soft: #334155;
+              --af-muted: #64748b;
+              --af-primary: #0891b2;
+              --af-warning: #b45309;
+              --af-danger: #b91c1c;
+            }
+            * { box-sizing: border-box; }
+            body {
+              margin: 0;
+              padding: 0;
+              background: #ffffff;
+              color: var(--af-text);
+              font-family: "Segoe UI", Arial, sans-serif;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+            #page {
+              width: 198mm;
+              min-height: 285mm;
+              overflow: hidden;
+              padding: 0;
+            }
+            #print-content {
+              transform-origin: top left;
+              width: 100%;
+            }
+            button, .no-print { display: none !important; }
+            #print-content * {
+              box-shadow: none !important;
+            }
+            #print-content > div {
+              margin-bottom: 7px !important;
+            }
+            #print-content div {
+              border-radius: 7px !important;
+            }
+            #print-content table {
+              page-break-inside: avoid;
+              border-collapse: collapse !important;
+            }
+            #print-content th,
+            #print-content td {
+              padding: 3px 6px !important;
+              font-size: 9px !important;
+              line-height: 1.25 !important;
+            }
+            #print-content span,
+            #print-content div {
+              line-height: 1.25 !important;
+            }
+            tr, div { break-inside: avoid; }
+            @page { size: A4 portrait; margin: 6mm; }
+          </style>
+        </head>
+        <body>
+          <div id="page">
+            <div id="print-content">${conteudo}</div>
+          </div>
+          <script>
+            function fitToOnePage() {
+              var page = document.getElementById('page');
+              var content = document.getElementById('print-content');
+              if (!page || !content) return;
+              content.style.transform = 'none';
+              var scaleX = page.clientWidth / content.scrollWidth;
+              var scaleY = page.clientHeight / content.scrollHeight;
+              var scale = Math.min(1, scaleX, scaleY);
+              content.style.transform = 'scale(' + scale + ')';
+            }
+            requestAnimationFrame(function() {
+              fitToOnePage();
+              setTimeout(function() {
+                window.print();
+                window.close();
+              }, 250);
+            });
+          </script>
+        </body>
+      </html>`)
+    janela.document.close()
+    janela.focus()
+  }
 
   return (
-    <div style={{ marginTop: 4, marginBottom: 20 }}>
+    <div ref={printRef} style={{ marginTop: 4, marginBottom: 20 }}>
       {/* ── Cabeçalho ── */}
       <div style={{ background: 'linear-gradient(135deg, rgba(39,199,216,0.08) 0%, rgba(15,23,42,0.6) 100%)', border: '1px solid rgba(39,199,216,0.2)', borderRadius: 14, padding: '16px 20px', marginBottom: 16 }}>
-        <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--af-primary)', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 10 }}>
-          Demonstrativo de Apuração — Simples Nacional
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', marginBottom: 10 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--af-primary)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>
+            Demonstrativo de Apuração — Simples Nacional
+          </div>
+          <button
+            type="button"
+            className="no-print"
+            onClick={handleGerarPdf}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(39,199,216,0.1)', color: 'var(--af-primary)', border: '1px solid rgba(39,199,216,0.3)', borderRadius: 8, padding: '7px 12px', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
+          >
+            <Printer size={14} />
+            Gerar PDF
+          </button>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 8 }}>
           {[
@@ -923,36 +1310,6 @@ function ExtratoPgdasSimulado({
           {anexos.map(([anexo, das]) => (
             <BlocoAnexo key={anexo} anexo={anexo} das={das} rbt12={apuracao.rbt12_utilizado} />
           ))}
-        </div>
-      )}
-
-      {/* ── Devoluções identificadas ── */}
-      {apuracao.notas_devolucao.length > 0 && (
-        <div style={{ background: 'var(--af-surface)', border: '1px solid var(--af-border)', borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
-          <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--af-border)', fontWeight: 700, fontSize: 12, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--af-muted)', background: 'var(--af-surface-2)' }}>
-            Devoluções de Venda Identificadas ({apuracao.notas_devolucao.length})
-          </div>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                {['Nº/Chave', 'Emitente', 'Valor', 'Origem'].map(h => (
-                  <th key={h} style={{ padding: '7px 14px', fontSize: 10, color: 'var(--af-muted)', textAlign: 'left', borderBottom: '1px solid var(--af-border)', background: 'var(--af-surface-2)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {apuracao.notas_devolucao.map((n, i) => (
-                <tr key={i}>
-                  <td style={{ padding: '7px 14px', fontSize: 12, borderBottom: '1px solid var(--af-border)' }}>{n.numero ?? n.chave?.slice(-12) ?? '?'}</td>
-                  <td style={{ padding: '7px 14px', fontSize: 12, borderBottom: '1px solid var(--af-border)' }}>{n.emitente ?? '—'}</td>
-                  <td style={{ padding: '7px 14px', fontSize: 12, borderBottom: '1px solid var(--af-border)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtBRL.format(n.valor)}</td>
-                  <td style={{ padding: '7px 14px', fontSize: 12, borderBottom: '1px solid var(--af-border)', color: 'var(--af-muted)' }}>
-                    {n.origem_devolucao === 'emitida_terceiro' ? 'Emitida pelo cliente' : 'Emitida pela empresa'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
         </div>
       )}
 
@@ -1048,6 +1405,7 @@ export default function SimplesNacionalPage() {
   const [saving, setSaving]           = useState(false)
   const [saveError, setSaveError]     = useState<string | null>(null)
   const [docsConfronto, setDocsConfronto] = useState<DocumentoFiscal[]>([])
+  const [itensConfronto, setItensConfronto] = useState<DocumentoFiscalItem[]>([])
   const [carregandoNfe, setCarregandoNfe] = useState(false)
 
   // ── Estado Apuração XML ──────────────────────────────────────────────────
@@ -1101,21 +1459,22 @@ export default function SimplesNacionalPage() {
     carregarDeclaracoes(empresaAtiva.id)
   }, [empresaAtiva, carregarDeclaracoes])
 
-  const carregarDocsConfronto = useCallback(async (empresaId: string) => {
+  const carregarDocsConfronto = useCallback(async (empresaId: string, cnpjEmpresa?: string, ehIndustrial = false) => {
     setCarregandoNfe(true)
     try {
       // Tenta fa_documentos_fiscais primeiro
-      const res = await fetch(`/api/documentos-fiscais?empresa_id=${encodeURIComponent(empresaId)}`)
+      const res = await fetch(`/api/documentos-fiscais?empresa_id=${encodeURIComponent(empresaId)}&incluir_itens=true`)
       if (res.ok) {
-        const rows: DocumentoFiscal[] = await res.json()
+        const rows: DocumentoFiscalComItens[] = await res.json()
         if (Array.isArray(rows) && rows.length > 0) {
           setDocsConfronto(rows)
+          setItensConfronto(rows.flatMap(row => row.fa_documentos_itens ?? []))
           return
         }
       }
       // Fallback: fa_arquivos_xml (legacy — sempre disponível)
-      const resXml = await fetch(`/api/arquivos-xml?empresa_id=${encodeURIComponent(empresaId)}`)
-      if (!resXml.ok) { setDocsConfronto([]); return }
+      const resXml = await fetch(`/api/arquivos-xml?empresa_id=${encodeURIComponent(empresaId)}&incluir_dados=true`)
+      if (!resXml.ok) { setDocsConfronto([]); setItensConfronto([]); return }
       const xmlRows: ArquivoXml[] = await resXml.json()
       const seenConfronto = new Set<string>()
       const docsConvertidos: DocumentoFiscal[] = (Array.isArray(xmlRows) ? xmlRows : [])
@@ -1128,7 +1487,10 @@ export default function SimplesNacionalPage() {
         })
         .map(x => {
           const comp = dataParaCompetencia(x.data_emissao!)
-          const ehSaida = x.tipo_operacao === 'saida'
+          const movimentoItens = movimentoPorItensXml(x.parsed_data)
+          const impactoParsed = impactoPorParsedXml(x.parsed_data)
+          const ehSaida = movimentoItens ? movimentoItens === 'saida' : x.tipo_operacao === 'saida'
+          const impactoReceita = impactoParsed ?? (ehSaida ? 'soma_receita' : 'sem_impacto')
           return {
             id: x.id,
             org_id: '',
@@ -1155,7 +1517,7 @@ export default function SimplesNacionalPage() {
             valor_st: 0,
             valor_ipi: 0,
             tipo_movimento: (ehSaida ? 'saida' : 'entrada') as import('@/lib/types').TipoMovimento,
-            impacto_receita: (ehSaida ? 'soma_receita' : 'sem_impacto') as import('@/lib/types').ImpactoReceita,
+            impacto_receita: impactoReceita as import('@/lib/types').ImpactoReceita,
             origem_devolucao: 'nao_aplicavel' as const,
             status: 'ok' as const,
             parsed_data: x.parsed_data,
@@ -1164,27 +1526,37 @@ export default function SimplesNacionalPage() {
           } as DocumentoFiscal
         })
       setDocsConfronto(docsConvertidos)
+      setItensConfronto(docsConvertidos.flatMap(doc =>
+        itensPorParsedXml(doc, (cnpjEmpresa ?? '').replace(/\D/g, ''), ehIndustrial)
+      ))
     } catch {
       setDocsConfronto([])
+      setItensConfronto([])
     } finally {
       setCarregandoNfe(false)
     }
   }, [])
 
   useEffect(() => {
-    if (!empresaAtiva) { setDocsConfronto([]); return }
-    if (abaAtiva === 'confronto_apuracao') carregarDocsConfronto(empresaAtiva.id)
+    if (!empresaAtiva) { setDocsConfronto([]); setItensConfronto([]); return }
+    if (abaAtiva === 'confronto_apuracao') {
+      carregarDocsConfronto(
+        empresaAtiva.id,
+        empresaAtiva.cnpj,
+        /^(1[0-9]|2[0-9]|3[0-3])/.test(empresaAtiva.cnae_principal ?? ''),
+      )
+    }
   }, [empresaAtiva, abaAtiva, carregarDocsConfronto])
 
   // ── Carregar documentos XML salvos para a competência ──────────────────
-  const carregarXmlDocumentos = useCallback(async (empresaId: string, competencia: string, cnpjEmpresa?: string) => {
+  const carregarXmlDocumentos = useCallback(async (empresaId: string, competencia: string, cnpjEmpresa?: string, ehIndustrial = false) => {
     if (!competencia) return
     setCarregandoXmlDocs(true)
     try {
       // Fonte principal: fa_arquivos_xml — sempre disponível, sempre completo
       // fa_documentos_fiscais não é usado aqui porque pode ter dados parciais
       // (ON CONFLICT ignoreDuplicates pode ter pulado documentos em importações anteriores)
-      const resXml = await fetch(`/api/arquivos-xml?empresa_id=${empresaId}&competencia=${encodeURIComponent(competencia)}`)
+      const resXml = await fetch(`/api/arquivos-xml?empresa_id=${empresaId}&competencia=${encodeURIComponent(competencia)}&incluir_dados=true`)
       if (!resXml.ok) { setXmlDocumentos([]); setXmlItens([]); return }
       const xmlRows: ArquivoXml[] = await resXml.json()
 
@@ -1220,8 +1592,11 @@ export default function SimplesNacionalPage() {
         // CNPJ check como fallback para XMLs salvos sem tipo_operacao
         const cnpjLimpo = (cnpjEmpresa ?? '').replace(/\D/g, '')
         const emitenteNorm = (x.emitente_cnpj ?? '').replace(/\D/g, '')
-        const ehSaida = x.tipo_operacao === 'saida'
+        const movimentoItens = movimentoPorItensXml(x.parsed_data)
+        const impactoParsed = impactoPorParsedXml(x.parsed_data)
+        const ehSaida = movimentoItens ? movimentoItens === 'saida' : x.tipo_operacao === 'saida'
           || (!x.tipo_operacao && cnpjLimpo.length >= 8 && emitenteNorm.length >= 8 && emitenteNorm === cnpjLimpo)
+        const impactoReceita = impactoParsed ?? (ehSaida ? 'soma_receita' : 'sem_impacto')
         return {
           id: x.id,
           org_id: '',
@@ -1248,7 +1623,7 @@ export default function SimplesNacionalPage() {
           valor_st: 0,
           valor_ipi: 0,
           tipo_movimento: (ehSaida ? 'saida' : 'entrada') as import('@/lib/types').TipoMovimento,
-          impacto_receita: (ehSaida ? 'soma_receita' : 'sem_impacto') as import('@/lib/types').ImpactoReceita,
+          impacto_receita: impactoReceita as import('@/lib/types').ImpactoReceita,
           origem_devolucao: 'nao_aplicavel' as const,
           status: 'ok' as const,
           parsed_data: x.parsed_data,
@@ -1256,7 +1631,27 @@ export default function SimplesNacionalPage() {
           updated_at: x.created_at,
         } as DocumentoFiscal
       })
-      setXmlDocumentos(docsConvertidos)
+      const itensExtraidos = docsConvertidos.flatMap(doc =>
+        itensPorParsedXml(doc, (cnpjEmpresa ?? '').replace(/\D/g, ''), ehIndustrial)
+      )
+      const itensPorDocumento = itensExtraidos.reduce((mapa, item) => {
+        const lista = mapa.get(item.documento_id) ?? []
+        lista.push(item)
+        mapa.set(item.documento_id, lista)
+        return mapa
+      }, new Map<string, DocumentoFiscalItem[]>())
+      const docsComImpactoItens = docsConvertidos.map(doc => {
+        const impactoItens = impactoPorItensDocumento(itensPorDocumento.get(doc.id) ?? [])
+        if (!impactoItens) return doc
+        return {
+          ...doc,
+          impacto_receita: impactoItens as import('@/lib/types').ImpactoReceita,
+          tipo_movimento: impactoItens === 'reduz_receita'
+            ? 'devolucao_venda' as import('@/lib/types').TipoMovimento
+            : doc.tipo_movimento,
+        }
+      })
+      setXmlDocumentos(docsComImpactoItens)
       // Carregar itens de fa_documentos_itens para classificação ST/monofásico
       try {
         const resItens = await fetch(
@@ -1264,12 +1659,13 @@ export default function SimplesNacionalPage() {
         )
         if (resItens.ok) {
           const docsComItens: Array<{ fa_documentos_itens?: DocumentoFiscalItem[] }> = await resItens.json()
-          setXmlItens(Array.isArray(docsComItens) ? docsComItens.flatMap(d => d.fa_documentos_itens ?? []) : [])
+          const itensEstruturados = Array.isArray(docsComItens) ? docsComItens.flatMap(d => d.fa_documentos_itens ?? []) : []
+          setXmlItens(itensExtraidos.length > 0 ? itensExtraidos : itensEstruturados)
         } else {
-          setXmlItens([])
+          setXmlItens(itensExtraidos)
         }
       } catch {
-        setXmlItens([])
+        setXmlItens(itensExtraidos)
       }
     } catch {
       setXmlDocumentos([])
@@ -1316,7 +1712,8 @@ export default function SimplesNacionalPage() {
   useEffect(() => {
     if (!empresaAtiva || !xmlCompetencia || abaAtiva !== 'apuracao_sistema') return
     const cnpj = (empresaAtiva.cnpj ?? '').replace(/\D/g, '')
-    carregarXmlDocumentos(empresaAtiva.id, xmlCompetencia, cnpj)
+    const ehIndustrial = /^(1[0-9]|2[0-9]|3[0-3])/.test(empresaAtiva.cnae_principal ?? '')
+    carregarXmlDocumentos(empresaAtiva.id, xmlCompetencia, cnpj, ehIndustrial)
     carregarRbt12(empresaAtiva.id, xmlCompetencia)
   }, [empresaAtiva, xmlCompetencia, abaAtiva, carregarXmlDocumentos, carregarRbt12])
 
@@ -1328,26 +1725,29 @@ export default function SimplesNacionalPage() {
 
     const cnpj = (empresaAtiva.cnpj ?? '').replace(/\D/g, '')
     const ehIndustrial = /^(1[0-9]|2[0-9]|3[0-3])/.test(empresaAtiva.cnae_principal ?? '')
-    const arr = Array.from(files).filter(f => f.name.toLowerCase().endsWith('.xml'))
-    if (arr.length === 0) { alert('Selecione apenas arquivos XML de NF-e.'); return }
+    const extraidos = await extrairXmlsDeArquivos(files)
+    if (extraidos.arquivos.length === 0) {
+      alert(['Nenhum XML encontrado. Selecione XMLs ou um ZIP contendo XMLs.', ...extraidos.avisos].join('\n'))
+      return
+    }
 
     setImportandoXml(true)
-    setXmlErros([])
+    setXmlErros(extraidos.avisos)
     setXmlPreview(null)
 
     const previews: NonNullable<typeof xmlPreview> = []
-    const errosList: string[] = []
+    const errosList: string[] = [...extraidos.avisos]
 
-    for (const file of arr) {
-      const txt = await file.text().catch(() => '')
-      if (!txt) { errosList.push(`${file.name}: não foi possível ler o arquivo`); continue }
+    for (const file of extraidos.arquivos) {
+      const txt = file.txt
+      if (!txt) { errosList.push(`${file.nome}: não foi possível ler o arquivo`); continue }
 
       // Detectar cancelamento
       const chaveCancelada = detectarCancelamento(txt)
       if (chaveCancelada) {
         // Sinalizar como cancelamento para enviar PATCH depois
         previews.push({
-          nomeArq: file.name, numero: `Cancelamento de ${chaveCancelada.slice(-6)}`,
+          nomeArq: file.nome, numero: `Cancelamento de ${chaveCancelada.slice(-6)}`,
           emitente: 'Evento de cancelamento', valor: 0,
           tipo_movimento: 'cancelamento', impacto_receita: 'sem_impacto',
           chave: chaveCancelada, doc: null,
@@ -1355,11 +1755,11 @@ export default function SimplesNacionalPage() {
         continue
       }
 
-      const resultado = parseNfeParaDocumento(txt, cnpj, ehIndustrial, file.name)
-      if (!resultado) { errosList.push(`${file.name}: não foi possível extrair dados do XML`); continue }
+      const resultado = parseNfeParaDocumento(txt, cnpj, ehIndustrial, file.nome)
+      if (!resultado) { errosList.push(`${file.nome}: não foi possível extrair dados do XML`); continue }
 
       previews.push({
-        nomeArq: file.name,
+        nomeArq: file.nome,
         numero: resultado.metadados.numero || '?',
         emitente: resultado.metadados.emitente_nome || resultado.metadados.emitente_cnpj || '?',
         valor: resultado.metadados.valor_total,
@@ -1478,7 +1878,12 @@ export default function SimplesNacionalPage() {
 
     setXmlPreview(null)
     setImportandoXml(false)
-    carregarXmlDocumentos(empresaAtiva.id, xmlCompetencia, (empresaAtiva.cnpj ?? '').replace(/\D/g, ''))
+    carregarXmlDocumentos(
+      empresaAtiva.id,
+      xmlCompetencia,
+      (empresaAtiva.cnpj ?? '').replace(/\D/g, ''),
+      /^(1[0-9]|2[0-9]|3[0-3])/.test(empresaAtiva.cnae_principal ?? ''),
+    )
     carregarRbt12(empresaAtiva.id, xmlCompetencia)
   }, [xmlPreview, empresaAtiva, xmlCompetencia, carregarXmlDocumentos, carregarRbt12])
 
@@ -1669,21 +2074,47 @@ export default function SimplesNacionalPage() {
   }, [xmlCompetencia, receitas12m])
 
   const confrontoData = useMemo((): ItemConfronto[] => {
-    // Agrupa por competência os documentos que somam receita (exclui cancelados)
+    const valorItem = (item: DocumentoFiscalItem) => Math.max(0, (item.valor_total ?? 0) - (item.valor_desconto ?? 0))
     const docByComp = new Map<string, { count: number; total: number; totalDev: number }>()
-    for (const doc of docsConfronto) {
-      if (doc.status === 'cancelada') continue
-      const comp = doc.data_competencia
-      if (!comp) continue
-      const entry = docByComp.get(comp) ?? { count: 0, total: 0, totalDev: 0 }
-      if (doc.impacto_receita === 'soma_receita') {
-        entry.count++
-        entry.total += doc.valor_total ?? 0
-      } else if (doc.impacto_receita === 'reduz_receita') {
-        entry.totalDev += doc.valor_total ?? 0
+    const docsMap = new Map(docsConfronto.map(doc => [doc.id, doc]))
+
+    if (itensConfronto.length > 0) {
+      const docsReceitaPorComp = new Map<string, Set<string>>()
+      for (const item of itensConfronto) {
+        const doc = docsMap.get(item.documento_id)
+        if (!doc || doc.status === 'cancelada') continue
+        const comp = doc.data_competencia
+        if (!comp) continue
+        const entry = docByComp.get(comp) ?? { count: 0, total: 0, totalDev: 0 }
+        if (item.impacto_receita === 'soma_receita') {
+          entry.total += valorItem(item)
+          if (!docsReceitaPorComp.has(comp)) docsReceitaPorComp.set(comp, new Set())
+          docsReceitaPorComp.get(comp)!.add(item.documento_id)
+        } else if (item.impacto_receita === 'reduz_receita') {
+          entry.totalDev += valorItem(item)
+        }
+        docByComp.set(comp, entry)
       }
-      docByComp.set(comp, entry)
+      for (const [comp, docs] of docsReceitaPorComp.entries()) {
+        const entry = docByComp.get(comp)
+        if (entry) entry.count = docs.size
+      }
+    } else {
+      for (const doc of docsConfronto) {
+        if (doc.status === 'cancelada') continue
+        const comp = doc.data_competencia
+        if (!comp) continue
+        const entry = docByComp.get(comp) ?? { count: 0, total: 0, totalDev: 0 }
+        if (doc.impacto_receita === 'soma_receita') {
+          entry.count++
+          entry.total += doc.valor_total ?? 0
+        } else if (doc.impacto_receita === 'reduz_receita') {
+          entry.totalDev += doc.valor_total ?? 0
+        }
+        docByComp.set(comp, entry)
+      }
     }
+
     const allPeriods = new Set([
       ...declaracoes.map(d => d.competencia),
       ...docByComp.keys(),
@@ -1706,7 +2137,7 @@ export default function SimplesNacionalPage() {
       else                             status = 'critico'
       return { comp, receitaPgdas, totalNfe, qtdNfe, diff, diffPct, status }
     })
-  }, [declaracoes, docsConfronto])
+  }, [declaracoes, docsConfronto, itensConfronto])
 
   const handleFiles = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return

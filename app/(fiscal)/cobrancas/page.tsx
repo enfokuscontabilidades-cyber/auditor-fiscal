@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Plus, CheckCircle, Clock, AlertTriangle, Trash2, X } from 'lucide-react'
 import type { Cobranca } from '@/lib/types'
+import PaginationControls, { getPageItems } from '@/components/ui/PaginationControls'
 
 type EmpresaItem = { id: string; razao_social: string }
 
@@ -30,6 +31,8 @@ export default function CobrancasPage() {
   const [salvando, setSalvando] = useState(false)
   const [erroForm, setErroForm] = useState('')
   const [loading, setLoading] = useState(true)
+  const [pagina, setPagina] = useState(1)
+  const [linhasPorPagina, setLinhasPorPagina] = useState(50)
 
   async function carregar() {
     setLoading(true)
@@ -51,6 +54,7 @@ export default function CobrancasPage() {
     ...c,
     status: c.status === 'pendente' && c.vencimento < hoje ? 'atrasado' as const : c.status,
   }))
+  const cobrancasPagina = getPageItems(cobrancasExibidas, pagina, linhasPorPagina)
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault()
@@ -155,7 +159,7 @@ export default function CobrancasPage() {
         {FILTROS.map(f => (
           <button
             key={f.value}
-            onClick={() => setFiltro(f.value)}
+            onClick={() => { setFiltro(f.value); setPagina(1) }}
             style={{
               padding: '7px 16px', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer',
               background: filtro === f.value ? 'rgba(39,199,216,0.15)' : 'rgba(30,41,59,0.5)',
@@ -184,7 +188,7 @@ export default function CobrancasPage() {
               </tr>
             </thead>
             <tbody>
-              {cobrancasExibidas.map(c => (
+              {cobrancasPagina.map(c => (
                 <tr key={c.id} style={{ borderBottom: '1px solid rgba(51,65,85,0.3)' }}>
                   <td style={{ padding: '13px 16px', fontSize: 13, color: '#f1f5f9' }}>
                     {c.empresa?.razao_social ?? <span style={{ color: 'rgba(148,163,184,0.4)' }}>—</span>}
@@ -224,6 +228,15 @@ export default function CobrancasPage() {
               ))}
             </tbody>
           </table>
+        )}
+        {!loading && cobrancasExibidas.length > 0 && (
+          <PaginationControls
+            total={cobrancasExibidas.length}
+            page={pagina}
+            pageSize={linhasPorPagina}
+            onPageChange={setPagina}
+            onPageSizeChange={tamanho => { setLinhasPorPagina(tamanho); setPagina(1) }}
+          />
         )}
       </div>
 

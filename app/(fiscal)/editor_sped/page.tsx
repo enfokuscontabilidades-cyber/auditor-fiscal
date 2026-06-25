@@ -6,6 +6,7 @@ import {
   Download, Loader2, RotateCcw, ArrowLeft, FilePen, Info,
 } from "lucide-react"
 import PageHeader from "@/components/ui/PageHeader"
+import PaginationControls, { getPageItems } from "@/components/ui/PaginationControls"
 import * as XLSX from "xlsx"
 import { parseSpedEditor } from "@/lib/sped/editor/parser"
 import { mesclarSped, validarCnpjPeriodo, getProdutosNovos } from "@/lib/sped/editor/merger"
@@ -237,6 +238,10 @@ export default function EditorSpedPage() {
   const [errosValidacao, setErrosValidacao] = useState<ErroValidacao[]>([])
   const [mesclaFinal, setMesclaFinal]       = useState<ResultadoMescla | null>(null)
   const [txtGerado,   setTxtGerado]         = useState<string | null>(null)
+  const [paginaLog, setPaginaLog] = useState(1)
+  const [linhasLog, setLinhasLog] = useState(50)
+
+  const logPagina = mesclaFinal ? getPageItems(mesclaFinal.log, paginaLog, linhasLog) : []
 
   // ── Etapa 1: processar arquivos ─────────────────────────────────────────────
 
@@ -814,7 +819,7 @@ export default function EditorSpedPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {mesclaFinal.log.map((l, i) => (
+                  {logPagina.map((l, i) => (
                     <tr key={i}>
                       <td style={S.td}>
                         <Chip label={l.tipo} color={l.tipo === "inserido" ? "#22c55e" : l.tipo === "substituido" ? "#f59e0b" : "#6b7280"} />
@@ -827,6 +832,13 @@ export default function EditorSpedPage() {
                 </tbody>
               </table>
             </div>
+            <PaginationControls
+              total={mesclaFinal.log.length}
+              page={paginaLog}
+              pageSize={linhasLog}
+              onPageChange={setPaginaLog}
+              onPageSizeChange={tamanho => { setLinhasLog(tamanho); setPaginaLog(1) }}
+            />
 
             {mesclaFinal.warnings.length > 0 && (
               <>

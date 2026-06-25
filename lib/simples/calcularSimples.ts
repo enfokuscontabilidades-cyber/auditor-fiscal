@@ -157,6 +157,7 @@ export function apurarSimples(params: {
     if (doc.impacto_receita === 'soma_receita') {
       // Determinar tipo de receita pelo primeiro item ou pelo documento
       const itensDoc = itens.filter(i => i.documento_id === doc.id)
+      let valorReceitaDoc = valorDoc
 
       if (itensDoc.length > 0) {
         // Classificar por item — usar valor líquido (vProd − vDesc) per LC 123/2006 art. 3º §1º
@@ -171,6 +172,7 @@ export function apurarSimples(params: {
         const bugDetectado = somaDescItens > vDescDoc + 0.5 && vDescDoc > 0 && vProdTotal > 0
         const globalRatio = bugDetectado ? vDescDoc / vProdTotal : 0
 
+        valorReceitaDoc = 0
         for (const item of itensDoc) {
           let valorDesc = item.valor_desconto ?? 0
           if (bugDetectado && valorDesc > 0) {
@@ -181,6 +183,7 @@ export function apurarSimples(params: {
           const vItem = Math.max(0, (item.valor_total ?? 0) - valorDesc)
           if (vItem <= 0) continue
 
+          if (item.impacto_receita === 'soma_receita') valorReceitaDoc += vItem
           acumularReceita(item, vItem, ehIndustrial, anexoServico,
             receitas_por_anexo, incrementarSt, incrementarExp)
         }
@@ -190,15 +193,19 @@ export function apurarSimples(params: {
           receitas_por_anexo)
       }
 
-      receita_vendas_bruta += valorDoc
+      receita_vendas_bruta += valorReceitaDoc
 
     } else if (doc.impacto_receita === 'reduz_receita') {
-      receita_devolucoes += valorDoc
+      const itensDoc = itens.filter(i => i.documento_id === doc.id && i.impacto_receita === 'reduz_receita')
+      const valorDevolucao = itensDoc.length > 0
+        ? itensDoc.reduce((s, item) => s + Math.max(0, (item.valor_total ?? 0) - (item.valor_desconto ?? 0)), 0)
+        : valorDoc
+      receita_devolucoes += valorDevolucao
       notas_devolucao.push({
         chave: doc.chave_acesso,
         numero: doc.numero,
         emitente: doc.emitente_nome ?? doc.emitente_cnpj,
-        valor: valorDoc,
+        valor: valorDevolucao,
         origem_devolucao: doc.origem_devolucao === 'emitida_terceiro'
           ? 'emitida_terceiro'
           : 'emitida_propria',

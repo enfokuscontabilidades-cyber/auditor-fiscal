@@ -39,3 +39,7 @@ tests/security/results/*.json
 
 # Configuração local de testes (nunca commitar)
 .env.test
+
+# Diretórios temporários e dados locais (nunca versionar)
+tmp/
+xml-*/
