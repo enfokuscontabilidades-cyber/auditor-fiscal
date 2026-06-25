@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { getOrgId } from '@/lib/supabase/org'
+import { validarEmpresaDaOrg, respostaForbidden } from '@/lib/supabase/validation'
 import { NextResponse } from 'next/server'
 
 export async function GET(request: Request) {
@@ -40,6 +41,10 @@ export async function POST(request: Request) {
 
   const orgId = await getOrgId(supabase, user.id)
   if (!orgId) return NextResponse.json({ error: 'Usuário sem organização' }, { status: 403 })
+
+  if (!await validarEmpresaDaOrg(supabase, empresa_id, orgId)) {
+    return respostaForbidden('empresa_id')
+  }
 
   const { data, error } = await supabase
     .from('fa_sessoes_analise')

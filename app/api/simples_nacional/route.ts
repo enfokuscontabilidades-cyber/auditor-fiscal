@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { getOrgId } from '@/lib/supabase/org'
+import { validarEmpresaDaOrg, respostaForbidden } from '@/lib/supabase/validation'
 import { NextResponse } from 'next/server'
 
 export async function POST(request: Request) {
@@ -31,6 +32,10 @@ export async function POST(request: Request) {
 
   const orgId = await getOrgId(supabase, user.id)
   if (!orgId) return NextResponse.json({ error: 'Usuário sem organização' }, { status: 403 })
+
+  if (!await validarEmpresaDaOrg(supabase, empresa_id, orgId)) {
+    return respostaForbidden('empresa_id')
+  }
 
   const { data, error } = await supabase
     .from('sn_declaracoes')
@@ -71,8 +76,6 @@ export async function POST(request: Request) {
 
     if (rows.length > 0) {
       // Não sobrescrever entradas marcadas como 'manual' — upsert apenas se origem != manual
-      // Como não há como filtrar no upsert, fazemos em dois passos:
-      // 1) buscar quais competências já têm origem=manual
       const competencias = rows.map(r => r.competencia)
       const { data: existentes } = await supabase
         .from('sn_receitas_mensais')

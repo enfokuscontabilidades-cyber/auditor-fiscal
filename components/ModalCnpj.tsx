@@ -24,6 +24,12 @@ export type CnpjDados = {
   porte?: string
   tipo?: string
   capital_social?: number
+  opcao_simples?: boolean
+  opcao_mei?: boolean
+  data_opcao_simples?: string
+  data_exclusao_simples?: string
+  data_opcao_mei?: string
+  data_exclusao_mei?: string
 
   endereco?: {
     logradouro?: string

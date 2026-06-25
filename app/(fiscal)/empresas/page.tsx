@@ -6,6 +6,7 @@ import type { Empresa } from '@/lib/types'
 import { Plus, Building2, Pencil, Star, Search, RefreshCw, AlertCircle, Users, ChevronDown, ChevronUp } from 'lucide-react'
 import { useEmpresaAtiva } from '@/lib/hooks/useEmpresaAtiva'
 import PageHeader from '@/components/ui/PageHeader'
+import PaginationControls, { getPageItems } from '@/components/ui/PaginationControls'
 
 type Socio = {
   nome: string
@@ -77,6 +78,8 @@ export default function EmpresasPage() {
   const [qsaData, setQsaData]        = useState<QsaData | null>(null)
   const [mostrarQsa, setMostrarQsa]  = useState(false)
   const [carregandoQsa, setCarregandoQsa] = useState(false)
+  const [pagina, setPagina] = useState(1)
+  const [linhasPorPagina, setLinhasPorPagina] = useState(50)
   const { empresaAtiva, definirEmpresaAtiva } = useEmpresaAtiva()
 
   async function fetchQsa(cnpj: string) {
@@ -255,6 +258,7 @@ export default function EmpresasPage() {
     e.razao_social.toLowerCase().includes(busca.toLowerCase()) ||
     (e.cnpj ?? '').includes(busca)
   )
+  const empresasPagina = getPageItems(filtradas, pagina, linhasPorPagina)
 
   const matrizes = empresas.filter(e => e.tipo === 'Matriz' || !e.tipo)
 
@@ -363,7 +367,7 @@ export default function EmpresasPage() {
           }}
           placeholder="Buscar por nome ou CNPJ..."
           value={busca}
-          onChange={e => setBusca(e.target.value)}
+          onChange={e => { setBusca(e.target.value); setPagina(1) }}
         />
       </div>
 
@@ -387,7 +391,7 @@ export default function EmpresasPage() {
 
       {/* Cards de empresas */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-        {filtradas.map(emp => {
+        {empresasPagina.map(emp => {
           const isAtiva = empresaAtiva?.id === emp.id
           return (
             <div
@@ -503,6 +507,16 @@ export default function EmpresasPage() {
           )
         })}
       </div>
+
+      {!loading && filtradas.length > 0 && (
+        <PaginationControls
+          total={filtradas.length}
+          page={pagina}
+          pageSize={linhasPorPagina}
+          onPageChange={setPagina}
+          onPageSizeChange={tamanho => { setLinhasPorPagina(tamanho); setPagina(1) }}
+        />
+      )}
 
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
 

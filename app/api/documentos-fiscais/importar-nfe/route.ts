@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { getOrgId } from '@/lib/supabase/org'
+import { validarEmpresaDaOrg, respostaForbidden } from '@/lib/supabase/validation'
 import { NextResponse } from 'next/server'
 import type { DocumentoFiscalInput, DocumentoFiscalItemInput } from '@/lib/types'
 
@@ -7,7 +8,21 @@ interface ImportarNfeBody {
   empresa_id: string
   documentos: Omit<DocumentoFiscalInput, 'empresa_id'>[]
   itens: Record<string, Omit<DocumentoFiscalItemInput, 'empresa_id' | 'documento_id'>[]>
-  // itens indexado por chave_acesso ou índice do documento
+}
+
+type DocRetornado = {
+  id: string
+  chave_acesso: string | null
+  numero: string | null
+}
+
+const DOC_BATCH = 200
+const ITEM_BATCH = 1000
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = []
+  for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size))
+  return chunks
 }
 
 export async function POST(request: Request) {
@@ -28,73 +43,111 @@ export async function POST(request: Request) {
   const orgId = await getOrgId(supabase, user.id)
   if (!orgId) return NextResponse.json({ error: 'Usuário sem organização' }, { status: 403 })
 
-  let salvos = 0
-  const duplicados = 0  // mantido na resposta para compatibilidade; sempre 0 agora
+  if (!await validarEmpresaDaOrg(supabase, empresa_id, orgId)) {
+    return respostaForbidden('empresa_id')
+  }
+
   const erros: string[] = []
+  const docsSalvos: DocRetornado[] = []
+
+  for (const lote of chunk(documentos, DOC_BATCH)) {
+    const docsComTenant = lote.map(doc => ({ ...doc, org_id: orgId, empresa_id }))
+    const { data, error } = await supabase
+      .from('fa_documentos_fiscais')
+      .upsert(docsComTenant, { onConflict: 'empresa_id,chave_acesso', ignoreDuplicates: false })
+      .select('id, chave_acesso, numero')
+
+    if (error) {
+      erros.push(`Lote de documentos: ${error.message}`)
+      continue
+    }
+
+    docsSalvos.push(...((data ?? []) as DocRetornado[]))
+  }
+
+  if (docsSalvos.length === 0) {
+    return NextResponse.json({ salvos: 0, duplicados: 0, erros }, { status: erros.length ? 500 : 201 })
+  }
+
+  const idsPorChave = new Map<string, string>()
+  const idsPorNumero = new Map<string, string>()
+  for (const doc of docsSalvos) {
+    if (doc.chave_acesso) idsPorChave.set(doc.chave_acesso, doc.id)
+    if (doc.numero) idsPorNumero.set(doc.numero, doc.id)
+  }
+
+  for (const ids of chunk(docsSalvos.map(doc => doc.id), 500)) {
+    const { error } = await supabase
+      .from('fa_documentos_itens')
+      .delete()
+      .in('documento_id', ids)
+
+    if (error) erros.push(`Limpeza de itens: ${error.message}`)
+  }
+
+  const itensParaInserir: Array<Omit<DocumentoFiscalItemInput, 'empresa_id'> & {
+    org_id: string
+    empresa_id: string
+    documento_id: string
+  }> = []
 
   for (let idx = 0; idx < documentos.length; idx++) {
     const doc = documentos[idx]
+    const chave = doc.chave_acesso ?? doc.numero ?? String(idx)
+    const documentoId = (doc.chave_acesso ? idsPorChave.get(doc.chave_acesso) : undefined)
+      ?? (doc.numero ? idsPorNumero.get(doc.numero) : undefined)
+    if (!documentoId) continue
 
-    try {
-      // Verificar se é evento de cancelamento
-      // (tratado pelo frontend antes de chamar esta API)
-
-      // Upsert documento — atualiza se já existir (garante que reimports reflitam
-      // eventuais correções no parser sem exigir "Limpar competência" manualmente)
-      const { data: docData, error: docErr } = await supabase
-        .from('fa_documentos_fiscais')
-        .upsert(
-          { ...doc, org_id: orgId, empresa_id },
-          { onConflict: 'empresa_id,chave_acesso', ignoreDuplicates: false },
-        )
-        .select('id, chave_acesso')
-        .maybeSingle()
-
-      if (docErr) {
-        erros.push(`Documento ${doc.numero ?? idx}: ${docErr.message}`)
-        continue
-      }
-
-      if (!docData) {
-        erros.push(`Documento ${doc.numero ?? idx}: upsert não retornou ID`)
-        continue
-      }
-
-      salvos++
-
-      // Reimportar itens: excluir os antigos e inserir os novos para garantir
-      // que correções no parser (ex.: valor_desconto) sejam sempre aplicadas
-      const chaveIdx = doc.chave_acesso ?? String(idx)
-      const itensDeste = itens[chaveIdx] ?? []
-
-      // Excluir itens existentes antes de inserir (idempotente)
-      await supabase.from('fa_documentos_itens').delete().eq('documento_id', docData.id)
-
-      if (itensDeste.length > 0) {
-        const itensComIds = itensDeste.map(item => ({
-          ...item,
-          org_id: orgId,
-          empresa_id,
-          documento_id: docData.id,
-        }))
-
-        const { error: itensErr } = await supabase
-          .from('fa_documentos_itens')
-          .insert(itensComIds)
-
-        if (itensErr) {
-          erros.push(`Itens do documento ${doc.numero ?? idx}: ${itensErr.message}`)
-        }
-      }
-    } catch (e) {
-      erros.push(`Documento ${doc.numero ?? idx}: ${e instanceof Error ? e.message : 'Erro desconhecido'}`)
+    const itensDeste = itens[chave] ?? []
+    for (const item of itensDeste) {
+      itensParaInserir.push({
+        ...item,
+        org_id: orgId,
+        empresa_id,
+        documento_id: documentoId,
+      })
     }
   }
 
-  return NextResponse.json({ salvos, duplicados, erros }, { status: 201 })
+  let itensSalvos = 0
+  for (const lote of chunk(itensParaInserir, ITEM_BATCH)) {
+    const { data, error } = await supabase
+      .from('fa_documentos_itens')
+      .insert(lote)
+      .select('id')
+
+    if (error) {
+      erros.push(`Lote de itens: ${error.message}`)
+      continue
+    }
+    itensSalvos += data?.length ?? 0
+  }
+
+  const competencias = Array.from(
+    new Set(documentos.map(doc => doc.data_competencia).filter(Boolean)),
+  ) as string[]
+  for (const competencia of competencias) {
+    const { error } = await supabase.rpc('refresh_relatorios_mensais', {
+      p_empresa_id: empresa_id,
+      p_competencia: competencia,
+    })
+    if (error && !error.message.includes('Could not find the function')) {
+      erros.push(`Resumo ${competencia}: ${error.message}`)
+    }
+  }
+
+  return NextResponse.json(
+    {
+      salvos: docsSalvos.length,
+      documentos_salvos: docsSalvos.length,
+      itens_salvos: itensSalvos,
+      duplicados: 0,
+      erros,
+    },
+    { status: erros.length ? 207 : 201 },
+  )
 }
 
-// Marcar documento como cancelado quando chega evento de cancelamento
 export async function PATCH(request: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -105,6 +158,13 @@ export async function PATCH(request: Request) {
 
   if (!empresa_id || !chave_acesso) {
     return NextResponse.json({ error: 'empresa_id e chave_acesso são obrigatórios' }, { status: 400 })
+  }
+
+  const orgId = await getOrgId(supabase, user.id)
+  if (!orgId) return NextResponse.json({ error: 'Usuário sem organização' }, { status: 403 })
+
+  if (!await validarEmpresaDaOrg(supabase, empresa_id, orgId)) {
+    return respostaForbidden('empresa_id')
   }
 
   const { error } = await supabase

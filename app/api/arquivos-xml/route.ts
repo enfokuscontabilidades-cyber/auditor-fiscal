@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { getOrgId } from '@/lib/supabase/org'
+import { validarEmpresaDaOrg, validarSessaoDaOrg, respostaForbidden } from '@/lib/supabase/validation'
 import { fetchAll } from '@/lib/supabase/fetchAll'
 import { NextResponse } from 'next/server'
 
@@ -20,6 +21,14 @@ export async function POST(request: Request) {
 
   const orgId = await getOrgId(supabase, user.id)
   if (!orgId) return NextResponse.json({ error: 'Usuário sem organização' }, { status: 403 })
+
+  if (!await validarEmpresaDaOrg(supabase, empresa_id, orgId)) {
+    return respostaForbidden('empresa_id')
+  }
+
+  if (!await validarSessaoDaOrg(supabase, sessao_id, orgId)) {
+    return respostaForbidden('sessao_id')
+  }
 
   // Quando replace_sessao=true, limpa XMLs de TODAS as sessões apuracao_simples
   // desta empresa+competência para evitar acúmulo de duplicatas entre reimportações.

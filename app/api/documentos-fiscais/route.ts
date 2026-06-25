@@ -1,5 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
+import { getOrgId } from '@/lib/supabase/org'
+import { validarEmpresaDaOrg, respostaForbidden } from '@/lib/supabase/validation'
 import { fetchAll } from '@/lib/supabase/fetchAll'
+import { normalizarCompetencia } from '@/lib/fiscal/competencia'
 import { NextResponse } from 'next/server'
 
 export async function GET(request: Request) {
@@ -18,6 +21,13 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'empresa_id é obrigatório' }, { status: 400 })
   }
 
+  const orgId = await getOrgId(supabase, user.id)
+  if (!orgId) return NextResponse.json({ error: 'Usuário sem organização' }, { status: 403 })
+
+  if (!await validarEmpresaDaOrg(supabase, empresaId, orgId)) {
+    return respostaForbidden('empresa_id')
+  }
+
   function buildQuery() {
     let q = supabase
       .from('fa_documentos_fiscais')
@@ -25,7 +35,11 @@ export async function GET(request: Request) {
       .eq('empresa_id', empresaId!)
       .order('data_emissao', { ascending: false })
 
-    if (competencia)    q = q.eq('data_competencia', competencia)
+    if (competencia) {
+      const normalizada = normalizarCompetencia(competencia)
+      const variantes = Array.from(new Set([competencia, normalizada].filter(Boolean))) as string[]
+      q = variantes.length > 1 ? q.in('data_competencia', variantes) : q.eq('data_competencia', variantes[0])
+    }
     if (tipoDocumento)  q = q.eq('tipo_documento', tipoDocumento)
     if (impactoReceita) q = q.eq('impacto_receita', impactoReceita)
     return q

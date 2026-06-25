@@ -17,6 +17,7 @@ import type { SpedFiscalParsed, SpedContribParsed } from "@/lib/sped/types"
 import { validarItemSped, type ClassificacaoItem, type AlertaItemSped } from "@/lib/fiscal/classificacao"
 import { executarMotorRegras } from "@/lib/rules/engine"
 import { createClient as createBrowserClient } from "@/lib/supabase/client"
+import PaginationControls, { getPageItems } from "@/components/ui/PaginationControls"
 import * as XLSX from "xlsx"
 
 // ─── Tipos locais ─────────────────────────────────────────────────────────────
@@ -112,6 +113,10 @@ export default function AuditorSpedPage() {
   const [filtroItemBusca, setFiltroItemBusca]       = useState("")
   const [filtroItemClass, setFiltroItemClass]       = useState("")
   const [filtroSomenteAlertas, setFiltroSomenteAlertas] = useState(false)
+  const [paginaCruzamento, setPaginaCruzamento] = useState(1)
+  const [linhasCruzamento, setLinhasCruzamento] = useState(50)
+  const [paginaItens, setPaginaItens] = useState(1)
+  const [linhasItens, setLinhasItens] = useState(50)
 
   // Motor de regras
   const [executandoRegras, setExecutandoRegras] = useState(false)
@@ -250,6 +255,8 @@ export default function AuditorSpedPage() {
     }
     return lista
   }, [cruzamento, filtroStatus, busca])
+  const cruzamentoPagina = getPageItems(cruzamentoFiltrado, paginaCruzamento, linhasCruzamento)
+  const itensPagina = getPageItems(itensFiltrados, paginaItens, linhasItens)
 
   const divergencias = cruzamento.filter(i => i.status !== "OK").length
   const kpiArqFiscal  = arquivos.filter(a => a.tipo === "fiscal").length
@@ -561,8 +568,8 @@ export default function AuditorSpedPage() {
               <div style={{ ...S.card, overflow: "hidden", padding: 0 }}>
                 {/* Filtros */}
                 <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--af-border)", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                  <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar nota, participante…" style={{ background: "var(--af-surface-2)", border: "1px solid var(--af-border)", borderRadius: 8, color: "var(--af-text)", fontSize: 12, padding: "6px 10px", outline: "none", minWidth: 220 }} />
-                  <select value={filtroStatus} onChange={e => setFiltroStatus(e.target.value as typeof filtroStatus)} style={{ background: "var(--af-surface-2)", border: "1px solid var(--af-border)", borderRadius: 8, color: "var(--af-text)", fontSize: 12, padding: "6px 10px" }}>
+                  <input value={busca} onChange={e => { setBusca(e.target.value); setPaginaCruzamento(1) }} placeholder="Buscar nota, participante…" style={{ background: "var(--af-surface-2)", border: "1px solid var(--af-border)", borderRadius: 8, color: "var(--af-text)", fontSize: 12, padding: "6px 10px", outline: "none", minWidth: 220 }} />
+                  <select value={filtroStatus} onChange={e => { setFiltroStatus(e.target.value as typeof filtroStatus); setPaginaCruzamento(1) }} style={{ background: "var(--af-surface-2)", border: "1px solid var(--af-border)", borderRadius: 8, color: "var(--af-text)", fontSize: 12, padding: "6px 10px" }}>
                     <option value="todos">Todos os status</option>
                     <option value="OK">OK</option>
                     <option value="só fiscal">Só Fiscal</option>
@@ -580,7 +587,7 @@ export default function AuditorSpedPage() {
                     <tbody>
                       {cruzamentoFiltrado.length === 0
                         ? <tr><td colSpan={8} style={{ ...S.td, textAlign: "center", color: "var(--af-muted)", padding: "40px 20px" }}>{cruzamento.length === 0 ? "Importe arquivos SPED para visualizar o cruzamento." : "Nenhum resultado com os filtros aplicados."}</td></tr>
-                        : cruzamentoFiltrado.map(item => {
+                        : cruzamentoPagina.map(item => {
                           const exp = expandidos.has(item.key)
                           const bgRow = item.status === "OK" ? "transparent" : item.status === "só fiscal" ? "rgba(251,191,36,0.03)" : "rgba(239,68,68,0.03)"
                           return (
@@ -617,6 +624,13 @@ export default function AuditorSpedPage() {
                     </tbody>
                   </table>
                 </div>
+                <PaginationControls
+                  total={cruzamentoFiltrado.length}
+                  page={paginaCruzamento}
+                  pageSize={linhasCruzamento}
+                  onPageChange={setPaginaCruzamento}
+                  onPageSizeChange={tamanho => { setLinhasCruzamento(tamanho); setPaginaCruzamento(1) }}
+                />
               </div>
             )}
 
@@ -697,13 +711,13 @@ export default function AuditorSpedPage() {
                 <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--af-border)", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
                   <input
                     value={filtroItemBusca}
-                    onChange={e => setFiltroItemBusca(e.target.value)}
+                    onChange={e => { setFiltroItemBusca(e.target.value); setPaginaItens(1) }}
                     placeholder="Buscar nota, produto, NCM…"
                     style={{ background: "var(--af-surface-2)", border: "1px solid var(--af-border)", borderRadius: 8, color: "var(--af-text)", fontSize: 12, padding: "6px 10px", outline: "none", minWidth: 220, flex: "1 1 220px" }}
                   />
                   <select
                     value={filtroItemClass}
-                    onChange={e => setFiltroItemClass(e.target.value)}
+                    onChange={e => { setFiltroItemClass(e.target.value); setPaginaItens(1) }}
                     style={{ background: "var(--af-surface-2)", border: "1px solid var(--af-border)", borderRadius: 8, color: "var(--af-text)", fontSize: 12, padding: "6px 10px" }}
                   >
                     <option value="">Todas as classificações</option>
@@ -713,7 +727,7 @@ export default function AuditorSpedPage() {
                     <input
                       type="checkbox"
                       checked={filtroSomenteAlertas}
-                      onChange={e => setFiltroSomenteAlertas(e.target.checked)}
+                      onChange={e => { setFiltroSomenteAlertas(e.target.checked); setPaginaItens(1) }}
                       style={{ accentColor: "var(--af-primary)" }}
                     />
                     Somente com alertas
@@ -744,7 +758,7 @@ export default function AuditorSpedPage() {
                             </td>
                           </tr>
                         ) : (
-                          itensFiltrados.map((item, idx) => {
+                          itensPagina.map((item, idx) => {
                             const alerta = item.alertas[0]
                             const bgRow = item.alertas.some(a => a.nivel === "alto")
                               ? "rgba(239,68,68,0.03)"
@@ -785,13 +799,15 @@ export default function AuditorSpedPage() {
                         )}
                       </tbody>
                     </table>
-                    {itensFiltrados.length > 500 && (
-                      <div style={{ padding: "8px 20px", fontSize: 11, color: "var(--af-muted)", borderTop: "1px solid var(--af-border)" }}>
-                        Exibindo todos os {itensFiltrados.length} itens. Use os filtros para refinar a busca.
-                      </div>
-                    )}
                   </div>
                 )}
+                <PaginationControls
+                  total={itensFiltrados.length}
+                  page={paginaItens}
+                  pageSize={linhasItens}
+                  onPageChange={setPaginaItens}
+                  onPageSizeChange={tamanho => { setLinhasItens(tamanho); setPaginaItens(1) }}
+                />
               </div>
             )}
 

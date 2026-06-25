@@ -184,6 +184,406 @@ Regras seed incluídas no banco:
 
 ## Roadmap
 
+---
+
+## Fase PRÉ-BETA — Segurança, Integridade e Liberação Controlada
+
+**Status: BLOQUEANTE — não liberar usuários externos antes de concluir os itens P0 e P1.**
+Auditoria técnica realizada em 2026-06-02.
+
+---
+
+### Resumo Executivo
+
+O sistema possui uma arquitetura multi-tenant bem estruturada com Supabase RLS como principal barreira de isolamento. A camada de autenticação (middleware + `getUser()`) está correta e consistente em todas as rotas de API. O design de "parse no browser, salvar no servidor" é adequado para o modelo SaaS.
+
+Porém, foram identificadas **6 vulnerabilidades P0** que devem ser corrigidas antes de qualquer liberação a usuários externos. As mais críticas envolvem políticas RLS de INSERT excessivamente permissivas, que permitem contaminação cruzada de dados entre organizações, e um bug no webhook Stripe que impede o bloqueio de acesso após cancelamento de assinatura.
+
+**Não há exposição de chaves em código versionado atual.** O antigo `debug-env` endpoint (que expôs fragmentos de chaves) foi removido e deve-se avaliar rotação das chaves Supabase e Stripe se ele chegou a ser acessado em produção.
+
+---
+
+### Inventário de Superfícies de Ataque
+
+**Tabelas no banco (total: 17)**
+
+| Tabela | RLS | INSERT policy | SELECT policy | DELETE policy | Risco |
+|--------|-----|---------------|---------------|---------------|-------|
+| `organizacoes` | ✅ | ❌ (sem policy — só service role via API) | is_member_of | is_member_of (admin) | Baixo |
+| `membros_organizacao` | ✅ | ⚠️ `auth.role()='authenticated'` | user_id=uid OR is_member_of | ⚠️ `auth.role()='authenticated'` | **P0** |
+| `convites_organizacao` | ✅ | ⚠️ `auth.role()='authenticated'` | ❌ Sem SELECT policy | is_member_of | **P0** |
+| `empresas` | ✅ | ⚠️ `auth.role()='authenticated'` | is_member_of | is_member_of | P1 |
+| `fa_sessoes_analise` | ✅ | ⚠️ `auth.role()='authenticated'` | is_member_of | is_member_of | P1 |
+| `fa_arquivos_sped` | ✅ | ⚠️ `auth.role()='authenticated'` | is_member_of | is_member_of | P1 |
+| `fa_arquivos_xml` | ✅ | ⚠️ `auth.role()='authenticated'` | is_member_of | is_member_of | P1 |
+| `fa_apuracoes_icms` | ✅ | ⚠️ `auth.role()='authenticated'` | is_member_of | is_member_of | P1 |
+| `fa_apuracoes_contrib` | ✅ | ⚠️ `auth.role()='authenticated'` | is_member_of | is_member_of | P1 |
+| `fa_regras_fiscais` | ✅ | ⚠️ `auth.role()='authenticated'` + ALL | is_member_of | ⚠️ ALL policy | **P1** |
+| `fa_alertas` | ✅ | ⚠️ `auth.role()='authenticated'` | is_member_of | is_member_of | P1 |
+| `fa_obrigacoes_acessorias` | ✅ | ⚠️ `auth.role()='authenticated'` | is_member_of | is_member_of | P1 |
+| `fa_planejamento_tributario` | ✅ | ⚠️ `auth.role()='authenticated'` | is_member_of | is_member_of | P1 |
+| `sn_declaracoes` | ✅ | ⚠️ `auth.role()='authenticated'` | is_member_of | is_member_of | P1 |
+| `fa_documentos_fiscais` | ✅ | ⚠️ `auth.role()='authenticated'` | is_member_of | is_member_of | P1 |
+| `fa_documentos_itens` | ✅ | ⚠️ `auth.role()='authenticated'` | is_member_of | is_member_of | P1 |
+| `sn_receitas_mensais` | ✅ | ⚠️ `auth.role()='authenticated'` | is_member_of | is_member_of | P1 |
+| `sn_apuracoes` | ✅ | ⚠️ `auth.role()='authenticated'` | is_member_of | is_member_of | P1 |
+| `sn_apuracoes_receitas` | ✅ | ⚠️ `auth.role()='authenticated'` | is_member_of | is_member_of | P1 |
+| `cnpj_cache` | ✅ | ⚠️ `auth.role()='authenticated'` | `auth.role()='authenticated'` | ❌ Sem DELETE | Baixo |
+| `cobrancas` | ✅ | ⚠️ `auth.role()='authenticated'` | is_member_of | is_member_of | P1 |
+
+**Rotas de API (total: 29)**
+
+| Rota | Método | Autenticação | Validação de org | Validação empresa_id vs org | Risco |
+|------|---------|--------------|------------------|-----------------------------|-------|
+| `GET /api/organizacoes` | GET | ✅ | ✅ (user_id filter) | — | OK |
+| `POST /api/organizacoes` | POST | ✅ | ✅ (criação) | — | OK |
+| `GET /api/membros` | GET | ✅ | ✅ | — | OK |
+| `POST /api/membros` | POST | ✅ | ✅ (admin check) | — | OK |
+| `DELETE /api/membros` | DELETE | ✅ | ✅ (org_id filter) | — | OK* |
+| `GET /api/convites` | GET | ✅ | ✅ (email user) | — | OK |
+| `POST /api/convites` | POST | ✅ | ✅ | — | OK |
+| `POST /api/stripe/checkout` | POST | ✅ | ✅ | — | OK |
+| `POST /api/stripe/webhook` | POST | Stripe sig | N/A | — | **P0 bug** |
+| `GET /api/empresas` | GET | ✅ | ✅ (RLS) | — | OK |
+| `POST /api/empresas` | POST | ✅ | ✅ | — | OK |
+| `PUT /api/empresas/[id]` | PUT | ✅ | ✅ (RLS UPDATE) | — | OK |
+| `DELETE /api/empresas/[id]` | DELETE | ✅ | ✅ (RLS UPDATE) | — | OK |
+| `POST /api/empresas/cadastrar-por-cnpj` | POST | ✅ | ✅ | — | OK |
+| `GET /api/sessoes` | GET | ✅ | ✅ (RLS SELECT) | — | OK |
+| `POST /api/sessoes` | POST | ✅ | ✅ | ⚠️ empresa_id não validado | **P1** |
+| `GET /api/alertas` | GET | ✅ | ✅ (RLS SELECT) | — | OK |
+| `POST /api/alertas` | POST | ✅ | ✅ | ⚠️ empresa_id não validado | **P1** |
+| `PATCH /api/alertas/[id]` | PATCH | ✅ | ✅ (RLS UPDATE) | — | OK |
+| `GET /api/arquivos-sped` | GET | ✅ | ✅ (RLS SELECT) | — | OK |
+| `POST /api/arquivos-sped` | POST | ✅ | ✅ | ⚠️ empresa_id/sessao_id não validados | **P1** |
+| `GET /api/arquivos-xml` | GET | ✅ | ✅ (RLS SELECT) | — | OK |
+| `POST /api/arquivos-xml` | POST | ✅ | ✅ | ⚠️ empresa_id/sessao_id não validados | **P1** |
+| `GET /api/documentos-fiscais` | GET | ✅ | ✅ (RLS SELECT) | — | OK |
+| `POST /api/documentos-fiscais/importar-nfe` | POST | ✅ | ✅ | ⚠️ empresa_id não validado | **P1** |
+| `PATCH /api/documentos-fiscais/importar-nfe` | PATCH | ✅ | ✅ (RLS UPDATE) | — | OK |
+| `GET /api/documentos-fiscais/itens` | GET | ✅ | ✅ (RLS SELECT) | — | OK |
+| `PATCH /api/documentos-fiscais/itens/[id]` | PATCH | ✅ | ✅ (RLS UPDATE) | — | OK |
+| `DELETE /api/fiscal/limpar-competencia` | DELETE | ✅ | ✅ (getOrgId) | ⚠️ empresa_id não validado | **P1** |
+| `GET /api/fiscal/periodos-importados` | GET | ✅ | ✅ (getOrgId) | ⚠️ empresa_id não validado | P2 |
+| `GET /api/simples_nacional` | GET | ✅ | ✅ (RLS SELECT) | — | OK |
+| `POST /api/simples_nacional` | POST | ✅ | ✅ | ⚠️ empresa_id não validado | **P1** |
+| `DELETE /api/simples_nacional` | DELETE | ✅ | ✅ (RLS DELETE) | — | OK |
+| `GET /api/simples/receitas-mensais` | GET | ✅ | ✅ (RLS SELECT) | — | OK |
+| `POST /api/simples/receitas-mensais` | POST | ✅ | ✅ | ⚠️ empresa_id não validado | **P1** |
+| `GET /api/cnpj-cache` | GET | ✅ | — | — | OK |
+| `GET /api/cnpj-debug` | GET | ✅ | — | — | **P1 remover** |
+| `GET /api/cnpj/[cnpj]` | GET | ✅ | — | — | OK |
+| `GET /api/relatorios/documentos` | GET | ✅ | ✅ (RLS SELECT) | — | OK |
+| `GET /api/relatorios/participantes` | GET | ✅ | ✅ (RLS SELECT) | — | OK |
+| `GET /api/relatorios/produtos` | GET | ✅ | ✅ (RLS SELECT) | — | OK |
+| `GET /api/relatorios/cfop` | GET | ✅ | ✅ (RLS SELECT) | — | OK |
+| `GET /api/relatorios/ncm` | GET | ✅ | ✅ (RLS SELECT) | — | OK |
+| `GET /api/cobrancas` | GET | ✅ | ✅ (RLS SELECT) | — | OK |
+| `POST /api/cobrancas` | POST | ✅ | ✅ | ⚠️ empresa_id não validado | P2 |
+| `PUT /api/cobrancas` | PUT | ✅ | ✅ (RLS UPDATE) | — | OK |
+| `DELETE /api/cobrancas` | DELETE | ✅ | ✅ (RLS DELETE) | — | OK |
+
+---
+
+### Tabela de Vulnerabilidades
+
+| # | Classificação | Título | Evidência | Impacto | Correção recomendada |
+|---|---------------|--------|-----------|---------|----------------------|
+| V01 | **P0** | INSERT RLS insuficiente: empresa_id cross-org via API | `supabase_setup.sql` todas as policies INSERT: `auth.role()='authenticated'`; sem restrição de org | Usuário autenticado de Org A pode criar sessões, alertas, arquivos SPED/XML apontando para empresa_id de Org B. Contaminação cruzada de dados entre escritórios. | Adicionar check `public.is_member_of(org_id)` a todas as policies INSERT de tabelas de dados. Ver V02 para complemento. |
+| V02 | **P0** | empresa_id não validado contra org_id nas rotas POST | `app/api/sessoes/route.ts:46`, `app/api/alertas/route.ts:50`, `app/api/arquivos-sped/route.ts:38`, `app/api/arquivos-xml/route.ts:43`, `app/api/simples_nacional/route.ts:37`, `app/api/simples/receitas-mensais/route.ts:76`, `app/api/documentos-fiscais/importar-nfe/route.ts:47` | Antes de inserir, nenhuma rota verifica se `empresa_id` pertence à org do usuário autenticado. Combinado com V01, permite injeção de dados de Org A na empresa de Org B. | Antes de qualquer INSERT, validar: `const { count } = await supabase.from('empresas').select('id',{count:'exact',head:true}).eq('id',empresa_id).eq('org_id',orgId)` e retornar 403 se `count === 0`. |
+| V03 | **P0** | membros_organizacao DELETE policy não restringe por org | `supabase_setup.sql:70`: `for delete using (auth.role() = 'authenticated')` | Usuário autenticado que conhece o UUID de um membro pode deletá-lo de qualquer org via chamada direta ao Supabase REST, sem passar pela API Next.js. | Trocar policy DELETE para `using (public.is_member_of(org_id))`. |
+| V04 | **P0** | membros_organizacao INSERT policy não valida org | `supabase_setup.sql:68`: `for insert with check (auth.role() = 'authenticated')` | Usuário autenticado que conhece o `org_id` de outra organização pode inserir-se nela diretamente via Supabase REST, bypassando o sistema de convites. | Trocar policy INSERT para `with check (public.is_member_of(org_id))`. Operações legítimas de admin (criação de org, aceitação de convite) devem usar `createAdminClient()` que bypassa RLS. |
+| V05 | **P0** | Cancelamento de assinatura Stripe não revoga acesso | `app/api/stripe/webhook/route.ts:34-46`: evento `customer.subscription.deleted` lê `subscription.metadata.org_id`, mas na criação do Checkout (`checkout/route.ts:17-26`) o `metadata` é definido apenas na `checkout.session`, não na `subscription`. Stripe não copia o metadata automaticamente. | O campo `orgId` será `undefined` no evento de cancelamento. O `if (orgId)` bloqueia silenciosamente. A org continuará com `plano='founder_access'` mesmo após cancelamento. | No checkout, adicionar `subscription_data: { metadata: { org_id: orgId } }` ao `stripe.checkout.sessions.create()`. Verificar também eventos `invoice.payment_failed` e `customer.subscription.updated`. |
+| V06 | **P0** | Next.js com CVE de alta severidade (DoS) | `package.json`: `"next": "^16.2.1"` — CVE GHSA-q4gf-8mx6-v5v3 (CVSS 7.5, DoS em Server Components) e GHSA-v86f-89xz-kxfq | Atacante externo pode causar DoS enviando requisições malformadas para o servidor Next.js. | Atualizar para `next@^16.2.3` (mínimo) via `npm install next@latest`. |
+| V07 | **P1** | fa_regras_fiscais: qualquer usuário pode alterar o catálogo global de regras | `supabase_setup.sql:330-333`: policies `regras_select` e `regras_all` com `auth.role()='authenticated'` sem restrição de org ou papel | Usuário autenticado pode inserir regras falsas, desativar regras existentes (`ativo=false`) ou modificar fundamentos legais do catálogo. | Remover policy `regras_all`. Restringir UPDATE/DELETE/INSERT a service_role (admin). Manter SELECT aberta para autenticados. |
+| V08 | **P1** | Endpoint /api/cnpj-debug ainda ativo em produção | `app/api/cnpj-debug/route.ts` (arquivo existe, confirmado pelo glob) | Retorna JSON bruto da API pública de CNPJ, incluindo estrutura interna e chaves de diagnóstico. Superfície de ataque desnecessária. | Deletar o arquivo `app/api/cnpj-debug/route.ts`. |
+| V09 | **P1** | Nenhum header de segurança HTTP configurado | `next.config.ts`: objeto vazio `{}`. Sem CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy. | Exposição a clickjacking, MIME sniffing, XSS via inline scripts de terceiros, ausência de HTTPS enforced. | Adicionar `headers()` em `next.config.ts` com os headers de segurança padrão. Ver seção de correções. |
+| V10 | **P1** | Verificação de plano ausente nas rotas de API | `app/(fiscal)/layout.tsx:26`: check de `plano='pendente'` apenas no layout. Nenhuma API route verifica o plano. | Usuário com `plano='pendente'` pode chamar diretamente qualquer `/api/*` (importar, listar, deletar dados) sem assinar. | Criar helper `checkPlano(supabase, orgId)` e chamar nas APIs relevantes, ou confiar no layout como única barreira (aceitável se o frontend não expõe as chamadas sem autenticação — discutir). |
+| V11 | **P1** | xlsx Prototype Pollution (SheetJS) | `npm audit`: `xlsx` severity=high, GHSA-... Prototype Pollution. O xlsx é usado do lado do cliente (browser) para exportar dados. | Se dados de terceiros forem processados via xlsx (parsing de entrada), pode haver exploração. No uso atual (apenas escrita/exportação), o risco é menor, mas existe. | Avaliar substituição por `exceljs` (mantida ativamente) ou manter e garantir que xlsx nunca parse dados de entrada não confiáveis. |
+| V12 | **P1** | Dado pessoal real (CPF/NF-e) no histórico Git | Commit `988741a` adicionou `xml_comdesconto.xml` com CPF `70824489101`, CNPJ, nome e endereço completos de pessoa física real. O arquivo permanece no histórico. | Violação da LGPD (Lei 13.709/2018): dados pessoais de pessoa física armazenados em repositório de código. Se o repositório for tornado público, expõe dados. | Remover da árvore de trabalho com `git rm xml_comdesconto.xml`. Discutir se é necessário reescrever o histórico com `git filter-repo`. Adicionar `*.xml` ao `.gitignore`. |
+| V13 | **P1** | Debug-env endpoint expôs fragmentos de chaves | Commits `ee8df46` e `ee98a61` adicionaram e depois removeram `app/api/debug-env/route.ts` — endpoint SEM autenticação que retornava `SUPABASE_SERVICE_ROLE_KEY` parcialmente. | Se o endpoint chegou a ser deployado em produção (Vercel) antes da remoção, as chaves estão comprometidas mesmo que fragmentadas. | Verificar se o período de exposição coincidiu com um deploy ativo. Se sim, rotacionar `SUPABASE_SERVICE_ROLE_KEY` e `STRIPE_SECRET_KEY` imediatamente. |
+| V14 | **P2** | Ausência de rate limiting no login/cadastro | `app/login/page.tsx` e Supabase Auth: sem rate limiting configurado explicitamente no lado da aplicação. | Ataques de força bruta contra contas de usuários. | Supabase Auth tem rate limiting interno (configurável no painel). Verificar e ajustar os limites no Supabase Studio > Auth > Rate Limits. Adicionar CAPTCHA no login como melhoria futura. |
+| V15 | **P2** | @supabase/ssr com vulnerabilidade low na lib cookie | `npm audit`: `cookie < 0.7.0`, GHSA-pxg6-pf52-xh8x | Nomes de cookies com caracteres fora de faixa. Impacto prático baixo no contexto atual. | Atualizar `@supabase/ssr` para `>=0.10.3` quando estável e compatível com Next.js 16.2. |
+| V16 | **P2** | sessao_id e empresa_id de outras orgs aceitos em arquivos SPED/XML sem validação | `app/api/arquivos-sped/route.ts:33` e `app/api/arquivos-xml/route.ts:21`: `sessao_id` e `empresa_id` vêm do body sem validação cruzada | Um usuário pode fornecer `sessao_id` de outra org e o INSERT (com RLS fraca) pode aceitar — criando arquivos vinculados a sessões de terceiros. | Validar que `sessao_id` pertence à `org_id` do usuário antes de inserir. Implementar em conjunto com V02. |
+| V17 | **P2** | Nenhum limite de tamanho em uploads de SPED/XML via JSON | `app/api/arquivos-xml/route.ts:post`: aceita array de XMLs sem limite; `parsed_data` JSONB sem tamanho máximo. `app/api/arquivos-sped/route.ts`: `parsed_data` potencialmente gigante. | Um usuário mal-intencionado pode enviar payloads JSONB muito grandes (SPED com 500k registros = JSONB de dezenas de MB), sobrecarregando o banco. | Adicionar `Content-Length` check nas API routes críticas. Limitar `total_linhas` e tamanho de `parsed_data`. Considerar limitar o POST do Next.js via `next.config.ts` (`bodySizeLimit`). |
+| V18 | **P2** | Enumeração de todos os usuários via `listUsers()` | `app/api/membros/route.ts:63`: `admin.auth.admin.listUsers()` busca TODOS os usuários para encontrar o e-mail convidado. | A cada convite, o servidor lista todos os usuários do projeto Supabase. Crescerá com o número de usuários. Também expõe todos os user IDs ao processo Node.js. | Substituir por `admin.auth.admin.listUsers({filter: 'email=...'})` com filtro, ou usar `getUserByEmail()` se disponível. |
+| V19 | **P2** | Verificação de `empresa_id` ausente no DELETE limpar-competencia | `app/api/fiscal/limpar-competencia/route.ts:22-28`: valida `getOrgId` mas não verifica se `empresa_id` pertence à org. | Usuário pode deletar competência de empresa de outra org se souber o UUID. O RLS DELETE de `fa_documentos_fiscais` usa `is_member_of(org_id)` — mitiga parcialmente, mas `fa_arquivos_xml` DELETE também pode ser explorado. | Adicionar validação da empresa antes da deleção. |
+| V20 | **P3** | Ausência de confirmação de e-mail no cadastro | `app/cadastro/page.tsx` + Supabase Auth: não há verificação se a confirmação de e-mail está habilitada no Supabase. | Usuários podem se cadastrar com e-mails de terceiros e ter acesso imediato ao sistema. | Habilitar "Email confirmation" no Supabase Studio > Auth > Providers > Email. |
+| V21 | **P3** | Sem política mínima de senha | Login/cadastro: não há validação do lado da aplicação além do Supabase padrão. | Usuários podem criar senhas muito fracas (depende da configuração do Supabase). | Configurar senha mínima de 8 caracteres no Supabase Studio > Auth > Password. |
+| V22 | **P3** | Sem estratégia de backup/monitoramento/resposta a incidentes | Não foi identificado nenhum mecanismo de backup de banco, alertas de erro, ou runbook de incidente. | Em caso de falha, perda de dados ou comprometimento, não há plano de resposta. | Habilitar Point-in-Time Recovery (PITR) no Supabase. Configurar Sentry ou similar para erros em produção. Documentar runbook mínimo. |
+| V23 | **P3** | `competencia` não validada como MM/YYYY nas rotas | Múltiplas rotas recebem `competencia` como string sem validação de formato. | Dados malformados podem quebrar filtragens e cálculos que assumem o formato MM/YYYY. | Adicionar regex de validação `/^\d{2}\/\d{4}$/` nas rotas que recebem `competencia`. |
+
+---
+
+### Ordem Sugerida de Correção
+
+**Semana 1 — P0 críticos (pré-condição absoluta para beta):**
+
+1. **V05** — Corrigir webhook Stripe: adicionar `subscription_data: { metadata: { org_id: orgId } }` ao checkout. **Testar com Stripe CLI.**
+2. **V06** — Atualizar Next.js para `>=16.2.3`.
+3. **V01 + V04** — Fortalecer RLS INSERT de `membros_organizacao`: `with check (public.is_member_of(org_id))`. Criar migração SQL.
+4. **V03** — Fortalecer RLS DELETE de `membros_organizacao`: `using (public.is_member_of(org_id))`.
+5. **V02 + V16** — Validar `empresa_id` pertence à org do usuário em todas as rotas POST que recebem esse campo. Criar helper `validarEmpresaDaOrg(supabase, empresaId, orgId)`.
+6. **V07** — Restringir policies de `fa_regras_fiscais` a service_role.
+7. **V13** — Avaliar rotação de chaves (ver seção de dúvidas externas).
+
+**Semana 2 — P1 importantes (antes de beta):**
+
+8. **V08** — Deletar `app/api/cnpj-debug/route.ts`.
+9. **V09** — Adicionar headers de segurança no `next.config.ts`.
+10. **V12** — Remover `xml_comdesconto.xml` do working tree. Adicionar `*.xml` ao `.gitignore`.
+11. **V10** — Adicionar verificação de plano nas rotas de API mais críticas (importação, deleção).
+
+**Semana 3 — P2 (antes de crescimento de usuários):**
+
+12. **V14** — Verificar rate limiting no Supabase Studio.
+13. **V17** — Adicionar limites de payload nas rotas de importação.
+14. **V18** — Substituir `listUsers()` por filtro de e-mail.
+15. **V19** — Validar empresa antes do delete de competência.
+
+**P3 — Acumular no backlog:**
+
+16. V20, V21, V22, V23 — Melhorias de longo prazo.
+
+---
+
+### Correções Recomendadas Detalhadas
+
+#### V09 — Headers de Segurança (`next.config.ts`)
+
+```typescript
+const securityHeaders = [
+  { key: 'X-Frame-Options', value: 'DENY' },
+  { key: 'X-Content-Type-Options', value: 'nosniff' },
+  { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+  { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+  { key: 'X-XSS-Protection', value: '1; mode=block' },
+  {
+    key: 'Content-Security-Policy',
+    value: [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",  // necessário pois Next.js usa inline scripts
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: blob:",
+      "font-src 'self'",
+      "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.stripe.com https://publica.cnpj.ws",
+      "frame-ancestors 'none'",
+    ].join('; '),
+  },
+  { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains; preload' },
+]
+
+const nextConfig = {
+  async headers() {
+    return [{ source: '/(.*)', headers: securityHeaders }]
+  },
+}
+```
+
+#### V01/V04 — RLS INSERT `membros_organizacao`
+
+```sql
+-- Migração: fortalecer policies de membros_organizacao
+DROP POLICY IF EXISTS "membros_insert" ON public.membros_organizacao;
+DROP POLICY IF EXISTS "membros_delete" ON public.membros_organizacao;
+
+CREATE POLICY "membros_insert" ON public.membros_organizacao
+  FOR INSERT WITH CHECK (public.is_member_of(org_id));
+
+CREATE POLICY "membros_delete" ON public.membros_organizacao
+  FOR DELETE USING (public.is_member_of(org_id));
+```
+
+> **Atenção:** Esta mudança quebrará a criação de org (chicken-and-egg). A API `POST /api/organizacoes` já usa `createAdminClient()` para o INSERT em `membros_organizacao`, então continua funcionando. A aceitação de convite em `POST /api/convites` também usa `createAdminClient()`. Confirmar que nenhum outro INSERT em `membros_organizacao` passa pelo cliente normal.
+
+#### V02 — Validação de empresa_id (helper sugerido)
+
+```typescript
+// lib/supabase/validateEmpresa.ts
+export async function validarEmpresaDaOrg(
+  supabase: SupabaseClient,
+  empresaId: string,
+  orgId: string,
+): Promise<boolean> {
+  const { count } = await supabase
+    .from('empresas')
+    .select('id', { count: 'exact', head: true })
+    .eq('id', empresaId)
+    .eq('org_id', orgId)
+  return (count ?? 0) > 0
+}
+```
+
+Chamar antes de qualquer INSERT que receba `empresa_id` do body:
+```typescript
+const valida = await validarEmpresaDaOrg(supabase, empresa_id, orgId)
+if (!valida) return NextResponse.json({ error: 'empresa_id inválido' }, { status: 403 })
+```
+
+#### V05 — Stripe webhook cancellation fix
+
+```typescript
+// app/api/stripe/checkout/route.ts
+const session = await stripe.checkout.sessions.create({
+  mode: 'subscription',
+  subscription_data: {
+    metadata: { org_id: orgId },  // ← adicionar isto
+  },
+  metadata: { org_id: orgId },
+  // ... resto igual
+})
+```
+
+#### V07 — Restringir fa_regras_fiscais
+
+```sql
+DROP POLICY IF EXISTS "regras_all" ON public.fa_regras_fiscais;
+DROP POLICY IF EXISTS "regras_select" ON public.fa_regras_fiscais;
+
+-- Somente leitura para autenticados
+CREATE POLICY "regras_select" ON public.fa_regras_fiscais
+  FOR SELECT USING (auth.role() = 'authenticated');
+-- Modificações apenas via service_role (admin) — sem policy = service_role bypassa
+```
+
+---
+
+### Dúvidas que Dependem de Configuração Externa
+
+| # | Sistema | Questão | Impacto |
+|---|---------|---------|---------|
+| D1 | **Supabase** | O endpoint `debug-env` (commits `ee8df46`/`ee98a61`) foi deployado no Vercel antes de ser removido? Se sim, o `SUPABASE_SERVICE_ROLE_KEY` foi acessado por alguém? | Se sim: rotacionar service_role key imediatamente no Supabase Studio > Project Settings > API. |
+| D2 | **Supabase** | Rate limiting de autenticação está configurado? (Auth > Rate Limits no Studio) | Brute-force de login se não configurado. |
+| D3 | **Supabase** | "Confirm email" está habilitado em Auth > Providers > Email? | Usuários com e-mails de terceiros se o não estiver. |
+| D4 | **Supabase** | Point-in-Time Recovery (PITR) está habilitado no plano? | Risco de perda de dados sem backup configurado. |
+| D5 | **Supabase** | Há alguma regra de firewall ou allowlist de IPs no banco? | Conexões diretas ao banco pela anon_key ficam expostas sem isso. |
+| D6 | **Vercel** | Os logs de deploy/runtime estão sendo retidos? Existe algum dado sensível sendo logado? | Sem visibilidade de incidentes. |
+| D7 | **Stripe** | O Stripe Dashboard mostra assinaturas canceladas com `org_id` no metadata da subscription (não só da session)? | Confirma se V05 já ocorre ou ainda não. |
+| D8 | **Stripe** | O webhook está configurado para receber também `invoice.payment_failed` e `customer.subscription.updated`? | Falha de cobrança não revogaria acesso sem esses eventos. |
+| D9 | **GitHub** | O repositório é público ou privado? | Se público, o arquivo `xml_comdesconto.xml` e dados pessoais estão completamente expostos. |
+
+---
+
+### Suíte de Testes Multi-Tenant Proposta
+
+Criar duas organizações de teste com tokens JWT distintos:
+- **Org A**: admin_a@test.com, empresa_A_id = UUID-A, sessao_A_id = UUID-SA
+- **Org B**: admin_b@test.com, empresa_B_id = UUID-B, sessao_B_id = UUID-SB
+
+**Testes de isolamento GET:**
+- [ ] GET /api/empresas com token de A → não retorna empresa B
+- [ ] GET /api/sessoes?empresa_id=UUID-B com token de A → lista vazia
+- [ ] GET /api/alertas?empresa_id=UUID-B com token de A → lista vazia
+- [ ] GET /api/arquivos-xml?empresa_id=UUID-B com token de A → lista vazia
+- [ ] GET /api/simples_nacional?empresa_id=UUID-B com token de A → lista vazia
+- [ ] GET /api/relatorios/documentos?empresa_id=UUID-B com token de A → lista vazia ou 403
+
+**Testes de IDOR POST (tentar injetar empresa de outra org):**
+- [ ] POST /api/sessoes com token de A, body `{empresa_id: UUID-B, competencia: "01/2025"}` → deve retornar 403
+- [ ] POST /api/alertas com token de A, body `[{empresa_id: UUID-B, ...}]` → deve retornar 403
+- [ ] POST /api/arquivos-xml com token de A, body `{empresa_id: UUID-B, ...}` → deve retornar 403
+- [ ] POST /api/simples_nacional com token de A, body `{empresa_id: UUID-B, ...}` → deve retornar 403
+- [ ] POST /api/simples/receitas-mensais com token de A, body `{empresa_id: UUID-B, ...}` → deve retornar 403
+- [ ] DELETE /api/fiscal/limpar-competencia?empresa_id=UUID-B&competencia=01/2025 com token de A → deve retornar 403
+
+**Testes de IDOR UPDATE/DELETE:**
+- [ ] PUT /api/empresas/UUID-B com token de A → deve retornar 404 ou erro
+- [ ] PATCH /api/alertas/UUID-alerta-B com token de A → deve retornar erro (RLS)
+- [ ] DELETE /api/membros?id=UUID-membro-B com token de A → deve retornar 404 (não encontrar)
+- [ ] DELETE /api/simples_nacional?id=UUID-declaracao-B com token de A → deve retornar erro (RLS)
+
+**Testes de usuário não autenticado:**
+- [ ] GET /api/empresas sem token → deve retornar 401
+- [ ] POST /api/sessoes sem token → deve retornar 401
+- [ ] GET /api/relatorios/documentos sem token → deve retornar 401
+- [ ] DELETE /api/fiscal/limpar-competencia sem token → deve retornar 401
+
+**Testes com usuário de plano pendente:**
+- [ ] Criar usuário com plano='pendente' e tentar acessar layout fiscal → deve redirecionar
+- [ ] Com plano='pendente', chamar POST /api/sessoes com token válido → verificar se aceita (atual: aceita — V10)
+- [ ] Com plano='pendente', chamar POST /api/arquivos-xml → verificar se aceita
+
+**Testes de injeção via Supabase REST (bypass da API):**
+- [ ] INSERT direto em membros_organizacao via anon key + JWT de A, com org_id=UUID-org-B → deve ser bloqueado pelo RLS
+- [ ] DELETE direto em membros_organizacao via anon key + JWT, por UUID conhecido → deve ser bloqueado pelo RLS (após V03)
+- [ ] INSERT direto em fa_regras_fiscais via anon key → deve ser bloqueado (após V07)
+
+---
+
+### Checklist Final — Liberar Beta
+
+**Segurança (P0 — OBRIGATÓRIO):**
+- [ ] V01/V04: RLS INSERT `membros_organizacao` fortalecido com `is_member_of`
+- [ ] V02/V16: `empresa_id` validado contra org em todas as rotas POST de dados fiscais
+- [ ] V03: RLS DELETE `membros_organizacao` corrigido
+- [ ] V05: Webhook Stripe corrigido — cancelamento revoga acesso (testar com Stripe CLI)
+- [ ] V06: Next.js atualizado para `>=16.2.3`
+- [ ] V07: `fa_regras_fiscais` restrita a service_role para escrita
+- [ ] V13: Decisão tomada sobre rotação de chaves pós-debug-env
+
+**Segurança (P1 — RECOMENDADO):**
+- [ ] V08: `/api/cnpj-debug` removido
+- [ ] V09: Headers de segurança HTTP configurados no `next.config.ts`
+- [ ] V10: Verificação de plano nas APIs críticas ou decisão documentada de aceitar
+- [ ] V12: `xml_comdesconto.xml` removido do working tree
+- [ ] V11: Avaliação do xlsx (uso somente para escrita = baixo risco)
+
+**Funcional:**
+- [ ] Suíte de testes multi-tenant executada manualmente com os dois usuários de teste
+- [ ] Webhook Stripe testado com Stripe CLI (checkout + cancelamento + falha de pagamento)
+- [ ] Fluxo completo de cadastro → onboarding → assinatura → uso → cancelamento testado
+
+**Configurações externas (confirmar antes do beta):**
+- [ ] D1: Avaliar rotação de service_role key (se debug-env chegou ao Vercel)
+- [ ] D2: Rate limiting de Auth configurado no Supabase Studio
+- [ ] D3: Confirm email habilitado
+- [ ] D7/D8: Webhook Stripe configurado para os eventos corretos
+- [ ] D9: Repositório GitHub verificado como privado
+
+---
+
+### Fase PRÉ-BETA — Próximas Ações
+
+- [x] PRÉ-BETA.1: Criar migração SQL para corrigir RLS de `membros_organizacao` e `fa_regras_fiscais` — `supabase_migration_pre_beta_rls.sql` criado (aplicar manualmente no Supabase Studio)
+- [x] PRÉ-BETA.2: Criar helper `validarEmpresaDaOrg` e aplicar em todas as rotas POST — `lib/supabase/validation.ts` criado; 16 rotas de API corrigidas
+- [x] PRÉ-BETA.HOMOLOGACAO: Preparar ambiente de homologação isolado da produção — branch `homologacao` criada; banner de aviso; docs em `docs/HOMOLOGACAO_*.md`; script PowerShell em `tests/security/run-multi-tenant-manual.ps1`; `.env.homologacao.example` criado (2026-06-02)
+- [ ] **PRÉ-BETA.APLICAR-BANCO**: Aplicar SQLs no banco de homologação (etapa obrigatória antes de testes) — executar em ordem: `supabase_setup.sql` → `supabase_migration_fase_a.sql` → `supabase_migration_cnpj_cache.sql` → `supabase_migration_pre_beta_rls.sql`; verificar com `docs/HOMOLOGACAO_SQL_VERIFICACAO.sql`
+- [ ] **PRÉ-BETA.VERCEL-PREVIEW**: Configurar variáveis de ambiente na Vercel (Preview only, branch `homologacao`) e confirmar que a faixa laranja aparece na Preview URL
+- [ ] PRÉ-BETA.3: Corrigir webhook Stripe (subscription_data.metadata)
+- [ ] PRÉ-BETA.4: Atualizar Next.js
+- [ ] PRÉ-BETA.5: Adicionar headers HTTP no next.config.ts
+- [ ] PRÉ-BETA.6: Remover cnpj-debug e xml_comdesconto.xml
+- [ ] PRÉ-BETA.7: Executar suíte de testes multi-tenant — suíte em `tests/security/multi-tenant.test.ts`; script manual em `tests/security/run-multi-tenant-manual.ps1`; **depende de APLICAR-BANCO e VERCEL-PREVIEW**
+- [ ] PRÉ-BETA.8: Verificar configurações no Supabase Studio e Stripe Dashboard
+
+---
+
+### Ambiente de Homologação — Estrutura Criada (2026-06-02)
+
+**Branch:** `homologacao` (criada a partir do master com todas as correções do BLOCO 1)
+
+**Arquivos criados na branch `homologacao`:**
+
+| Arquivo | Finalidade |
+|---------|-----------|
+| `.env.homologacao.example` | Template de variáveis (sem chaves reais) |
+| `docs/HOMOLOGACAO_SETUP.md` | Guia rápido para o desenvolvedor |
+| `docs/HOMOLOGACAO_CHECKLIST.md` | Checklist completo de 57 itens de validação |
+| `docs/HOMOLOGACAO_SUPABASE_PASSO_A_PASSO.md` | Criar projeto Supabase de homologação |
+| `docs/HOMOLOGACAO_SQL_VERIFICACAO.sql` | Queries de verificação pós-instalação |
+| `docs/HOMOLOGACAO_VERCEL_PASSO_A_PASSO.md` | Configurar Preview Deployment na Vercel |
+| `docs/HOMOLOGACAO_TESTES_VISUAIS.md` | Testes pela interface (12 passos) |
+| `docs/HOMOLOGACAO_RESULTADOS_MODELO.md` | Template para registrar resultados |
+| `tests/security/README.md` | Instruções da suíte de testes |
+| `tests/security/run-multi-tenant-manual.ps1` | Script interativo (9 testes, relatório automático) |
+| `tests/security/run-multi-tenant-manual.example.ps1` | Exemplo com dados fictícios |
+
+**Indicador visual:** banner laranja fixo no topo de todas as páginas quando `NEXT_PUBLIC_APP_ENV=homologacao`.
+
+**Regra crítica:** nenhum arquivo desta lista contém chaves reais ou dados de produção.
+
+---
+
 ### Fase 0 — Fundação SaaS ✅ CONCLUÍDA (2026-05-19)
 
 **Implementação real:** multi-tenant por organização (`org_id`), não por usuário individual. Escritórios têm múltiplos usuários no mesmo `org_id`.

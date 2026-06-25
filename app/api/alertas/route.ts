@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { getOrgId } from '@/lib/supabase/org'
+import { validarEmpresaDaOrg, validarSessaoDaOrg, respostaForbidden } from '@/lib/supabase/validation'
 import { NextResponse } from 'next/server'
 
 export async function GET(request: Request) {
@@ -46,6 +47,28 @@ export async function POST(request: Request) {
 
   const orgId = await getOrgId(supabase, user.id)
   if (!orgId) return NextResponse.json({ error: 'Usuário sem organização' }, { status: 403 })
+
+  // Coletar IDs únicos que precisam ser validados
+  const empresaIds = [...new Set(
+    alertas.map((a: Record<string, unknown>) => a.empresa_id).filter((id): id is string => typeof id === 'string')
+  )]
+  const sessaoIds = [...new Set(
+    alertas.map((a: Record<string, unknown>) => a.sessao_id).filter((id): id is string => typeof id === 'string')
+  )]
+
+  // Validar todos os empresa_ids — rejeitar o lote inteiro se qualquer um for inválido
+  for (const empId of empresaIds) {
+    if (!await validarEmpresaDaOrg(supabase, empId, orgId)) {
+      return respostaForbidden('empresa_id')
+    }
+  }
+
+  // Validar todos os sessao_ids
+  for (const sesId of sessaoIds) {
+    if (!await validarSessaoDaOrg(supabase, sesId, orgId)) {
+      return respostaForbidden('sessao_id')
+    }
+  }
 
   const alertasComUser = alertas.map((a: Record<string, unknown>) => ({ ...a, org_id: orgId }))
 

@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { getOrgId } from '@/lib/supabase/org'
+import { validarEmpresaDaOrg, respostaForbidden } from '@/lib/supabase/validation'
 import { NextResponse } from 'next/server'
 
 /**
@@ -23,6 +24,10 @@ export async function GET(request: Request) {
 
   const orgId = await getOrgId(supabase, user.id)
   if (!orgId) return NextResponse.json({ error: 'Usuário sem organização' }, { status: 403 })
+
+  if (!await validarEmpresaDaOrg(supabase, empresaId, orgId)) {
+    return respostaForbidden('empresa_id')
+  }
 
   // Tenta fa_documentos_fiscais (requer migração fase A)
   const { data: docsFiscais, error: errDocs } = await supabase
@@ -59,7 +64,6 @@ export async function GET(request: Request) {
 
   const byPeriodo = new Map<string, { total_docs: number; total_receita: number; total_devolucoes: number }>()
   for (const x of xmlRows ?? []) {
-    // Prefere campo competencia do registro; deriva de data_emissao como fallback
     let comp = (x.competencia as string | null)
     if (!comp && x.data_emissao) {
       const ymd = (x.data_emissao as string).split('T')[0].split('-')
