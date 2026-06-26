@@ -174,12 +174,22 @@ export async function GET(req: Request) {
       const row = getResumo(comp)
       const valor = documento.valor_total ?? 0
 
+      // Derivar impacto_receita do tipo_movimento quando o valor for 'pendente_revisao'
+      // (documentos importados sem classificação explícita ficam com o default do banco)
+      let impacto = documento.impacto_receita
+      if (!impacto || impacto === 'pendente_revisao') {
+        const tm = documento.tipo_movimento
+        if (tm === 'saida') impacto = 'soma_receita'
+        else if (tm === 'devolucao_venda') impacto = 'reduz_receita'
+        else impacto = 'sem_impacto'
+      }
+
       if (documento.tipo_movimento === 'entrada') row.qtd_xml_entrada++
-      if (documento.impacto_receita === 'soma_receita') {
+      if (impacto === 'soma_receita') {
         row.xml_receita_bruta += valor
         row.qtd_xml_saida++
       }
-      if (documento.impacto_receita === 'reduz_receita') {
+      if (impacto === 'reduz_receita') {
         row.xml_devolucoes += valor
         row.qtd_xml_devolucao++
       }
