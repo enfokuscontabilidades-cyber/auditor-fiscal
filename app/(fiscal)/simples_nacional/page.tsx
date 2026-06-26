@@ -1553,6 +1553,20 @@ export default function SimplesNacionalPage() {
     if (!competencia) return
     setCarregandoXmlDocs(true)
     try {
+      const resDocs = await fetch(
+        `/api/documentos-fiscais?empresa_id=${empresaId}&competencia=${encodeURIComponent(competencia)}&incluir_itens=true`
+      )
+      if (resDocs.ok) {
+        const docsComItens: DocumentoFiscalComItens[] = await resDocs.json()
+        const docsValidos = Array.isArray(docsComItens)
+          ? docsComItens.filter(doc => doc.status !== 'cancelada')
+          : []
+        if (docsValidos.length > 0) {
+          setXmlDocumentos(docsValidos)
+          setXmlItens(docsValidos.flatMap(doc => doc.fa_documentos_itens ?? []))
+          return
+        }
+      }
       // Fonte principal: fa_arquivos_xml — sempre disponível, sempre completo
       // fa_documentos_fiscais não é usado aqui porque pode ter dados parciais
       // (ON CONFLICT ignoreDuplicates pode ter pulado documentos em importações anteriores)

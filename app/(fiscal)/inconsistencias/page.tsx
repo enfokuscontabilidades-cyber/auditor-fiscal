@@ -534,7 +534,7 @@ export default function RelatoriosPage() {
 
   async function buscarFiscalParaExcel() {
     const todas: RelatorioFiscalLinha[] = []
-    const tamanho = 500
+    const tamanho = 1000
     let pagina = 1
     let total = 0
 

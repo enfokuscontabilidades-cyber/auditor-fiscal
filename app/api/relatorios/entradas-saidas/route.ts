@@ -384,7 +384,7 @@ export async function GET(req: Request) {
   const resumido = url.searchParams.get('resumido') === 'true'
   const status = url.searchParams.get('status')
   const page = Math.max(parseInt(url.searchParams.get('page') ?? '1', 10) || 1, 1)
-  const pageSize = Math.min(Math.max(parseInt(url.searchParams.get('page_size') ?? '100', 10) || 100, 10), 500)
+  const pageSize = Math.min(Math.max(parseInt(url.searchParams.get('page_size') ?? '100', 10) || 100, 10), 1000)
   const from = (page - 1) * pageSize
   const to = from + pageSize - 1
   const separarCompetencia = competenciasFiltro.length > 1
@@ -456,6 +456,35 @@ export async function GET(req: Request) {
     }
 
     return aplicarFiltroProdutos(itens, tipoMovimento)
+  }
+
+  const carregarProdutosPaginados = async () => {
+    let query = supabase
+      .from('fa_documentos_itens')
+      .select('id, documento_id, item_numero, codigo_produto, descricao, ncm, cfop, unidade, quantidade, valor_unitario, valor_total, valor_desconto, valor_frete, cst_icms, csosn, valor_bc_icms, aliquota_icms, valor_icms, valor_bc_st, valor_st, cst_pis, valor_pis, cst_cofins, valor_cofins, valor_ipi, tipo_movimento, fa_documentos_fiscais!inner(id, tipo_movimento, numero, serie, modelo, data_emissao, data_competencia, emitente_cnpj, emitente_nome, destinatario_cnpj, destinatario_nome, status)', { count: 'exact' })
+      .eq('empresa_id', empresaId)
+      .in('fa_documentos_fiscais.data_competencia', competenciasFiltro)
+      .neq('fa_documentos_fiscais.status', 'cancelada')
+
+    if (tipoMovimento === 'entrada' || tipoMovimento === 'saida') {
+      query = query.eq('tipo_movimento', tipoMovimento)
+    }
+
+    const { data, error, count } = await query
+      .order('created_at', { ascending: true })
+      .range(from, to)
+
+    if (error) {
+      if (isRangeNotSatisfiable(error)) {
+        return { rows: [] as ProdutoDetalhado[], total: from }
+      }
+      throw error
+    }
+
+    return {
+      rows: (data ?? []) as ProdutoDetalhado[],
+      total: count ?? data?.length ?? 0,
+    }
   }
 
   if (resumido) {
@@ -547,15 +576,16 @@ export async function GET(req: Request) {
     })
   }
 
-  let produtos = await carregarProdutosEstruturados()
-  if (produtos.length === 0) {
+  let { rows, total } = await carregarProdutosPaginados()
+  if (rows.length === 0 && from === 0) {
     const legacy = await carregarXmlLegacy({ supabase, empresaId, competenciaInicio, competenciaFim })
-    produtos = aplicarFiltroProdutos(legacy.map(legacyItemToProduto), tipoMovimento)
+    const produtos = aplicarFiltroProdutos(legacy.map(legacyItemToProduto), tipoMovimento)
+    rows = produtos.slice(from, to + 1)
+    total = produtos.length
   }
-  const rows = produtos.slice(from, to + 1)
   return NextResponse.json({
     rows,
-    total: produtos.length,
+    total,
     page,
     page_size: pageSize,
     totalizadores: totalizadores(rows),
