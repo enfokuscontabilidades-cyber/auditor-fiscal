@@ -6,6 +6,7 @@ import { competenciaNoPeriodo, competenciasEntre } from '@/lib/fiscal/competenci
 import { carregarXmlLegacyDocumentos } from '@/lib/fiscal/xmlLegacy'
 
 type ParticipanteResumo = {
+  competencia?: string | null
   cnpj: string
   nome: string
   valor_total: number

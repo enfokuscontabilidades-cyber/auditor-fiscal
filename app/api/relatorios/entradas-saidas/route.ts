@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getOrgId } from '@/lib/supabase/org'
 import { validarEmpresaDaOrg, respostaForbidden } from '@/lib/supabase/validation'
 import { competenciasEntre } from '@/lib/fiscal/competencia'
-import { fetchAll } from '@/lib/supabase/fetchAll'
+import { fetchAll, isRangeNotSatisfiable } from '@/lib/supabase/fetchAll'
 import { carregarXmlLegacy, carregarXmlLegacyDocumentos, type XmlLegacyDocumento, type XmlLegacyItem } from '@/lib/fiscal/xmlLegacy'
 
 type NivelRelatorio = 'documento' | 'produto'
@@ -79,6 +79,7 @@ type ProdutoDetalhado = {
 }
 
 type LinhaResumo = {
+  competencia?: string | null
   grupo: string
   grupo_label: string
   tipo_movimento?: string
@@ -181,8 +182,9 @@ function grupoProduto(item: ProdutoDetalhado, ordem: OrdemRelatorio) {
   return { key: 'outros', label: 'Outros' }
 }
 
-function novaLinhaResumo(grupo: string, label: string, tipo?: string): LinhaResumo {
+function novaLinhaResumo(grupo: string, label: string, tipo?: string, competencia?: string | null): LinhaResumo {
   return {
+    competencia,
     grupo,
     grupo_label: label,
     tipo_movimento: tipo,
@@ -201,10 +203,11 @@ function novaLinhaResumo(grupo: string, label: string, tipo?: string): LinhaResu
   }
 }
 
-function acumularDocumento(mapa: Map<string, LinhaResumo>, doc: DocumentoDetalhado, ordem: OrdemRelatorio) {
+function acumularDocumento(mapa: Map<string, LinhaResumo>, doc: DocumentoDetalhado, ordem: OrdemRelatorio, separarCompetencia: boolean) {
   const grupo = grupoDocumento(doc, ordem)
-  const key = `${grupo.key}|${doc.tipo_movimento}`
-  if (!mapa.has(key)) mapa.set(key, novaLinhaResumo(grupo.key, grupo.label, doc.tipo_movimento))
+  const competencia = separarCompetencia ? doc.data_competencia : null
+  const key = `${competencia ?? ''}|${grupo.key}|${doc.tipo_movimento}`
+  if (!mapa.has(key)) mapa.set(key, novaLinhaResumo(grupo.key, grupo.label, doc.tipo_movimento, competencia))
   const linha = mapa.get(key)!
   linha.quantidade += 1
   linha.documentos += 1
@@ -219,12 +222,13 @@ function acumularDocumento(mapa: Map<string, LinhaResumo>, doc: DocumentoDetalha
   linha.valor_cofins += numero(doc.valor_cofins)
 }
 
-function acumularProduto(mapa: Map<string, LinhaResumo>, item: ProdutoDetalhado, ordem: OrdemRelatorio) {
+function acumularProduto(mapa: Map<string, LinhaResumo>, item: ProdutoDetalhado, ordem: OrdemRelatorio, separarCompetencia: boolean) {
   const doc = documentoRelacionado(item.fa_documentos_fiscais)
   const tipo = movimentoProduto(item) || item.tipo_movimento || doc?.tipo_movimento || 'outros'
   const grupo = grupoProduto(item, ordem)
-  const key = `${grupo.key}|${tipo}`
-  if (!mapa.has(key)) mapa.set(key, novaLinhaResumo(grupo.key, grupo.label, tipo))
+  const competencia = separarCompetencia ? doc?.data_competencia ?? null : null
+  const key = `${competencia ?? ''}|${grupo.key}|${tipo}`
+  if (!mapa.has(key)) mapa.set(key, novaLinhaResumo(grupo.key, grupo.label, tipo, competencia))
   const linha = mapa.get(key)!
   linha.quantidade += numero(item.quantidade) || 1
   linha.documentos += doc?.id ? 1 : 0
@@ -241,11 +245,12 @@ function acumularProduto(mapa: Map<string, LinhaResumo>, item: ProdutoDetalhado,
 }
 
 function ordenarResumo(rows: LinhaResumo[], ordem: OrdemRelatorio) {
+  const porCompetencia = (a: LinhaResumo, b: LinhaResumo) => (a.competencia ?? '').localeCompare(b.competencia ?? '')
   if (ordem === 'cfop') {
-    return rows.sort((a, b) => a.grupo.localeCompare(b.grupo, 'pt-BR', { numeric: true }))
+    return rows.sort((a, b) => porCompetencia(a, b) || a.grupo.localeCompare(b.grupo, 'pt-BR', { numeric: true }))
   }
 
-  return rows.sort((a, b) => b.valor_contabil - a.valor_contabil)
+  return rows.sort((a, b) => porCompetencia(a, b) || b.valor_contabil - a.valor_contabil)
 }
 
 function totalizadores(rows: Array<LinhaResumo | DocumentoDetalhado | ProdutoDetalhado>) {
@@ -382,6 +387,7 @@ export async function GET(req: Request) {
   const pageSize = Math.min(Math.max(parseInt(url.searchParams.get('page_size') ?? '100', 10) || 100, 10), 500)
   const from = (page - 1) * pageSize
   const to = from + pageSize - 1
+  const separarCompetencia = competenciasFiltro.length > 1
 
   if (!empresaId) return NextResponse.json({ error: 'empresa_id obrigatorio' }, { status: 400 })
   if (competenciasFiltro.length === 0) {
@@ -461,7 +467,7 @@ export async function GET(req: Request) {
           itens = aplicarFiltroProdutos(legacy.map(legacyItemToProduto), tipoMovimento)
         }
         const mapa = new Map<string, LinhaResumo>()
-        for (const item of itens) acumularProduto(mapa, item, 'cfop')
+        for (const item of itens) acumularProduto(mapa, item, 'cfop', separarCompetencia)
         const rows = ordenarResumo(Array.from(mapa.values()), ordem)
         return NextResponse.json({
           rows: rows.slice(from, to + 1),
@@ -478,7 +484,7 @@ export async function GET(req: Request) {
         documentos = aplicarFiltroDocumentos(legacy.map(legacyDocToDocumento), tipoMovimento)
       }
       const mapa = new Map<string, LinhaResumo>()
-      for (const doc of documentos) acumularDocumento(mapa, doc, ordem)
+      for (const doc of documentos) acumularDocumento(mapa, doc, ordem, separarCompetencia)
       const rows = ordenarResumo(Array.from(mapa.values()), ordem)
       return NextResponse.json({
         rows: rows.slice(from, to + 1),
@@ -495,7 +501,7 @@ export async function GET(req: Request) {
       itens = aplicarFiltroProdutos(legacy.map(legacyItemToProduto), tipoMovimento)
     }
     const mapa = new Map<string, LinhaResumo>()
-    for (const item of itens) acumularProduto(mapa, item, ordem)
+    for (const item of itens) acumularProduto(mapa, item, ordem, separarCompetencia)
     const rows = ordenarResumo(Array.from(mapa.values()), ordem)
     return NextResponse.json({
       rows: rows.slice(from, to + 1),
@@ -508,7 +514,18 @@ export async function GET(req: Request) {
 
   if (nivel === 'documento') {
     const { data, error, count } = await buildDocumentosQuery(true).range(from, to)
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    if (error) {
+      if (isRangeNotSatisfiable(error)) {
+        return NextResponse.json({
+          rows: [],
+          total: from,
+          page,
+          page_size: pageSize,
+          totalizadores: totalizadores([]),
+        })
+      }
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
     let rows = aplicarFiltroDocumentos((data ?? []) as DocumentoDetalhado[], tipoMovimento)
     let total = count ?? rows.length
     if (rows.length === 0) {

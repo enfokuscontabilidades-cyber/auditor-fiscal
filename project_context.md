@@ -2,7 +2,65 @@
 
 > Arquivo de referência para novas conversas com Claude Code.
 > Mantido manualmente. Atualizar sempre que houver mudança estrutural significativa.
-> Última atualização: 2026-05-27 (Fase E — reorganização UI: menu do usuário na topbar)
+> Última atualização: 2026-06-26 (Fase F — relatórios fiscais, Simples Nacional e importação em lote)
+
+---
+
+## Atualização Recente — 2026-06-26
+
+Esta seção resume a evolução feita nos últimos dias a partir da conversa operacional sobre relatórios no padrão Domínio, confiabilidade dos XMLs, Simples Nacional, Excel e importação em massa.
+
+### Relatórios fiscais
+
+- O módulo `/inconsistencias` passou a funcionar como central de **Relatórios**, com abas mais objetivas: Entradas/Saídas, Qtd. Documentos, Produtos, Participantes e CFOP.
+- Entradas/Saídas concentra relatórios por documento; Produtos concentra relatórios por item/produto; CFOP concentra o resumo por CFOP.
+- Foi criada/ajustada a API `GET /api/relatorios/entradas-saidas`, usando a base central `fa_documentos_fiscais` + `fa_documentos_itens`.
+- Relatório analítico por produto mostra informações de item: descrição, NCM, CFOP, valor contábil, base ICMS, alíquota, ICMS, ST e IPI.
+- Modo resumido respeita a ordem selecionada. Em CFOP, os grupos são ordenados de forma crescente.
+- Quando o filtro cobre mais de uma competência, a API e a tela passam a indicar a competência da linha.
+- Os filtros foram simplificados para usar um único botão "Consultar"; a opção "Recalcular resumos" deixou de ser parte do fluxo principal.
+- A tela removeu campos que confundiam a leitura do relatório, como situação e PIS/COFINS nos pontos em que não eram necessários para a análise solicitada.
+
+### Exportação Excel
+
+- O módulo Relatórios ganhou botão "Excel".
+- A exportação busca todas as páginas do relatório fiscal em lotes, em vez de exportar apenas a página visível.
+- Relatórios fiscais exportam a coluna "Competência" para permitir análise de períodos grandes.
+- Também foram cobertas exportações de Qtd. Documentos, Participantes e NCM.
+- `lib/supabase/fetchAll.ts` agora trata `Requested range not satisfiable` como fim da lista, corrigindo erro em consultas/exportações grandes.
+
+### Validador NF-e e XML em lote
+
+- O Validador NF-e passou a aceitar XMLs diretos e arquivos ZIP contendo XMLs.
+- É possível selecionar vários arquivos XML/ZIP de uma vez.
+- O sistema detecta a competência pela data de emissão do XML e pode criar/reutilizar uma sessão por competência.
+- `components/ModalSessao.tsx` suporta lotes multi-competência por meio de `DadosSessaoLote`.
+- A importação em lote continua salvando em `fa_arquivos_xml` e também em `fa_documentos_fiscais`/`fa_documentos_itens`.
+- `lib/fiscal/xmlArchive.ts` faz extração de XMLs em ZIP no browser. RAR é reconhecido, mas ainda não é descompactado automaticamente; o usuário recebe aviso para usar ZIP ou XML direto.
+
+### Simples Nacional e conferência
+
+- A apuração do Simples foi alinhada para usar a mesma base fiscal dos relatórios, evitando que cards, relatórios e confronto venham de fontes diferentes.
+- O faturamento do Simples considera apenas CFOPs/naturezas com impacto em receita.
+- Devoluções de venda reduzem receita quando identificadas corretamente pela natureza fiscal.
+- A conferência XML x PGDAS-D foi simplificada visualmente: cards principais de Receita XML considerada, Receita PGDAS-D e Diferença, com cards auxiliares de faturamento total e devolução total.
+- Foram removidas listas que poluíam a tela de conferência, como resumo por CFOP detalhado, maiores notas candidatas e notas fora do faturamento do Simples.
+- A aba Confronto foi corrigida para usar o faturamento fiscal considerado na apuração, e não o total bruto de todas as saídas.
+- A apuração do Simples ganhou geração de PDF vertical, com as informações principais em uma página.
+
+### Deploy e build
+
+- Foi corrigido o erro da Vercel causado por `@tailwindcss/oxide-wasm32-wasi` em ambiente x64.
+- `package.json` voltou aos scripts padrão `next dev --webpack` e `next build --webpack`.
+- A dependência WASM específica foi removida.
+- Validação local recente: `npm run build` e `npx tsc --noEmit` passaram.
+
+### Pontos de atenção
+
+- Validar a importação em lote com uma empresa real antes de processar todos os 14 CNPJs e 5 anos de arquivos.
+- Conferir se as competências detectadas em lotes grandes foram criadas corretamente.
+- Validar Excel com filtros de várias competências e alto volume.
+- Suporte real a RAR ainda não está implementado; o caminho recomendado é ZIP.
 
 ---
 

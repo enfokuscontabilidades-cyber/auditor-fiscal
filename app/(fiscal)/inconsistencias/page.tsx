@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { AlertaFiscal } from '@/lib/types'
 import { useEmpresaAtiva } from '@/lib/hooks/useEmpresaAtiva'
-import { ChevronDown, ChevronUp, Building2, TriangleAlert, Package, Users, BarChart3, Hash } from 'lucide-react'
+import { ChevronDown, ChevronUp, Building2, TriangleAlert, Package, Users, BarChart3, Hash, Download } from 'lucide-react'
+import * as XLSX from 'xlsx'
 import PageHeader from '@/components/ui/PageHeader'
 import GlassCard from '@/components/ui/GlassCard'
 import EmptyState from '@/components/ui/EmptyState'
@@ -32,6 +33,7 @@ type NivelFiscal = 'documento' | 'produto'
 type OrdemFiscal = 'documento' | 'cfop' | 'participante' | 'estado' | 'dia' | 'aliquota' | 'produto' | 'ncm' | 'cst'
 
 type RelatorioFiscalResumo = {
+  competencia?: string | null
   grupo: string
   grupo_label: string
   tipo_movimento?: string
@@ -199,6 +201,7 @@ export default function RelatoriosPage() {
   const [totalFiscal,       setTotalFiscal]       = useState(0)
   const [totalizadoresFiscal, setTotalizadoresFiscal] = useState<RelatorioFiscalResposta['totalizadores']>()
   const [loadingRel,        setLoadingRel]        = useState(false)
+  const [exportandoExcel,   setExportandoExcel]   = useState(false)
   const [erroRel,           setErroRel]           = useState<string | null>(null)
   const [pageSizeRel, setPageSizeRel] = useState(50)
   const [paginasRel, setPaginasRel] = useState<Record<AbaRelatorio, number>>({
@@ -517,6 +520,149 @@ export default function RelatoriosPage() {
     ? 'Resumo por CFOP'
     : tituloFiscal
 
+  const competenciaDaLinha = (linha: RelatorioFiscalLinha) => {
+    if (isResumoFiscal(linha)) return linha.competencia ?? ''
+    if (isProdutoFiscal(linha)) return docProduto(linha)?.data_competencia ?? ''
+    return linha.data_competencia ?? ''
+  }
+
+  const nomeArquivoExcel = () => {
+    const aba = ABAS.find(a => a.key === abaAtiva)?.label.replace(/[^\w.-]+/g, '_') ?? 'relatorio'
+    const periodo = [compInicio || 'inicio', compFim || compInicio || 'fim'].join('_a_')
+    return `Relatorio_${aba}_${periodo}.xlsx`
+  }
+
+  async function buscarFiscalParaExcel() {
+    const todas: RelatorioFiscalLinha[] = []
+    const tamanho = 500
+    let pagina = 1
+    let total = 0
+
+    do {
+      const params = new URLSearchParams({
+        empresa_id: empresaId ?? '',
+        nivel: abaAtiva === 'entradas_saidas' ? 'documento' : 'produto',
+        ordem: abaAtiva === 'cfop' ? 'cfop' : ordemFiscal,
+        resumido: String(abaAtiva === 'cfop' ? true : resumidoFiscal),
+        page: String(pagina),
+        page_size: String(tamanho),
+      })
+      if (compInicio) params.set('competencia_inicio', compInicio)
+      if (compFim) params.set('competencia_fim', compFim)
+      if (tipoMov) params.set('tipo_movimento', tipoMov)
+
+      const res = await fetch(`/api/relatorios/entradas-saidas?${params}`)
+      const body = await res.json() as RelatorioFiscalResposta
+      if (!res.ok) throw new Error(body.error ?? 'Erro ao exportar relatÃ³rio.')
+      const rows = Array.isArray(body.rows) ? body.rows : []
+      if (rows.length === 0) break
+      todas.push(...rows)
+      total = Number(body.total ?? rows.length)
+      pagina += 1
+    } while (todas.length < total)
+
+    return todas
+  }
+
+  async function exportarExcel() {
+    if (!empresaId || abaAtiva === 'inconsistencias') return
+    setExportandoExcel(true)
+    setErroRel(null)
+    try {
+      const rowsFonte = abaFiscal ? await buscarFiscalParaExcel() : []
+      let rows: Record<string, string | number | null | undefined>[] = []
+
+      if (abaFiscal) {
+        if (abaAtiva === 'cfop' || resumidoFiscal) {
+          rows = rowsFonte.filter(isResumoFiscal).map(r => ({
+            Competencia: competenciaDaLinha(r),
+            Grupo: r.grupo_label,
+            Movimento: r.tipo_movimento ?? '',
+            Quantidade: r.quantidade,
+            Documentos: r.documentos,
+            Valor_Contabil: r.valor_contabil,
+            Base_ICMS: r.base_icms,
+            ICMS: r.valor_icms,
+            ST: r.valor_st,
+            IPI: r.valor_ipi,
+          }))
+        } else if (abaAtiva === 'produtos') {
+          rows = rowsFonte.filter(isProdutoFiscal).map(p => {
+            const doc = docProduto(p)
+            return {
+              Competencia: competenciaDaLinha(p),
+              Data: dataFiscal(doc?.data_emissao),
+              Nota: doc?.numero ?? '',
+              Movimento: doc?.tipo_movimento ?? p.tipo_movimento ?? '',
+              Participante: participanteFiscal(doc),
+              Produto: p.descricao ?? '',
+              NCM: p.ncm ?? '',
+              CFOP: p.cfop ?? '',
+              CST_CSOSN: p.cst_icms || p.csosn || '',
+              Quantidade: Number(p.quantidade ?? 0),
+              Valor_Contabil: Number(p.valor_total ?? 0),
+              Base_ICMS: Number(p.valor_bc_icms ?? 0),
+              Aliquota_ICMS: Number(p.aliquota_icms ?? 0),
+              ICMS: Number(p.valor_icms ?? 0),
+              ST: Number(p.valor_st ?? 0),
+              IPI: Number(p.valor_ipi ?? 0),
+            }
+          })
+        } else {
+          rows = rowsFonte.filter(isDocumentoFiscal).map(d => ({
+            Competencia: competenciaDaLinha(d),
+            Data: dataFiscal(d.data_emissao),
+            Nota: d.numero ?? '',
+            Serie: d.serie ?? '',
+            Modelo: d.modelo ?? '',
+            Movimento: d.tipo_movimento,
+            Participante: participanteFiscal(d),
+            Valor_Contabil: Number(d.valor_total ?? 0),
+            Desconto: Number(d.valor_desconto ?? 0),
+            Frete: Number(d.valor_frete ?? 0),
+            ICMS: Number(d.valor_icms ?? 0),
+            IPI: Number(d.valor_ipi ?? 0),
+          }))
+        }
+      } else if (abaAtiva === 'documentos') {
+        rows = dadosMensais.map(d => ({
+          Competencia: d.competencia,
+          Origem: d.origem ?? '',
+          Entradas: d.total_entrada,
+          Qtd_Entradas: d.count_entrada,
+          Saidas: d.total_saida,
+          Qtd_Saidas: d.count_saida,
+          Total: d.total_entrada + d.total_saida,
+        }))
+      } else if (abaAtiva === 'participantes') {
+        rows = participantes.map(p => ({
+          CNPJ: p.cnpj,
+          Razao_Social: p.nome,
+          Documentos: p.count,
+          Valor_Total: p.valor_total,
+        }))
+      } else if (abaAtiva === 'ncm') {
+        rows = ncms.map(n => ({
+          NCM: n.ncm,
+          Produto_Exemplo: n.descricao_exemplo,
+          Quantidade: n.quantidade,
+          Valor_Total: n.valor_total,
+          Participacao: n.participacao,
+        }))
+      }
+
+      if (rows.length === 0) throw new Error('NÃ£o hÃ¡ dados para exportar.')
+      const ws = XLSX.utils.json_to_sheet(rows)
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Relatorio')
+      XLSX.writeFile(wb, nomeArquivoExcel())
+    } catch (err) {
+      setErroRel(err instanceof Error ? err.message : 'Erro ao exportar Excel')
+    } finally {
+      setExportandoExcel(false)
+    }
+  }
+
   return (
     <div style={S.page}>
       <PageHeader
@@ -634,6 +780,13 @@ export default function RelatoriosPage() {
               <option value="saida">Somente Saídas</option>
             </select>
             <button style={S.btnAplicar} onClick={abaFiscal ? carregarRelatorioFiscal : carregarRelatorio}>Consultar</button>
+            <button
+              style={{ ...S.btnAplicar, display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--af-surface-2)', border: '1px solid var(--af-border)', color: 'var(--af-text)' }}
+              onClick={exportarExcel}
+              disabled={exportandoExcel || !empresa}
+            >
+              <Download size={13} /> {exportandoExcel ? 'Gerando...' : 'Excel'}
+            </button>
           </div>
 
           {abaFiscal && (
@@ -711,6 +864,7 @@ export default function RelatoriosPage() {
                 {resumidoFiscal ? (
                   <table style={{ ...S.table, minWidth: 860 }}>
                     <thead><tr>
+                      <th style={S.th}>CompetÃªncia</th>
                       <th style={S.th}>Grupo</th>
                       <th style={S.th}>Movimento</th>
                       <th style={{ ...S.th, textAlign: 'right' }}>Qtd.</th>
@@ -724,6 +878,7 @@ export default function RelatoriosPage() {
                     <tbody>
                       {linhasFiscal.filter(isResumoFiscal).map((r, i) => (
                         <tr key={`${r.grupo}-${i}`}>
+                          <td style={{ ...S.td, fontWeight: 700, color: 'var(--af-muted)' }}>{r.competencia ? competenciaLabel(r.competencia) : 'â€”'}</td>
                           <td style={{ ...S.td, fontWeight: 700, color: 'var(--af-text)' }}>{r.grupo_label}</td>
                           <td style={{ ...S.td, textTransform: 'capitalize' as const }}>{r.tipo_movimento || '—'}</td>
                           <td style={{ ...S.td, textAlign: 'right', color: 'var(--af-muted)' }}>{r.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}</td>
@@ -740,6 +895,7 @@ export default function RelatoriosPage() {
                 ) : abaAtiva === 'produtos' ? (
                   <table style={{ ...S.table, minWidth: 1180 }}>
                     <thead><tr>
+                      <th style={S.th}>CompetÃªncia</th>
                       <th style={S.th}>Data</th>
                       <th style={S.th}>Nota</th>
                       <th style={S.th}>Cliente/Fornecedor</th>
@@ -760,6 +916,7 @@ export default function RelatoriosPage() {
                         const doc = docProduto(p)
                         return (
                           <tr key={p.id}>
+                            <td style={{ ...S.td, fontWeight: 700, color: 'var(--af-muted)' }}>{competenciaDaLinha(p) ? competenciaLabel(competenciaDaLinha(p)) : 'â€”'}</td>
                             <td style={S.td}>{dataFiscal(doc?.data_emissao)}</td>
                             <td style={{ ...S.td, fontFamily: 'var(--font-geist-mono)', fontSize: 12 }}>{doc?.numero || '—'}</td>
                             <td style={{ ...S.td, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{participanteFiscal(doc)}</td>
@@ -782,6 +939,7 @@ export default function RelatoriosPage() {
                 ) : (
                   <table style={{ ...S.table, minWidth: 920 }}>
                     <thead><tr>
+                      <th style={S.th}>CompetÃªncia</th>
                       <th style={S.th}>Data</th>
                       <th style={S.th}>Nota</th>
                       <th style={S.th}>Série</th>
@@ -797,6 +955,7 @@ export default function RelatoriosPage() {
                     <tbody>
                       {linhasFiscal.filter(isDocumentoFiscal).map(d => (
                         <tr key={d.id}>
+                          <td style={{ ...S.td, fontWeight: 700, color: 'var(--af-muted)' }}>{d.data_competencia ? competenciaLabel(d.data_competencia) : 'â€”'}</td>
                           <td style={S.td}>{dataFiscal(d.data_emissao)}</td>
                           <td style={{ ...S.td, fontFamily: 'var(--font-geist-mono)', fontSize: 12 }}>{d.numero || '—'}</td>
                           <td style={S.td}>{d.serie || '—'}</td>

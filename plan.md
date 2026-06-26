@@ -810,6 +810,65 @@ Implementação da camada de dados centralizada para documentos fiscais e apura�
 
 ---
 
+### Fase F — Relatórios fiscais, Simples Nacional e importação em lote ✅ EM VALIDAÇÃO (2026-06-26)
+
+Contexto: evolução feita a partir das necessidades de conferência operacional parecidas com relatórios do Domínio, com foco em Entradas/Saídas, produtos, CFOP, apuração do Simples Nacional e validação de grandes volumes de XML.
+
+**Relatórios fiscais:**
+- [x] Nova API `GET /api/relatorios/entradas-saidas` para relatórios confiáveis a partir da base central `fa_documentos_fiscais` + `fa_documentos_itens`
+- [x] Relatório analítico por documento com filtros de competência e movimento
+- [x] Relatório analítico por produto com descrição, NCM, CFOP, valor contábil, base ICMS, alíquota, ICMS, ST e IPI
+- [x] Modo resumido por ordem selecionada, com destaque para resumo por CFOP em ordem crescente
+- [x] Quando o período filtrado possui mais de uma competência, as linhas passam a carregar a competência para rastreabilidade
+- [x] Filtros simplificados: botão único "Consultar" substitui a separação confusa entre aplicar filtro e recalcular resumo
+- [x] Abas reorganizadas para reduzir relatórios repetidos: Entradas/Saídas para documentos, Produtos para itens, CFOP para resumo por CFOP, Participantes para clientes/fornecedores
+- [x] Aba "Documentos" renomeada para "Qtd. Documentos"
+- [x] Removidas informações desnecessárias em telas analíticas, como situação e PIS/COFINS onde não agregavam na análise
+- [x] `lib/supabase/fetchAll.ts` passou a tratar `Requested range not satisfiable` como fim da paginação, evitando erro em relatórios e exportações grandes
+
+**Excel dos relatórios:**
+- [x] Botão "Excel" no módulo Relatórios
+- [x] Exportação para Excel dos relatórios fiscais analíticos e resumidos
+- [x] Exportação para Excel também nas abas de Qtd. Documentos, Participantes e NCM
+- [x] Coluna "Competência" incluída nos relatórios fiscais quando há mais de uma competência no filtro
+- [x] Correção do erro local `Requested range not satisfiable` na geração do Excel
+
+**Validador NF-e e importação XML:**
+- [x] Importação de XMLs diretamente ou dentro de ZIP
+- [x] Múltiplos arquivos ZIP/XML podem ser selecionados de uma vez
+- [x] O sistema detecta a competência pela data de emissão do XML e pode criar/reutilizar uma sessão por competência
+- [x] Modal de sessão suporta lotes multi-competência por meio de `DadosSessaoLote`
+- [x] XMLs importados em lote continuam salvando tanto em `fa_arquivos_xml` quanto na base central de documentos/itens
+- [x] RAR é identificado, mas ainda não é descompactado automaticamente no browser; o sistema avisa para usar ZIP ou XML direto
+
+**Simples Nacional e conferência PGDAS-D x XML:**
+- [x] Apuração do Simples passou a usar a mesma base fiscal dos relatórios para evitar valores vindos de fontes diferentes
+- [x] Faturamento do Simples ajustado para considerar apenas CFOPs com impacto de receita
+- [x] Devoluções de venda passam a reduzir a receita quando identificadas pela natureza fiscal correta
+- [x] Card de Receita Líquida passou a bater com a conferência XML x PGDAS-D
+- [x] Conferência XML x Simples simplificada, mantendo cards principais de Receita XML considerada, Receita PGDAS-D e Diferença
+- [x] Cards auxiliares de faturamento total e devolução total adicionados para auditoria rápida
+- [x] Removidas listas que confundiam a leitura da página, como resumo por CFOP detalhado, maiores notas candidatas e notas fora do faturamento do Simples
+- [x] PDF da apuração do Simples gerado em formato vertical com todas as informações principais em uma página
+- [x] Aba Confronto corrigida para usar o faturamento fiscal considerado na apuração, não o total bruto de todas as saídas
+
+**Deploy / Vercel:**
+- [x] Corrigido erro de build na Vercel causado por `@tailwindcss/oxide-wasm32-wasi` incompatível com CPU x64
+- [x] Scripts `dev` e `build` voltaram ao padrão `next ... --webpack`
+- [x] Dependência WASM específica removida de `package.json`
+
+**Validação executada localmente:**
+- [x] `npm run build` concluído com sucesso
+- [x] `npx tsc --noEmit` concluído com sucesso após a build recriar os tipos do Next
+
+**Pontos ainda recomendados para validação prática:**
+- [ ] Testar importação em lote com 5 anos de XML/ZIP de uma empresa real antes de repetir para todos os CNPJs
+- [ ] Conferir se todas as competências detectadas no lote foram criadas corretamente no banco
+- [ ] Validar Excel com período grande e múltiplas competências
+- [ ] Avaliar se vale implementar suporte real a RAR no futuro; hoje o caminho seguro é ZIP
+
+---
+
 ### Fase 6 — Inteligência (12+ semanas)
 
 - [ ] Simulador de planejamento tributário (Simples × Presumido × Real)

@@ -8,7 +8,7 @@ import {
   Tag, ArrowUpRight, ArrowDownLeft, Info,
 } from "lucide-react";
 import * as XLSX from "xlsx";
-import ModalSessao, { type DadosSessao } from "@/components/ModalSessao";
+import ModalSessao, { type DadosSessao, type DadosSessaoLote } from "@/components/ModalSessao";
 import { useEmpresaAtiva } from "@/lib/hooks/useEmpresaAtiva";
 import PageHeader from "@/components/ui/PageHeader";
 import PaginationControls, { getPageItems } from "@/components/ui/PaginationControls";
@@ -106,6 +106,19 @@ type NotaEntrada = {
   total_itens: number; total_contabil: number; total_base_icms: number; total_valor_icms: number;
   status: StatusValidacao; itens: LinhaEntrada[]; sugestoes: string[]; avisos: string[];
   classificacaoPredominante: ClassificacaoManual;
+};
+
+type XmlPendente = {
+  chaveNfe: string;
+  numeroNf: string;
+  dataEmissao: string | null;
+  competencia?: string;
+  emitenteCnpj: string;
+  emitenteNome: string;
+  destinatarioCnpj: string;
+  destinatarioNome: string;
+  tipoOperacao: string;
+  valorTotal: number;
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -223,6 +236,12 @@ function fdata(v: string) {
   const l=ntx(v).replace(/\D/g,"");
   if (l.length!==8) return ntx(v);
   return `${l.slice(0,2)}/${l.slice(2,4)}/${l.slice(4,8)}`;
+}
+function competenciaDaDataIso(data: string | null | undefined) {
+  if (!data) return undefined;
+  const [ano, mes] = data.split("-");
+  if (!ano || !mes) return undefined;
+  return `${mes}/${ano}`;
 }
 function fcnpj(v: string) {
   const l=ntx(v).replace(/\D/g,"");
@@ -1659,7 +1678,7 @@ export default function ValidadorPage() {
   // ─── Sessão vinculada ao banco ────────────────────────────────
   const [sessaoAtual,setSessaoAtual]=useState<DadosSessao|null>(null);
   const [modalAberto,setModalAberto]=useState(false);
-  const [xmlsPendentes,setXmlsPendentes]=useState<{chaveNfe:string;numeroNf:string;dataEmissao:string|null;emitenteCnpj:string;emitenteNome:string;destinatarioCnpj:string;destinatarioNome:string;tipoOperacao:string;valorTotal:number}[]>([]);
+  const [xmlsPendentes,setXmlsPendentes]=useState<XmlPendente[]>([]);
   const [competenciaXml,setCompetenciaXml]=useState("");
   const [erroSalvar,setErroSalvar]=useState("");
   const [salvouComSucesso,setSalvouComSucesso]=useState(false);
@@ -2088,10 +2107,7 @@ export default function ValidadorPage() {
     }
     if(metadados.length > 0){
       const primeira = metadados[0];
-      if(primeira.data_emissao){
-        const [ano, mes] = primeira.data_emissao.split("-");
-        setCompetenciaXml(`${mes}/${ano}`);
-      }
+      setCompetenciaXml(competenciaDaDataIso(primeira.data_emissao) ?? "");
       const cnpjDest = empresa?.cnpj?.replace(/\D/g,"")
         || metadados.find(m => m.tipo_operacao === "entrada")?.destinatario_cnpj
         || metadados[0].destinatario_cnpj;
@@ -2100,6 +2116,7 @@ export default function ValidadorPage() {
         chaveNfe: m.chave_nfe ?? "",
         numeroNf: m.numero_nf,
         dataEmissao: m.data_emissao,
+        competencia: competenciaDaDataIso(m.data_emissao),
         emitenteCnpj: m.emitente_cnpj,
         emitenteNome: m.emitente_nome,
         destinatarioCnpj: m.destinatario_cnpj,
@@ -2132,6 +2149,195 @@ export default function ValidadorPage() {
   async function onXmlProprio(e: React.ChangeEvent<HTMLInputElement>) {
     const files=e.target.files; if(!files||files.length===0)return;
     await processarXmls(files, "proprio");
+  }
+
+  function itensEntradaDoXml(x: XmlPendente) {
+    return linhas.filter(l => {
+      if (l.fonte !== "xml" && l.fonte !== "xml_proprio") return false;
+      return x.chaveNfe ? l.chave_nfe === x.chaveNfe : l.numero_nota === x.numeroNf;
+    });
+  }
+
+  function itensSaidaDoXml(x: XmlPendente) {
+    return saidas.filter(s => x.chaveNfe ? s.chave_nfe === x.chaveNfe : s.numero_nota === x.numeroNf);
+  }
+
+  async function salvarXmlsDaSessao(dados: DadosSessao, pendentes: XmlPendente[]) {
+    if (pendentes.length === 0) return;
+
+    const res = await fetch("/api/arquivos-xml", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessao_id: dados.sessaoId,
+        empresa_id: dados.empresaId,
+        competencia: dados.competencia,
+        xmls: pendentes.map(x => {
+          const itensEntrada = itensEntradaDoXml(x);
+          const itensSaida = itensSaidaDoXml(x);
+          return {
+            chave_nfe: x.chaveNfe || null,
+            numero_nf: x.numeroNf,
+            data_emissao: x.dataEmissao,
+            emitente_cnpj: x.emitenteCnpj,
+            emitente_nome: x.emitenteNome,
+            destinatario_cnpj: x.destinatarioCnpj,
+            destinatario_nome: x.destinatarioNome,
+            tipo_operacao: x.tipoOperacao || null,
+            valor_total: x.valorTotal,
+            parsed_data: (itensEntrada.length > 0 || itensSaida.length > 0)
+              ? {
+                  ...(itensEntrada.length > 0 ? { itens_entrada: itensEntrada } : {}),
+                  ...(itensSaida.length > 0 ? { itens_saida: itensSaida } : {}),
+                }
+              : null,
+          };
+        }),
+      }),
+    });
+    if (!res.ok) throw new Error("Erro ao salvar XMLs.");
+
+    const documentos = pendentes.map(x => {
+      const itensEntrada = itensEntradaDoXml(x);
+      const ehDevolucaoVenda = x.tipoOperacao === "entrada" && itensEntrada.some(item => cfopEhDevolucaoVendaSimples(item.cfop_entrada_sugerido || item.cfop));
+      return {
+        tipo_documento: "nfe",
+        origem: "xml_nfe",
+        chave_acesso: x.chaveNfe || null,
+        numero: x.numeroNf,
+        serie: null,
+        modelo: "55",
+        data_emissao: x.dataEmissao,
+        data_competencia: dados.competencia,
+        emitente_cnpj: x.emitenteCnpj,
+        emitente_nome: x.emitenteNome,
+        destinatario_cnpj: x.destinatarioCnpj,
+        destinatario_nome: x.destinatarioNome,
+        valor_total: x.valorTotal,
+        valor_produtos: 0,
+        tipo_movimento: ehDevolucaoVenda ? "devolucao_venda" : x.tipoOperacao === "saida" ? "saida" : "entrada",
+        impacto_receita: ehDevolucaoVenda ? "reduz_receita" : x.tipoOperacao === "saida" ? "soma_receita" : "sem_impacto",
+        origem_devolucao: ehDevolucaoVenda ? "emitida_terceiro" : "nao_aplicavel",
+        status: "ok",
+      };
+    });
+
+    const itensMap: Record<string, unknown[]> = {};
+    for (const x of pendentes) {
+      const chave = x.chaveNfe || x.numeroNf;
+      if (x.tipoOperacao === "saida") {
+        itensMap[chave] = itensSaidaDoXml(x)
+          .filter(s => !s.cancelada)
+          .map((s, i) => ({
+            item_numero: i + 1,
+            codigo_produto: s.codigo_produto,
+            descricao: s.descricao,
+            ncm: s.ncm,
+            cfop: s.cfop,
+            valor_total: s.valor_contabil,
+            valor_desconto: s.valor_desconto,
+            valor_frete: s.valor_frete,
+            cst_icms: s.cst_icms,
+            valor_bc_icms: s.base_icms,
+            aliquota_icms: s.aliquota_icms,
+            valor_icms: s.valor_icms,
+            valor_bc_st: s.base_st,
+            valor_st: s.valor_st,
+            cst_pis: s.cst_pis,
+            valor_bc_pis: s.base_pis,
+            aliquota_pis: s.aliquota_pis,
+            valor_pis: s.valor_pis,
+            cst_cofins: s.cst_cofins,
+            valor_bc_cofins: s.base_cofins,
+            aliquota_cofins: s.aliquota_cofins,
+            valor_cofins: s.valor_cofins,
+            valor_ipi: s.valor_ipi,
+            tipo_movimento: "saida",
+            impacto_receita: "soma_receita",
+            natureza_receita_simples: "pendente",
+            classificacao: "outros",
+            classificacao_manual: false,
+          }));
+      } else {
+        itensMap[chave] = itensEntradaDoXml(x)
+          .filter(l => !l.cancelada)
+          .map((l, i) => {
+            const ehDevolucaoVenda = cfopEhDevolucaoVendaSimples(l.cfop_entrada_sugerido || l.cfop);
+            return {
+              item_numero: i + 1,
+              codigo_produto: l.codigo_produto,
+              descricao: l.descricao,
+              ncm: l.ncm,
+              cfop: l.cfop,
+              valor_total: l.valor_contabil,
+              valor_desconto: l.valor_desconto,
+              valor_frete: l.valor_frete,
+              cst_icms: l.cst_icms,
+              valor_bc_icms: l.base_icms,
+              aliquota_icms: l.aliquota_icms,
+              valor_icms: l.valor_icms,
+              valor_ipi: l.valor_ipi_item,
+              tipo_movimento: ehDevolucaoVenda ? "devolucao_venda" : "entrada",
+              impacto_receita: ehDevolucaoVenda ? "reduz_receita" : "sem_impacto",
+              natureza_receita_simples: ehDevolucaoVenda ? "devolucao" : "pendente",
+              classificacao: l.classificacao || "outros",
+              classificacao_manual: l.classificacaoManual || false,
+            };
+          });
+      }
+    }
+
+    if (documentos.length > 0) {
+      await fetch("/api/documentos-fiscais/importar-nfe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ empresa_id: dados.empresaId, documentos, itens: itensMap }),
+      });
+    }
+  }
+
+  async function onConfirmarSessaoXmlNovo(dados: DadosSessao) {
+    setSessaoAtual(dados);
+    setErroSalvar("");
+    setSalvouComSucesso(false);
+    try {
+      await salvarXmlsDaSessao(dados, xmlsPendentes);
+      setSalvouComSucesso(true);
+    } catch {
+      setErroSalvar("XMLs nÃ£o foram salvos no banco. Os dados estÃ£o disponÃ­veis localmente.");
+    }
+    setXmlsPendentes([]);
+    setModalAberto(false);
+  }
+
+  async function onConfirmarSessaoXmlLote(dados: DadosSessaoLote) {
+    setErroSalvar("");
+    setSalvouComSucesso(false);
+    let totalSalvo = 0;
+    try {
+      for (const sessao of dados.sessoes) {
+        const pendentes = xmlsPendentes.filter(x => x.competencia === sessao.competencia);
+        if (pendentes.length === 0) continue;
+        await salvarXmlsDaSessao({
+          sessaoId: sessao.sessaoId,
+          empresaId: dados.empresaId,
+          empresaNome: dados.empresaNome,
+          competencia: sessao.competencia,
+        }, pendentes);
+        totalSalvo += pendentes.length;
+      }
+      const ultima = dados.sessoes[dados.sessoes.length - 1];
+      if (ultima) setSessaoAtual({ sessaoId: ultima.sessaoId, empresaId: dados.empresaId, empresaNome: dados.empresaNome, competencia: ultima.competencia });
+      setSalvouComSucesso(true);
+      setInfoCanc(prev => {
+        const msg = `${totalSalvo} XML(s) salvo(s) em ${dados.sessoes.length} competÃªncia(s).`;
+        return prev ? `${prev}\n${msg}` : msg;
+      });
+    } catch {
+      setErroSalvar("Nem todos os XMLs foram salvos no banco. Confira as competÃªncias e tente novamente.");
+    }
+    setXmlsPendentes([]);
+    setModalAberto(false);
   }
 
   async function onConfirmarSessaoXml(dados: DadosSessao) {
@@ -2586,7 +2792,8 @@ export default function ValidadorPage() {
         nomeEmpresa={nomeEmpresaXml || undefined}
         competenciaArquivo={competenciaXml || undefined}
         arquivosDetectados={xmlsAgrupados}
-        onConfirmar={onConfirmarSessaoXml}
+        onConfirmar={onConfirmarSessaoXmlNovo}
+        onConfirmarLote={onConfirmarSessaoXmlLote}
         onCancelar={() => { setXmlsPendentes([]); setModalAberto(false); }}
       />
 
