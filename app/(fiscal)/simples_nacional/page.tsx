@@ -599,6 +599,12 @@ type DocumentoFiscalComItens = DocumentoFiscal & {
   fa_documentos_itens?: DocumentoFiscalItem[]
 }
 
+type ApuracaoBaseResponse = {
+  status: 'ok' | 'sem_documentos'
+  documentos: DocumentoFiscalComItens[]
+  itens: DocumentoFiscalItem[]
+}
+
 function BadgeConfronto({ status }: { status: ItemConfronto['status'] }) {
   const cfg: Record<ItemConfronto['status'], { label: string; bg: string; border: string; color: string }> = {
     ok:        { label: 'OK',           bg: 'rgba(34,197,94,0.12)',   border: 'rgba(34,197,94,0.3)',   color: '#16a34a' },
@@ -808,7 +814,7 @@ function RelatorioConferenciaSimples({
 
 function AbaApuracaoSistema({
   empresaAtiva, xmlCompetencia, setXmlCompetencia,
-  xmlDocumentos, xmlItens, carregandoXmlDocs, limpandoCompetencia,
+  xmlDocumentos, xmlItens, carregandoXmlDocs, xmlCompetenciaCarregada, limpandoCompetencia,
   rbt12Carregado, receitas12m,
   apuracao, apuracaoErro, declaracaoPgdas,
   onApurar, onLimparCompetencia, onIrParaValidador,
@@ -819,6 +825,7 @@ function AbaApuracaoSistema({
   xmlDocumentos: DocumentoFiscal[]
   xmlItens: DocumentoFiscalItem[]
   carregandoXmlDocs: boolean
+  xmlCompetenciaCarregada: string | null
   limpandoCompetencia: boolean
   rbt12Carregado: number | null
   receitas12m: SnReceitaMensal[]
@@ -840,6 +847,7 @@ function AbaApuracaoSistema({
   const totalDev = xmlItens.length > 0 ? totalDevItens : docsReduzem.reduce((s, d) => s + (d.valor_total ?? 0), 0)
   const qtdDocsSomam = xmlItens.length > 0 ? docsSomamPorItem.size : docsSomam.length
   const totalLiq = totalBruto - totalDev
+  const consultaFinalizada = xmlCompetenciaCarregada === xmlCompetencia
   const temHistorico = receitas12m.length >= 12
   const mesesFaltantesLocal = useMemo(() => {
     if (!xmlCompetencia) return []
@@ -908,7 +916,7 @@ function AbaApuracaoSistema({
       {/* KPIs de documentos carregados */}
       {xmlCompetencia && (
         <>
-          {carregandoXmlDocs ? (
+          {carregandoXmlDocs || !consultaFinalizada ? (
             <div style={{ color: 'var(--af-muted)', fontSize: 13, marginBottom: 16 }}>Carregando documentos…</div>
           ) : xmlDocumentos.length === 0 ? (
             <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.2)', borderRadius: 10, padding: '14px 16px', marginBottom: 16 }}>
@@ -1414,6 +1422,7 @@ export default function SimplesNacionalPage() {
   const [xmlDocumentos, setXmlDocumentos]   = useState<DocumentoFiscal[]>([])
   const [xmlItens, setXmlItens]             = useState<DocumentoFiscalItem[]>([])
   const [carregandoXmlDocs, setCarregandoXmlDocs] = useState(false)
+  const [xmlCompetenciaCarregada, setXmlCompetenciaCarregada] = useState<string | null>(null)
   const [importandoXml, setImportandoXml]   = useState(false)
   const [xmlErros, setXmlErros]             = useState<string[]>([])
   const [xmlPreview, setXmlPreview]         = useState<XmlPreviewItem[] | null>(null)
@@ -1551,8 +1560,18 @@ export default function SimplesNacionalPage() {
   // ── Carregar documentos XML salvos para a competência ──────────────────
   const carregarXmlDocumentos = useCallback(async (empresaId: string, competencia: string, cnpjEmpresa?: string, ehIndustrial = false) => {
     if (!competencia) return
+    setXmlCompetenciaCarregada(null)
     setCarregandoXmlDocs(true)
     try {
+      const resBase = await fetch(
+        `/api/simples/apuracao-base?empresa_id=${empresaId}&competencia=${encodeURIComponent(competencia)}`
+      )
+      if (!resBase.ok) throw new Error(`HTTP ${resBase.status}`)
+      const base = await resBase.json() as ApuracaoBaseResponse
+      setXmlDocumentos(Array.isArray(base.documentos) ? base.documentos : [])
+      setXmlItens(Array.isArray(base.itens) ? base.itens : [])
+      return
+
       const resDocs = await fetch(
         `/api/documentos-fiscais?empresa_id=${empresaId}&competencia=${encodeURIComponent(competencia)}&incluir_itens=true`
       )
@@ -1585,7 +1604,7 @@ export default function SimplesNacionalPage() {
       const fallbacksComChave = new Set<string>()
       const porChave = new Map<string, ArquivoXml>()
       for (const x of todosDaComp) {
-        const chave = x.chave_nfe?.trim()
+        const chave = x.chave_nfe?.trim() ?? ''
         if (chave && chave.length >= 40) {
           if (!porChave.has(chave)) porChave.set(chave, x)
           fallbacksComChave.add(`${x.numero_nf}_${x.emitente_cnpj}_${x.data_emissao}`)
@@ -1594,7 +1613,7 @@ export default function SimplesNacionalPage() {
       // Registros sem chave_nfe: só inclui se não existe versão com chave para o mesmo doc
       const porFallback = new Map<string, ArquivoXml>()
       for (const x of todosDaComp) {
-        const chave = x.chave_nfe?.trim()
+        const chave = x.chave_nfe?.trim() ?? ''
         if (chave && chave.length >= 40) continue // já tratado acima
         const fk = `${x.numero_nf}_${x.emitente_cnpj}_${x.data_emissao}`
         if (!fallbacksComChave.has(fk) && !porFallback.has(fk)) porFallback.set(fk, x)
@@ -1685,6 +1704,7 @@ export default function SimplesNacionalPage() {
       setXmlDocumentos([])
       setXmlItens([])
     } finally {
+      setXmlCompetenciaCarregada(competencia)
       setCarregandoXmlDocs(false)
     }
   }, [])
@@ -2489,6 +2509,7 @@ export default function SimplesNacionalPage() {
             xmlDocumentos={xmlDocumentos}
             xmlItens={xmlItens}
             carregandoXmlDocs={carregandoXmlDocs}
+            xmlCompetenciaCarregada={xmlCompetenciaCarregada}
             limpandoCompetencia={limpandoCompetencia}
             rbt12Carregado={rbt12Carregado}
             receitas12m={receitas12m}

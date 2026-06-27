@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getOrgId } from '@/lib/supabase/org'
 import { validarEmpresaDaOrg, respostaForbidden } from '@/lib/supabase/validation'
 import { competenciaKey, competenciaNoPeriodo, competenciasEntre, normalizarCompetencia } from '@/lib/fiscal/competencia'
-import { carregarXmlLegacy, carregarXmlLegacyDocumentos, type XmlLegacyItem } from '@/lib/fiscal/xmlLegacy'
+import { carregarXmlLegacyDocumentos } from '@/lib/fiscal/xmlLegacy'
 import { fetchAll } from '@/lib/supabase/fetchAll'
 
 type Movimento = 'entrada' | 'saida'
@@ -24,20 +24,8 @@ function origemLabel(origem: string | null | undefined) {
   return origem
 }
 
-function movimentoPorCfop(cfop: string | null | undefined): Movimento | null {
-  const primeiro = cfop?.trim().charAt(0)
-  if (!primeiro) return null
-  if (['1', '2', '3'].includes(primeiro)) return 'entrada'
-  if (['5', '6', '7'].includes(primeiro)) return 'saida'
-  return null
-}
-
 function normalizarMovimento(tipo: string | null | undefined): Movimento | null {
   return tipo === 'entrada' || tipo === 'saida' ? tipo : null
-}
-
-function movimentoItem(item: XmlLegacyItem): Movimento | null {
-  return movimentoPorCfop(item.cfop) ?? normalizarMovimento(item.tipo_operacao)
 }
 
 function acumular(
@@ -61,10 +49,6 @@ function acumular(
     item.total_saida += valor
     item.count_saida++
   }
-}
-
-function chaveDocumentoItem(item: XmlLegacyItem, tipo: Movimento) {
-  return item.chave_nfe || `${item.numero_nf ?? ''}-${item.emitente_cnpj ?? ''}-${item.destinatario_cnpj ?? ''}-${item.data_emissao ?? ''}-${tipo}`
 }
 
 function resultado(mapa: Map<string, TotaisDocumento>, limiteMeses: number | null) {
@@ -104,30 +88,6 @@ export async function GET(req: Request) {
   const mapa = new Map<string, TotaisDocumento>()
 
   try {
-    const itens = await carregarXmlLegacy({ supabase, empresaId, competenciaInicio, competenciaFim })
-    const docsPorMovimento = new Map<string, XmlLegacyItem>()
-
-    for (const item of itens) {
-      const tipo = movimentoItem(item)
-      if (!tipo) continue
-      if (tipoMovimento && tipo !== tipoMovimento) continue
-      const chave = chaveDocumentoItem(item, tipo)
-      if (!docsPorMovimento.has(chave)) docsPorMovimento.set(chave, item)
-    }
-
-    for (const item of docsPorMovimento.values()) {
-      const tipo = movimentoItem(item)
-      if (!tipo) continue
-      const comp = item.competencia ?? 'sem-competencia'
-      acumular(mapa, comp, 'XML', tipo, item.valor_total_nota)
-    }
-
-    if (mapa.size > 0) return NextResponse.json(resultado(mapa, limiteMeses))
-  } catch {
-    // Se os XMLs legados nao estiverem disponiveis, tenta a base estruturada.
-  }
-
-  try {
     const docs = await fetchAll<{
       data_competencia: string | null
       tipo_movimento: string | null
@@ -157,7 +117,7 @@ export async function GET(req: Request) {
 
     if (mapa.size > 0) return NextResponse.json(resultado(mapa, limiteMeses))
   } catch {
-    // Continua para o XML por documento, sem usar resumo mensal salvo.
+    // Continua para o XML legado caso a base estruturada nao esteja disponivel.
   }
 
   try {

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { competenciaNoPeriodo, normalizarCompetencia } from '@/lib/fiscal/competencia'
+import { fetchAll } from '@/lib/supabase/fetchAll'
 
 export type XmlLegacyItem = {
   competencia: string | null
@@ -91,17 +92,27 @@ export async function carregarXmlLegacy(params: {
   tipoMovimento?: string | null
 }): Promise<XmlLegacyItem[]> {
   const { supabase, empresaId, competenciaInicio, competenciaFim, tipoMovimento } = params
-  const { data, error } = await supabase
-    .from('fa_arquivos_xml')
-    .select('competencia, chave_nfe, numero_nf, data_emissao, emitente_cnpj, emitente_nome, destinatario_cnpj, destinatario_nome, tipo_operacao, valor_total, status, parsed_data')
-    .eq('empresa_id', empresaId)
-    .limit(100000)
-
-  if (error) throw new Error(error.message)
+  // fetchAll filtrado por data_emissao para reduzir o conjunto a ser paginado.
+  // O filtro em memória (competenciaNoPeriodo) continua sendo aplicado logo abaixo.
+  const rows = await fetchAll<XmlLegacyRow>((from, to) => {
+    let q = supabase
+      .from('fa_arquivos_xml')
+      .select('competencia, chave_nfe, numero_nf, data_emissao, emitente_cnpj, emitente_nome, destinatario_cnpj, destinatario_nome, tipo_operacao, valor_total, status, parsed_data')
+      .eq('empresa_id', empresaId)
+      .range(from, to)
+    if (competenciaInicio) q = q.gte('data_emissao', `${competenciaInicio}-01`)
+    if (competenciaFim) {
+      const [ano, mes] = competenciaFim.split('-').map(Number)
+      const nextMes = mes === 12 ? 1 : mes + 1
+      const nextAno = mes === 12 ? ano + 1 : ano
+      q = q.lt('data_emissao', `${nextAno}-${String(nextMes).padStart(2, '0')}-01`)
+    }
+    return q as unknown as PromiseLike<{ data: XmlLegacyRow[] | null; error: unknown }>
+  })
 
   const items: XmlLegacyItem[] = []
 
-  for (const row of (data ?? []) as XmlLegacyRow[]) {
+  for (const row of rows) {
     if (row.status === 'cancelada') continue
     const competencia = getCompetencia(row)
     if (!competenciaNoPeriodo(competencia, competenciaInicio, competenciaFim)) continue
@@ -165,18 +176,27 @@ export async function carregarXmlLegacyDocumentos(params: {
   tipoMovimento?: string | null
 }): Promise<XmlLegacyDocumento[]> {
   const { supabase, empresaId, competenciaInicio, competenciaFim, tipoMovimento } = params
-  const { data, error } = await supabase
-    .from('fa_arquivos_xml')
-    .select('competencia, chave_nfe, numero_nf, data_emissao, emitente_cnpj, emitente_nome, destinatario_cnpj, destinatario_nome, tipo_operacao, valor_total, status')
-    .eq('empresa_id', empresaId)
-    .limit(100000)
-
-  if (error) throw new Error(error.message)
+  // fetchAll filtrado por data_emissao para reduzir o conjunto a ser paginado.
+  const rows = await fetchAll<XmlLegacyRow>((from, to) => {
+    let q = supabase
+      .from('fa_arquivos_xml')
+      .select('competencia, chave_nfe, numero_nf, data_emissao, emitente_cnpj, emitente_nome, destinatario_cnpj, destinatario_nome, tipo_operacao, valor_total, status')
+      .eq('empresa_id', empresaId)
+      .range(from, to)
+    if (competenciaInicio) q = q.gte('data_emissao', `${competenciaInicio}-01`)
+    if (competenciaFim) {
+      const [ano, mes] = competenciaFim.split('-').map(Number)
+      const nextMes = mes === 12 ? 1 : mes + 1
+      const nextAno = mes === 12 ? ano + 1 : ano
+      q = q.lt('data_emissao', `${nextAno}-${String(nextMes).padStart(2, '0')}-01`)
+    }
+    return q as unknown as PromiseLike<{ data: XmlLegacyRow[] | null; error: unknown }>
+  })
 
   const docs: XmlLegacyDocumento[] = []
   const vistos = new Set<string>()
 
-  for (const row of (data ?? []) as XmlLegacyRow[]) {
+  for (const row of rows) {
     if (row.status === 'cancelada') continue
     const competencia = getCompetencia(row)
     if (!competenciaNoPeriodo(competencia, competenciaInicio, competenciaFim)) continue

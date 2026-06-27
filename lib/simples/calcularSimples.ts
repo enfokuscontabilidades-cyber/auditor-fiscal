@@ -147,6 +147,7 @@ export function apurarSimples(params: {
 
   // Receitas por anexo (liquidas, já sem ST, exportação e devoluções)
   const receitas_por_anexo: Record<string, number> = {}
+  const usarItensComoBase = itens.length > 0
 
   // ── Processar documentos ──────────────────────────────────────────────
   for (const doc of documentos) {
@@ -157,7 +158,7 @@ export function apurarSimples(params: {
     if (doc.impacto_receita === 'soma_receita') {
       // Determinar tipo de receita pelo primeiro item ou pelo documento
       const itensDoc = itens.filter(i => i.documento_id === doc.id)
-      let valorReceitaDoc = valorDoc
+      let valorReceitaDoc = usarItensComoBase ? 0 : valorDoc
 
       if (itensDoc.length > 0) {
         // Classificar por item — usar valor líquido (vProd − vDesc) per LC 123/2006 art. 3º §1º
@@ -166,13 +167,10 @@ export function apurarSimples(params: {
         // do documento (vDescNota) a TODOS os itens sem vDesc próprio, mesmo quando itens
         // com vDesc individual já somavam o total do desconto. Isso produz somaDescItens > vDescDoc.
         // Detectamos isso e zeramos o desconto nos itens que o receberam proporcionalmente (ratio ≈ global).
-        const vDescDoc = doc.valor_desconto ?? 0
-        const somaDescItens = itensDoc.reduce((s, i) => s + (i.valor_desconto ?? 0), 0)
-        const vProdTotal = itensDoc.reduce((s, i) => s + (i.valor_total ?? 0), 0)
-        const bugDetectado = somaDescItens > vDescDoc + 0.5 && vDescDoc > 0 && vProdTotal > 0
-        const globalRatio = bugDetectado ? vDescDoc / vProdTotal : 0
 
         valorReceitaDoc = 0
+        const bugDetectado = false
+        const globalRatio = 0
         for (const item of itensDoc) {
           let valorDesc = item.valor_desconto ?? 0
           if (bugDetectado && valorDesc > 0) {
@@ -183,11 +181,12 @@ export function apurarSimples(params: {
           const vItem = Math.max(0, (item.valor_total ?? 0) - valorDesc)
           if (vItem <= 0) continue
 
-          if (item.impacto_receita === 'soma_receita') valorReceitaDoc += vItem
+          if (item.impacto_receita !== 'soma_receita') continue
+          valorReceitaDoc += vItem
           acumularReceita(item, vItem, ehIndustrial, anexoServico,
             receitas_por_anexo, incrementarSt, incrementarExp)
         }
-      } else {
+      } else if (!usarItensComoBase) {
         // Documento sem itens detalhados — usar classificação do documento
         acumularReceitaDoc(doc, valorDoc, ehIndustrial, anexoServico,
           receitas_por_anexo)
@@ -199,7 +198,8 @@ export function apurarSimples(params: {
       const itensDoc = itens.filter(i => i.documento_id === doc.id && i.impacto_receita === 'reduz_receita')
       const valorDevolucao = itensDoc.length > 0
         ? itensDoc.reduce((s, item) => s + Math.max(0, (item.valor_total ?? 0) - (item.valor_desconto ?? 0)), 0)
-        : valorDoc
+        : usarItensComoBase ? 0 : valorDoc
+      if (valorDevolucao <= 0) continue
       receita_devolucoes += valorDevolucao
       notas_devolucao.push({
         chave: doc.chave_acesso,
@@ -304,7 +304,7 @@ function acumularReceita(
   }
   if (nat === 'nao_receita' || nat === 'devolucao') return
 
-  const anexo = item.anexo_sugerido
+  const anexo = item.anexo_sugerido ?? (item.impacto_receita === 'soma_receita' ? (ehIndustrial ? 'II' : 'I') : null)
   if (!anexo) {
     // Serviço sem anexo definido ou CFOP pendente
     receitas_por_anexo['servico_pendente'] = (receitas_por_anexo['servico_pendente'] ?? 0) + valor

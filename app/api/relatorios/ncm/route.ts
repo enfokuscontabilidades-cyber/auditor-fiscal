@@ -4,6 +4,7 @@ import { getOrgId } from '@/lib/supabase/org'
 import { validarEmpresaDaOrg, respostaForbidden } from '@/lib/supabase/validation'
 import { competenciaNoPeriodo, competenciasEntre } from '@/lib/fiscal/competencia'
 import { carregarXmlLegacy } from '@/lib/fiscal/xmlLegacy'
+import { fetchAll } from '@/lib/supabase/fetchAll'
 
 type NcmResumo = {
   ncm: string
@@ -34,7 +35,7 @@ export async function GET(req: Request) {
   const empresaId = url.searchParams.get('empresa_id')
   const competenciaInicio = url.searchParams.get('competencia_inicio')
   const competenciaFim = url.searchParams.get('competencia_fim')
-  const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '5000', 10) || 5000, 5000)
+  const limit = Math.max(parseInt(url.searchParams.get('limit') ?? '5000', 10) || 5000, 1)
   const competenciasFiltro = competenciasEntre(competenciaInicio, competenciaFim)
 
   if (!empresaId) return NextResponse.json({ error: 'empresa_id obrigatório' }, { status: 400 })
@@ -46,11 +47,59 @@ export async function GET(req: Request) {
     return respostaForbidden('empresa_id')
   }
 
-  if (competenciasFiltro.length === 0) {
-    return NextResponse.json({ error: 'Informe uma competencia inicial ou final para carregar o relatorio.' }, { status: 400 })
-  }
+  type NcmItemRaw = { ncm: string | null; descricao: string | null; valor_total: number | null; quantidade: number | null; fa_documentos_fiscais: unknown }
 
   const mapa = new Map<string, NcmResumo>()
+
+  {
+    // fetchAll: carrega todos os itens sem limite fixo (substitui .limit(100000))
+    try {
+      const itens = await fetchAll<NcmItemRaw>(async (from, to) => {
+        let q = supabase
+          .from('fa_documentos_itens')
+          .select('ncm, descricao, valor_total, quantidade, fa_documentos_fiscais!inner(status, tipo_movimento, data_competencia)')
+          .eq('empresa_id', empresaId)
+          .range(from, to)
+        if (competenciasFiltro.length > 0) q = q.in('fa_documentos_fiscais.data_competencia', competenciasFiltro)
+        const { data, error } = await q
+        return { data: data as NcmItemRaw[] | null, error }
+      })
+      for (const item of itens) {
+        const doc = item.fa_documentos_fiscais as { status: string; data_competencia?: string } | null
+        if (doc?.status === 'cancelada') continue
+        if (competenciasFiltro.length > 0 && !competenciaNoPeriodo(doc?.data_competencia, competenciaInicio, competenciaFim)) continue
+        acumular(mapa, item.ncm, item.descricao, item.valor_total ?? 0, item.quantidade ?? 0)
+      }
+    } catch {
+      // Continua para o legacy e depois para os fallbacks de resumo/RPC.
+    }
+
+    if (mapa.size === 0) {
+      try {
+        const legacy = await carregarXmlLegacy({
+          supabase,
+          empresaId,
+          competenciaInicio,
+          competenciaFim,
+        })
+        for (const item of legacy) {
+          acumular(mapa, item.ncm, item.descricao, item.valor_total, item.quantidade)
+        }
+      } catch {
+        // Continua para os resumos antigos como fallback.
+      }
+    }
+
+    if (mapa.size > 0) {
+      const totalGeral = Array.from(mapa.values()).reduce((s, item) => s + item.valor_total, 0)
+      const resultado = Array.from(mapa.values())
+        .map(item => ({ ...item, participacao: totalGeral > 0 ? (item.valor_total / totalGeral) * 100 : 0 }))
+        .sort((a, b) => b.valor_total - a.valor_total)
+        .slice(0, limit)
+
+      return NextResponse.json(resultado)
+    }
+  }
 
   let resumoQuery = supabase
     .from('rel_resumo_ncm_mensal')
@@ -76,7 +125,7 @@ export async function GET(req: Request) {
     })))
   }
   if (!resumoError && competenciasFiltro.length > 0) {
-    return NextResponse.json([])
+    // Sem resumo salvo: continua para a funcao/fallback detalhado abaixo.
   }
 
   const { data: rpcData, error: rpcError } = await supabase.rpc('relatorio_ncm_resumo', {
@@ -96,40 +145,34 @@ export async function GET(req: Request) {
     )
   }
 
-  let query = supabase
-    .from('fa_documentos_itens')
-    .select('ncm, descricao, valor_total, quantidade, fa_documentos_fiscais!inner(status, tipo_movimento, data_competencia)')
-    .eq('empresa_id', empresaId)
-    .limit(100000)
-
-  if (competenciasFiltro.length > 0) query = query.in('fa_documentos_fiscais.data_competencia', competenciasFiltro)
-
-  const { data, error } = await query
-
-  if (!error) {
-    for (const item of (data ?? [])) {
-      const doc = item.fa_documentos_fiscais as unknown as { status: string; data_competencia?: string } | null
+  // fetchAll: último fallback com todos os itens sem limite fixo (substitui .limit(100000))
+  try {
+    const itens = await fetchAll<NcmItemRaw>(async (from, to) => {
+      let q = supabase
+        .from('fa_documentos_itens')
+        .select('ncm, descricao, valor_total, quantidade, fa_documentos_fiscais!inner(status, tipo_movimento, data_competencia)')
+        .eq('empresa_id', empresaId)
+        .range(from, to)
+      if (competenciasFiltro.length > 0) q = q.in('fa_documentos_fiscais.data_competencia', competenciasFiltro)
+      const { data, error } = await q
+      return { data: data as NcmItemRaw[] | null, error }
+    })
+    for (const item of itens) {
+      const doc = item.fa_documentos_fiscais as { status: string; data_competencia?: string } | null
       if (doc?.status === 'cancelada') continue
       if (!competenciaNoPeriodo(doc?.data_competencia, competenciaInicio, competenciaFim)) continue
       acumular(mapa, item.ncm, item.descricao, item.valor_total ?? 0, item.quantidade ?? 0)
     }
-  }
-
-  if (mapa.size === 0) {
-    try {
-      const legacy = await carregarXmlLegacy({
-        supabase,
-        empresaId,
-        competenciaInicio,
-        competenciaFim,
-      })
-      for (const item of legacy) {
-        acumular(mapa, item.ncm, item.descricao, item.valor_total, item.quantidade)
-      }
-    } catch (err) {
-      if (error) {
+  } catch (fallbackErr) {
+    if (mapa.size === 0) {
+      try {
+        const legacy = await carregarXmlLegacy({ supabase, empresaId, competenciaInicio, competenciaFim })
+        for (const item of legacy) {
+          acumular(mapa, item.ncm, item.descricao, item.valor_total, item.quantidade)
+        }
+      } catch (legacyErr) {
         return NextResponse.json(
-          { error: err instanceof Error ? err.message : error.message },
+          { error: legacyErr instanceof Error ? legacyErr.message : (fallbackErr instanceof Error ? fallbackErr.message : 'Erro ao carregar NCM') },
           { status: 500 },
         )
       }

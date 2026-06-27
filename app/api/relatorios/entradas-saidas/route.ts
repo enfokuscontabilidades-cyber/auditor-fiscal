@@ -545,12 +545,14 @@ export async function GET(req: Request) {
     const { data, error, count } = await buildDocumentosQuery(true).range(from, to)
     if (error) {
       if (isRangeNotSatisfiable(error)) {
+        const legacy = await carregarXmlLegacyDocumentos({ supabase, empresaId, competenciaInicio, competenciaFim, tipoMovimento })
+        const legacyRows = aplicarFiltroDocumentos(legacy.map(legacyDocToDocumento), tipoMovimento)
         return NextResponse.json({
-          rows: [],
-          total: from,
+          rows: legacyRows.slice(from, to + 1),
+          total: legacyRows.length,
           page,
           page_size: pageSize,
-          totalizadores: totalizadores([]),
+          totalizadores: totalizadores(legacyRows.slice(from, to + 1)),
         })
       }
       return NextResponse.json({ error: error.message }, { status: 500 })
@@ -577,7 +579,7 @@ export async function GET(req: Request) {
   }
 
   let { rows, total } = await carregarProdutosPaginados()
-  if (rows.length === 0 && from === 0) {
+  if (rows.length === 0) {
     const legacy = await carregarXmlLegacy({ supabase, empresaId, competenciaInicio, competenciaFim })
     const produtos = aplicarFiltroProdutos(legacy.map(legacyItemToProduto), tipoMovimento)
     rows = produtos.slice(from, to + 1)

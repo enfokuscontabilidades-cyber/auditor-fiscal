@@ -4,6 +4,7 @@ import { getOrgId } from '@/lib/supabase/org'
 import { validarEmpresaDaOrg, respostaForbidden } from '@/lib/supabase/validation'
 import { competenciaNoPeriodo, competenciasEntre } from '@/lib/fiscal/competencia'
 import { carregarXmlLegacyDocumentos } from '@/lib/fiscal/xmlLegacy'
+import { fetchAll } from '@/lib/supabase/fetchAll'
 
 type ParticipanteResumo = {
   competencia?: string | null
@@ -96,7 +97,7 @@ export async function GET(req: Request) {
   const tipo = url.searchParams.get('tipo') ?? 'entrada'
   const competenciaInicio = url.searchParams.get('competencia_inicio')
   const competenciaFim = url.searchParams.get('competencia_fim')
-  const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '5000', 10) || 5000, 5000)
+  const limit = Math.max(parseInt(url.searchParams.get('limit') ?? '5000', 10) || 5000, 1)
   const competenciasFiltro = competenciasEntre(competenciaInicio, competenciaFim)
 
   if (!empresaId) return NextResponse.json({ error: 'empresa_id obrigatório' }, { status: 400 })
@@ -108,11 +109,78 @@ export async function GET(req: Request) {
     return respostaForbidden('empresa_id')
   }
 
-  if (competenciasFiltro.length === 0) {
-    return NextResponse.json({ error: 'Informe uma competencia inicial ou final para carregar o relatorio.' }, { status: 400 })
-  }
+  type DocParticipanteRaw = { emitente_cnpj: string | null; emitente_nome: string | null; destinatario_cnpj: string | null; destinatario_nome: string | null; valor_total: number | null; tipo_movimento: string | null; status: string; data_competencia: string | null }
 
   const mapa = new Map<string, ParticipanteResumo>()
+
+  {
+    // fetchAll: carrega todos os documentos sem limite fixo (substitui .limit(50000))
+    try {
+      const docs = await fetchAll<DocParticipanteRaw>(async (from, to) => {
+        let q = supabase
+          .from('fa_documentos_fiscais')
+          .select('emitente_cnpj, emitente_nome, destinatario_cnpj, destinatario_nome, valor_total, tipo_movimento, status, data_competencia')
+          .eq('empresa_id', empresaId)
+          .neq('status', 'cancelada')
+          .eq('tipo_movimento', tipo)
+          .range(from, to)
+        if (competenciasFiltro.length > 0) q = q.in('data_competencia', competenciasFiltro)
+        const { data, error } = await q
+        return { data: data as DocParticipanteRaw[] | null, error }
+      })
+      for (const doc of docs) {
+        if (competenciasFiltro.length > 0 && !competenciaNoPeriodo(doc.data_competencia, competenciaInicio, competenciaFim)) continue
+        const cnpj = tipo === 'entrada' ? doc.emitente_cnpj : doc.destinatario_cnpj
+        const nome = tipo === 'entrada' ? doc.emitente_nome : doc.destinatario_nome
+        acumularParticipante(mapa, cnpj, nome, doc.valor_total ?? 0)
+      }
+    } catch {
+      // Continua para o legacy e depois para os fallbacks de resumo/RPC.
+    }
+
+    if (mapa.size === 0) {
+      try {
+        const legacy = await carregarXmlLegacyDocumentos({
+          supabase,
+          empresaId,
+          competenciaInicio,
+          competenciaFim,
+          tipoMovimento: tipo,
+        })
+        for (const item of legacy) {
+          const cnpj = tipo === 'entrada' ? item.emitente_cnpj : item.destinatario_cnpj
+          const nome = tipo === 'entrada' ? item.emitente_nome : item.destinatario_nome
+          acumularParticipante(mapa, cnpj, nome, item.valor_total_nota)
+        }
+      } catch {
+        // Continua para os resumos antigos como fallback.
+      }
+    }
+
+    if (mapa.size > 0) {
+      const participantesDetalhados = Array.from(mapa.values())
+        .sort((a, b) => b.valor_total - a.valor_total)
+        .slice(0, limit)
+
+      const cnpjsDetalhados = participantesDetalhados.map(p => p.cnpj).filter(cnpj => cnpj.length === 14)
+      if (cnpjsDetalhados.length === 0) return NextResponse.json(participantesDetalhados)
+
+      const { data: cacheRowsDetalhados } = await supabase
+        .from('cnpj_cache')
+        .select('cnpj, dados, consultado_em')
+        .in('cnpj', cnpjsDetalhados)
+        .eq('status', 'ok')
+
+      const cacheByCnpjDetalhado = new Map(
+        (cacheRowsDetalhados ?? []).map(row => [
+          String(row.cnpj),
+          { dados: row.dados as unknown, consultado_em: row.consultado_em as string | undefined },
+        ]),
+      )
+
+      return NextResponse.json(participantesDetalhados.map(p => enriquecerComCache(p, cacheByCnpjDetalhado.get(p.cnpj))))
+    }
+  }
 
   let resumoQuery = supabase
     .from('rel_resumo_participantes_mensal')
@@ -158,7 +226,7 @@ export async function GET(req: Request) {
     return NextResponse.json(participantesResumo.map(p => enriquecerComCache(p, cacheByCnpjResumo.get(p.cnpj))))
   }
   if (!resumoError && competenciasFiltro.length > 0) {
-    return NextResponse.json([])
+    // Sem resumo salvo: continua para a funcao/fallback detalhado abaixo.
   }
 
   const { data: rpcData, error: rpcError } = await supabase.rpc('relatorio_participantes_resumo', {
@@ -201,45 +269,38 @@ export async function GET(req: Request) {
     )
   }
 
-  let query = supabase
-    .from('fa_documentos_fiscais')
-    .select('emitente_cnpj, emitente_nome, destinatario_cnpj, destinatario_nome, valor_total, tipo_movimento, status, data_competencia')
-    .eq('empresa_id', empresaId)
-    .neq('status', 'cancelada')
-    .eq('tipo_movimento', tipo)
-    .limit(50000)
-
-  if (competenciasFiltro.length > 0) query = query.in('data_competencia', competenciasFiltro)
-
-  const { data, error } = await query
-
-  if (!error) {
-    for (const doc of (data ?? [])) {
+  // fetchAll: último fallback com todos os documentos sem limite fixo (substitui .limit(50000))
+  try {
+    const docs = await fetchAll<DocParticipanteRaw>(async (from, to) => {
+      let q = supabase
+        .from('fa_documentos_fiscais')
+        .select('emitente_cnpj, emitente_nome, destinatario_cnpj, destinatario_nome, valor_total, tipo_movimento, status, data_competencia')
+        .eq('empresa_id', empresaId)
+        .neq('status', 'cancelada')
+        .eq('tipo_movimento', tipo)
+        .range(from, to)
+      if (competenciasFiltro.length > 0) q = q.in('data_competencia', competenciasFiltro)
+      const { data, error } = await q
+      return { data: data as DocParticipanteRaw[] | null, error }
+    })
+    for (const doc of docs) {
       if (!competenciaNoPeriodo(doc.data_competencia, competenciaInicio, competenciaFim)) continue
       const cnpj = tipo === 'entrada' ? doc.emitente_cnpj : doc.destinatario_cnpj
       const nome = tipo === 'entrada' ? doc.emitente_nome : doc.destinatario_nome
       acumularParticipante(mapa, cnpj, nome, doc.valor_total ?? 0)
     }
-  }
-
-  if (mapa.size === 0) {
-    try {
-      const legacy = await carregarXmlLegacyDocumentos({
-        supabase,
-        empresaId,
-        competenciaInicio,
-        competenciaFim,
-        tipoMovimento: tipo,
-      })
-      for (const item of legacy) {
-        const cnpj = tipo === 'entrada' ? item.emitente_cnpj : item.destinatario_cnpj
-        const nome = tipo === 'entrada' ? item.emitente_nome : item.destinatario_nome
-        acumularParticipante(mapa, cnpj, nome, item.valor_total_nota)
-      }
-    } catch (err) {
-      if (error) {
+  } catch (fallbackErr) {
+    if (mapa.size === 0) {
+      try {
+        const legacy = await carregarXmlLegacyDocumentos({ supabase, empresaId, competenciaInicio, competenciaFim, tipoMovimento: tipo })
+        for (const item of legacy) {
+          const cnpj = tipo === 'entrada' ? item.emitente_cnpj : item.destinatario_cnpj
+          const nome = tipo === 'entrada' ? item.emitente_nome : item.destinatario_nome
+          acumularParticipante(mapa, cnpj, nome, item.valor_total_nota)
+        }
+      } catch (legacyErr) {
         return NextResponse.json(
-          { error: err instanceof Error ? err.message : error.message },
+          { error: legacyErr instanceof Error ? legacyErr.message : (fallbackErr instanceof Error ? fallbackErr.message : 'Erro ao carregar participantes') },
           { status: 500 },
         )
       }

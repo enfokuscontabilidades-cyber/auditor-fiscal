@@ -116,11 +116,22 @@ export default function DashboardPage() {
   const carregarDados = useCallback(async (empresaId: string) => {
     setLoading(true)
     try {
-      const [mensalRes, produtosRes, fornecedoresRes, cfopsRes, alertasRes, sessoesRes] = await Promise.all([
-        fetch(`/api/relatorios/documentos?empresa_id=${empresaId}&meses=6`).then(r => r.json()),
-        fetch(`/api/relatorios/produtos?empresa_id=${empresaId}&limit=8`).then(r => r.json()),
-        fetch(`/api/relatorios/participantes?empresa_id=${empresaId}&tipo=entrada&limit=6`).then(r => r.json()),
-        fetch(`/api/relatorios/cfop?empresa_id=${empresaId}`).then(r => r.json()),
+      const mensalRes = await fetch(`/api/relatorios/documentos?empresa_id=${empresaId}&meses=6`).then(r => r.json())
+      const dadosMensaisCarregados = Array.isArray(mensalRes) ? mensalRes as DadoMensal[] : []
+      const competencias = dadosMensaisCarregados
+        .map(item => item.competencia)
+        .filter((competencia): competencia is string => Boolean(competencia))
+
+      const periodo = new URLSearchParams({ empresa_id: empresaId })
+      if (competencias.length > 0) {
+        periodo.set('competencia_inicio', competencias[0])
+        periodo.set('competencia_fim', competencias[competencias.length - 1])
+      }
+
+      const [produtosRes, fornecedoresRes, cfopsRes, alertasRes, sessoesRes] = await Promise.all([
+        competencias.length > 0 ? fetch(`/api/relatorios/produtos?${periodo.toString()}&limit=8`).then(r => r.json()) : Promise.resolve([]),
+        competencias.length > 0 ? fetch(`/api/relatorios/participantes?${periodo.toString()}&tipo=entrada&limit=6`).then(r => r.json()) : Promise.resolve([]),
+        competencias.length > 0 ? fetch(`/api/relatorios/cfop?${periodo.toString()}`).then(r => r.json()) : Promise.resolve([]),
         supabase.from('fa_alertas').select('nivel_risco').eq('empresa_id', empresaId).eq('status', 'aberto'),
         supabase
           .from('fa_sessoes_analise')
@@ -130,10 +141,10 @@ export default function DashboardPage() {
           .limit(5),
       ])
 
-      setDadosMensais(Array.isArray(mensalRes) ? mensalRes : [])
+      setDadosMensais(dadosMensaisCarregados)
       setTopProdutos(Array.isArray(produtosRes) ? produtosRes : [])
       setTopFornecedores(Array.isArray(fornecedoresRes) ? fornecedoresRes : [])
-      setTopCfops(Array.isArray(cfopsRes) ? cfopsRes.slice(0, 8) : [])
+      setTopCfops(Array.isArray(cfopsRes) ? [...cfopsRes].sort((a, b) => Number(b.valor_total ?? 0) - Number(a.valor_total ?? 0)).slice(0, 8) : [])
       setAlertas(alertasRes.data ?? [])
       setSessoes((sessoesRes.data ?? []) as SessaoRecente[])
     } finally {
@@ -142,12 +153,15 @@ export default function DashboardPage() {
   }, [supabase])
 
   useEffect(() => {
-    if (!empresaAtiva?.id) {
-      setDadosMensais([]); setTopProdutos([]); setTopFornecedores([])
-      setTopCfops([]); setAlertas([]); setSessoes([])
-      return
-    }
-    carregarDados(empresaAtiva.id)
+    const timer = window.setTimeout(() => {
+      if (!empresaAtiva?.id) {
+        setDadosMensais([]); setTopProdutos([]); setTopFornecedores([])
+        setTopCfops([]); setAlertas([]); setSessoes([])
+        return
+      }
+      void carregarDados(empresaAtiva.id)
+    }, 0)
+    return () => window.clearTimeout(timer)
   }, [empresaAtiva?.id, carregarDados])
 
   // ── Handlers de consulta CNPJ ────────────────────────────────────────────────
@@ -176,6 +190,7 @@ export default function DashboardPage() {
 
   // ── KPIs do mês atual ────────────────────────────────────────────────────────
   const mesAtual = dadosMensais[dadosMensais.length - 1]
+  const mesAtualLabel = mesAtual ? competenciaLabel(mesAtual.competencia) : null
   const totalEntradaAtual = mesAtual?.total_entrada ?? 0
   const totalSaidaAtual   = mesAtual?.total_saida   ?? 0
   const totalAlertasAbertos = alertas.length
@@ -353,7 +368,7 @@ export default function DashboardPage() {
         <MetricCard
           label="Entradas (mês atual)"
           value={loading ? '…' : fmoe(totalEntradaAtual)}
-          sub={mesAtual ? `${mesAtual.count_entrada ?? 0} documentos` : 'sem dados'}
+          sub={mesAtual ? `${mesAtualLabel} considerado como mes atual - ${mesAtual.count_entrada ?? 0} documentos` : 'sem dados'}
           color="var(--af-primary)"
           icon={<TrendingDown size={13} />}
           accentBorder
@@ -361,7 +376,7 @@ export default function DashboardPage() {
         <MetricCard
           label="Saídas (mês atual)"
           value={loading ? '…' : fmoe(totalSaidaAtual)}
-          sub={mesAtual ? `${mesAtual.count_saida ?? 0} documentos` : 'sem dados'}
+          sub={mesAtual ? `${mesAtualLabel} considerado como mes atual - ${mesAtual.count_saida ?? 0} documentos` : 'sem dados'}
           color="var(--af-accent)"
           icon={<TrendingUp size={13} />}
           accentBorder

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { AlertaFiscal } from '@/lib/types'
 import { useEmpresaAtiva } from '@/lib/hooks/useEmpresaAtiva'
-import { ChevronDown, ChevronUp, Building2, TriangleAlert, Package, Users, BarChart3, Hash, Download } from 'lucide-react'
+import { ChevronDown, ChevronUp, Building2, TriangleAlert, Package, Users, BarChart3, Hash, Download, Receipt } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import PageHeader from '@/components/ui/PageHeader'
 import GlassCard from '@/components/ui/GlassCard'
@@ -129,6 +129,32 @@ type RelatorioFiscalResposta = {
   error?: string
 }
 
+type DivergenciaSimplesCandidato = {
+  documento_id: string
+  numero: string
+  data_emissao: string | null
+  participante: string
+  cfops: string
+  movimento: string
+  impacto_receita: string
+  valor: number
+  motivo: string
+}
+
+type DivergenciaSimples = {
+  competencia: string
+  receita_pgdas: number
+  receita_xml: number
+  faturamento_xml: number
+  devolucoes_xml: number
+  diferenca: number
+  variacao: number
+  status: 'alerta' | 'critico' | 'sem_dados' | string
+  qtd_documentos: number
+  qtd_candidatos: number
+  candidatos: DivergenciaSimplesCandidato[]
+}
+
 // ─── Constantes alertas ────────────────────────────────────────────────────────
 
 const NIVEIS  = ['', 'critico', 'alto', 'medio', 'baixo']
@@ -186,6 +212,10 @@ export default function RelatoriosPage() {
   const [filtroNivel,   setFiltroNivel]  = useState('')
   const [filtroStatus,  setFiltroStatus] = useState('aberto')
   const [expandido,     setExpandido]    = useState<string | null>(null)
+  const [divergenciasSimples, setDivergenciasSimples] = useState<DivergenciaSimples[]>([])
+  const [loadingDivSimples, setLoadingDivSimples] = useState(false)
+  const [erroDivSimples, setErroDivSimples] = useState<string | null>(null)
+  const [divSimplesExpandida, setDivSimplesExpandida] = useState<string | null>(null)
 
   // Estado abas de relatórios
   const [dadosMensais,      setDadosMensais]      = useState<DadoMensal[]>([])
@@ -257,6 +287,40 @@ export default function RelatoriosPage() {
     const timer = window.setTimeout(() => { void carregarAlertas() }, 0)
     return () => window.clearTimeout(timer)
   }, [abaAtiva, carregarAlertas])
+
+  const carregarDivergenciasSimples = useCallback(async () => {
+    if (!empresaId) {
+      setDivergenciasSimples([])
+      return
+    }
+
+    setLoadingDivSimples(true)
+    setErroDivSimples(null)
+    const params = new URLSearchParams({ empresa_id: empresaId })
+    if (compInicio) params.set('competencia_inicio', compInicio)
+    if (compFim) params.set('competencia_fim', compFim)
+
+    try {
+      const res = await fetch(`/api/relatorios/divergencias-simples?${params}`)
+      const body = await res.json().catch(() => null) as DivergenciaSimples[] | { error?: string } | null
+      if (!res.ok) {
+        const msg = body && !Array.isArray(body) && body.error ? body.error : `Erro HTTP ${res.status}`
+        throw new Error(msg)
+      }
+      setDivergenciasSimples(Array.isArray(body) ? body : [])
+    } catch (err) {
+      setDivergenciasSimples([])
+      setErroDivSimples(err instanceof Error ? err.message : 'Erro ao carregar divergencias do Simples')
+    } finally {
+      setLoadingDivSimples(false)
+    }
+  }, [empresaId, compInicio, compFim])
+
+  useEffect(() => {
+    if (abaAtiva !== 'inconsistencias') return
+    const timer = window.setTimeout(() => { void carregarDivergenciasSimples() }, 0)
+    return () => window.clearTimeout(timer)
+  }, [abaAtiva, carregarDivergenciasSimples])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -536,9 +600,8 @@ export default function RelatoriosPage() {
     const todas: RelatorioFiscalLinha[] = []
     const tamanho = 1000
     let pagina = 1
-    let total = 0
 
-    do {
+    while (true) {
       const params = new URLSearchParams({
         empresa_id: empresaId ?? '',
         nivel: abaAtiva === 'entradas_saidas' ? 'documento' : 'produto',
@@ -553,13 +616,14 @@ export default function RelatoriosPage() {
 
       const res = await fetch(`/api/relatorios/entradas-saidas?${params}`)
       const body = await res.json() as RelatorioFiscalResposta
-      if (!res.ok) throw new Error(body.error ?? 'Erro ao exportar relatÃ³rio.')
+      if (!res.ok && body.error?.toLowerCase().includes('requested range not satisfiable') && todas.length > 0) break
+      if (!res.ok) throw new Error(body.error ?? 'Erro ao exportar relatório.')
       const rows = Array.isArray(body.rows) ? body.rows : []
       if (rows.length === 0) break
       todas.push(...rows)
-      total = Number(body.total ?? rows.length)
+      if (rows.length < tamanho) break
       pagina += 1
-    } while (todas.length < total)
+    }
 
     return todas
   }
@@ -635,14 +699,29 @@ export default function RelatoriosPage() {
           Total: d.total_entrada + d.total_saida,
         }))
       } else if (abaAtiva === 'participantes') {
-        rows = participantes.map(p => ({
+        // Fetch dedicado para exportação: sem limit=5000, retorna todos os participantes
+        const pExport = new URLSearchParams({ empresa_id: empresaId ?? '', tipo: tipoParticipante })
+        if (compInicio) pExport.set('competencia_inicio', compInicio)
+        if (compFim) pExport.set('competencia_fim', compFim)
+        const resP = await fetch(`/api/relatorios/participantes?${pExport}`)
+        if (!resP.ok) throw new Error('Erro ao exportar participantes.')
+        const dataP = await resP.json() as Participante[]
+        rows = dataP.map(p => ({
           CNPJ: p.cnpj,
           Razao_Social: p.nome,
           Documentos: p.count,
           Valor_Total: p.valor_total,
         }))
       } else if (abaAtiva === 'ncm') {
-        rows = ncms.map(n => ({
+        // Fetch dedicado para exportação: sem limit=5000, retorna todos os NCMs
+        const pNcm = new URLSearchParams({ empresa_id: empresaId ?? '' })
+        if (compInicio) pNcm.set('competencia_inicio', compInicio)
+        if (compFim) pNcm.set('competencia_fim', compFim)
+        if (tipoMov) pNcm.set('tipo_movimento', tipoMov)
+        const resN = await fetch(`/api/relatorios/ncm?${pNcm}`)
+        if (!resN.ok) throw new Error('Erro ao exportar NCMs.')
+        const dataN = await resN.json() as NcmItem[]
+        rows = dataN.map(n => ({
           NCM: n.ncm,
           Produto_Exemplo: n.descricao_exemplo,
           Quantidade: n.quantidade,
@@ -652,9 +731,14 @@ export default function RelatoriosPage() {
       }
 
       if (rows.length === 0) throw new Error('NÃ£o hÃ¡ dados para exportar.')
-      const ws = XLSX.utils.json_to_sheet(rows)
       const wb = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(wb, ws, 'Relatorio')
+      const maxLinhasPorAba = 900000
+      for (let i = 0; i < rows.length; i += maxLinhasPorAba) {
+        const parte = rows.slice(i, i + maxLinhasPorAba)
+        const ws = XLSX.utils.json_to_sheet(parte)
+        const sufixo = rows.length > maxLinhasPorAba ? `_${Math.floor(i / maxLinhasPorAba) + 1}` : ''
+        XLSX.utils.book_append_sheet(wb, ws, `Relatorio${sufixo}`)
+      }
       XLSX.writeFile(wb, nomeArquivoExcel())
     } catch (err) {
       setErroRel(err instanceof Error ? err.message : 'Erro ao exportar Excel')
@@ -685,6 +769,9 @@ export default function RelatoriosPage() {
           {/* Filtros alertas */}
           <div style={S.filterRow}>
             <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--af-muted)', letterSpacing: '0.08em', textTransform: 'uppercase' as const }}>Filtrar por</span>
+            <input style={S.input} type="month" placeholder="Competencia inicial" value={compInicio} onChange={e => setCompInicio(e.target.value)} title="Competencia inicial" />
+            <span style={{ fontSize: 11, color: 'var(--af-muted)' }}>ate</span>
+            <input style={S.input} type="month" placeholder="Competencia final" value={compFim} onChange={e => setCompFim(e.target.value)} title="Competencia final" />
             <select style={S.select} value={filtroNivel} onChange={e => setFiltroNivel(e.target.value)}>
               <option value="">Todos os níveis</option>
               {NIVEIS.slice(1).map(n => <option key={n} value={n}>{LABEL_NIVEL[n] ?? n}</option>)}
@@ -699,6 +786,114 @@ export default function RelatoriosPage() {
               </span>
             )}
           </div>
+
+          <GlassCard style={{ marginBottom: 16 }} padding="0">
+            <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--af-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Receipt size={15} color="var(--af-primary)" />
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--af-text)' }}>Divergencias PGDAS x XML</div>
+                  <div style={{ fontSize: 11, color: 'var(--af-muted)', marginTop: 2 }}>Competencias com diferenca no confronto do Simples e notas candidatas para revisao.</div>
+                </div>
+              </div>
+              <button style={btnAcao('var(--af-primary)')} onClick={carregarDivergenciasSimples} disabled={loadingDivSimples}>
+                {loadingDivSimples ? 'Consultando...' : 'Consultar'}
+              </button>
+            </div>
+
+            {erroDivSimples && (
+              <div style={{ padding: 14, color: 'var(--af-danger)', fontSize: 12, fontWeight: 700 }}>
+                {erroDivSimples}
+              </div>
+            )}
+
+            {!erroDivSimples && loadingDivSimples && (
+              <div style={{ padding: 14, color: 'var(--af-muted)', fontSize: 12 }}>Carregando divergencias do Simples...</div>
+            )}
+
+            {!erroDivSimples && !loadingDivSimples && divergenciasSimples.length === 0 && (
+              <div style={{ padding: 14, color: 'var(--af-muted)', fontSize: 12 }}>Nenhuma divergencia PGDAS x XML encontrada para os filtros.</div>
+            )}
+
+            {!erroDivSimples && !loadingDivSimples && divergenciasSimples.length > 0 && (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ ...S.table, minWidth: 980 }}>
+                  <thead>
+                    <tr>
+                      <th style={S.th}>Competencia</th>
+                      <th style={{ ...S.th, textAlign: 'right' }}>PGDAS</th>
+                      <th style={{ ...S.th, textAlign: 'right' }}>XML considerado</th>
+                      <th style={{ ...S.th, textAlign: 'right' }}>Diferenca</th>
+                      <th style={{ ...S.th, textAlign: 'right' }}>Variacao</th>
+                      <th style={{ ...S.th, textAlign: 'right' }}>Docs</th>
+                      <th style={{ ...S.th, textAlign: 'right' }}>Candidatas</th>
+                      <th style={S.th}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {divergenciasSimples.map(div => {
+                      const aberta = divSimplesExpandida === div.competencia
+                      const cor = div.status === 'critico' ? 'var(--af-danger)' : 'var(--af-warning)'
+                      return (
+                        <>
+                          <tr key={div.competencia} style={{ cursor: 'pointer' }} onClick={() => setDivSimplesExpandida(aberta ? null : div.competencia)}>
+                            <td style={{ ...S.td, fontWeight: 800, color: 'var(--af-text)' }}>{competenciaLabel(div.competencia)}</td>
+                            <td style={{ ...S.td, textAlign: 'right' }}>{fmoe(div.receita_pgdas)}</td>
+                            <td style={{ ...S.td, textAlign: 'right' }}>{fmoe(div.receita_xml)}</td>
+                            <td style={{ ...S.td, textAlign: 'right', color: cor, fontWeight: 800 }}>{fmoe(div.diferenca)}</td>
+                            <td style={{ ...S.td, textAlign: 'right', color: cor, fontWeight: 700 }}>{(div.variacao * 100).toFixed(2).replace('.', ',')}%</td>
+                            <td style={{ ...S.td, textAlign: 'right' }}>{div.qtd_documentos}</td>
+                            <td style={{ ...S.td, textAlign: 'right' }}>{div.qtd_candidatos}</td>
+                            <td style={S.td}>
+                              <span style={chipNivel(div.status === 'critico' ? 'critico' : 'medio')}>{div.status === 'critico' ? 'Critico' : 'Divergencia'}</span>
+                              <span style={{ marginLeft: 8, verticalAlign: 'middle' }}>{aberta ? <ChevronUp size={13} /> : <ChevronDown size={13} />}</span>
+                            </td>
+                          </tr>
+                          {aberta && (
+                            <tr>
+                              <td colSpan={8} style={{ padding: 0, borderBottom: '1px solid var(--af-border)' }}>
+                                <div style={{ padding: 14, background: 'var(--af-surface-2)' }}>
+                                  <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--af-text)', marginBottom: 8 }}>Notas candidatas</div>
+                                  {div.candidatos.length === 0 ? (
+                                    <div style={{ fontSize: 12, color: 'var(--af-muted)' }}>Nenhuma nota candidata encontrada automaticamente.</div>
+                                  ) : (
+                                    <table style={{ ...S.table, minWidth: 900 }}>
+                                      <thead>
+                                        <tr>
+                                          <th style={S.th}>Nota</th>
+                                          <th style={S.th}>Data</th>
+                                          <th style={S.th}>Participante</th>
+                                          <th style={S.th}>CFOPs</th>
+                                          <th style={S.th}>Motivo</th>
+                                          <th style={{ ...S.th, textAlign: 'right' }}>Valor</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {div.candidatos.map(c => (
+                                          <tr key={`${div.competencia}-${c.documento_id}`}>
+                                            <td style={{ ...S.td, fontWeight: 700, color: 'var(--af-text)' }}>{c.numero}</td>
+                                            <td style={S.td}>{dataFiscal(c.data_emissao)}</td>
+                                            <td style={S.td}>{c.participante}</td>
+                                            <td style={S.td}>{c.cfops || '-'}</td>
+                                            <td style={S.td}>{c.motivo}</td>
+                                            <td style={{ ...S.td, textAlign: 'right', fontWeight: 700 }}>{fmoe(c.valor)}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </GlassCard>
 
           {!empresa && (
             <GlassCard style={{ marginBottom: 16 }}>

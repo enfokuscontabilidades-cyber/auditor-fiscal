@@ -280,10 +280,23 @@ export async function GET(request: Request) {
     ? new Set(itensReceita.map(item => item.documento_id)).size
     : docsReceita.length
 
+  // Contagem de impacto/tipo_movimento ANTES da normalização (para diagnóstico)
+  const rawDocs = documentos.filter(doc => doc.status !== 'cancelada')
+  const _diag = fonte === 'fa_documentos_fiscais' ? {
+    total_docs: rawDocs.length,
+    impacto_dist: rawDocs.reduce<Record<string, number>>((acc, d) => {
+      const k = d.impacto_receita ?? 'null'; acc[k] = (acc[k] ?? 0) + 1; return acc
+    }, {}),
+    tipo_mov_dist: rawDocs.reduce<Record<string, number>>((acc, d) => {
+      const k = d.tipo_movimento ?? 'null'; acc[k] = (acc[k] ?? 0) + 1; return acc
+    }, {}),
+  } : null
+
   return NextResponse.json({
     competencia,
     fonte,
     status: docsValidos.length > 0 ? 'ok' : 'sem_documentos',
+    _diag,
     resumo: {
       qtd_documentos: docsValidos.length,
       qtd_notas_receita: docsReceitaIds,
