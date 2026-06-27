@@ -1,4 +1,4 @@
-import type { SnParsedData, SnTributo, SnHistoricoMes, SnAtividade } from '@/lib/types'
+import type { SnParsedData, SnTributo, SnHistoricoMes, SnAtividade, SnEstabelecimento } from '@/lib/types'
 
 let workerConfigured = false
 
@@ -119,6 +119,46 @@ function extractAtividades(text: string): SnAtividade[] {
   })
 }
 
+function extractEstabelecimentos(text: string): SnEstabelecimento[] {
+  // Seção 2.7 do PGDAS-D usa "CNPJ Estabelecimento: XX.XXX.XXX/XXXX-XX" como cabeçalho
+  // de cada bloco, seguido de "Receita Bruta Informada: R$ VALOR" (ou nenhuma atividade → 0)
+  const estabelRe = /CNPJ\s+Estabelecimento:\s+(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})/g
+  const encontrados: { cnpj: string; start: number; end: number }[] = []
+  let em: RegExpExecArray | null
+  while ((em = estabelRe.exec(text)) !== null) {
+    encontrados.push({ cnpj: em[1], start: em.index, end: em.index + em[0].length })
+  }
+
+  if (encontrados.length < 2) return []
+
+  const resultado: SnEstabelecimento[] = []
+  for (let i = 0; i < encontrados.length; i++) {
+    // Bloco = texto após o cabeçalho até o início do próximo cabeçalho (ou fim do texto)
+    const blocoInicio = encontrados[i].end
+    const blocoFim = i + 1 < encontrados.length ? encontrados[i + 1].start : text.length
+    const bloco = text.slice(blocoInicio, blocoFim)
+
+    // "Receita Bruta Informada: R$ 157.406,20" — presente quando há atividade no estabelecimento
+    const receitaMatch = bloco.match(/Receita\s+Bruta\s+Informada:\s+R\$\s+([\d.]+,\d{2})/)
+    const receita = receitaMatch ? parseBRL(receitaMatch[1]) : 0
+
+    // Imposto: na seção "Totais do Estabelecimento", primeira linha com 9 valores BRL
+    // (colunas IRPJ CSLL COFINS PIS/PASEP INSS/CPP ICMS IPI ISS Total)
+    let imposto = 0
+    const totaisIdx = bloco.indexOf('Totais')
+    if (totaisIdx >= 0) {
+      for (const linha of bloco.slice(totaisIdx).split('\n')) {
+        const nums = extractBRLNumbers(linha)
+        if (nums.length >= 9) { imposto = parseBRL(nums[8]); break }
+      }
+    }
+
+    resultado.push({ cnpj: encontrados[i].cnpj, receita_bruta_mes: receita, imposto_devido: imposto })
+  }
+
+  return resultado
+}
+
 export async function parsePgdasPdf(file: File): Promise<SnParsedData | null> {
   try {
     const text = await extractTextFromPdf(file)
@@ -179,6 +219,7 @@ export async function parsePgdasPdf(file: File): Promise<SnParsedData | null> {
     const tributos = extractTributos(text)
     const historico_mensal = extractHistoricoMensal(text)
     const atividades = extractAtividades(text)
+    const estabelecimentos = extractEstabelecimentos(text)
 
     if (!cnpj || !periodo) return null
 
@@ -198,6 +239,7 @@ export async function parsePgdasPdf(file: File): Promise<SnParsedData | null> {
       total_devido,
       numero_recibo,
       ...(atividades.length >= 2 ? { atividades } : {}),
+      ...(estabelecimentos.length >= 2 ? { estabelecimentos } : {}),
     }
   } catch {
     return null

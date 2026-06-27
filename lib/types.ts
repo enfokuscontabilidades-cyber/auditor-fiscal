@@ -240,6 +240,12 @@ export interface SnAtividade {
   total: number
 }
 
+export interface SnEstabelecimento {
+  cnpj: string
+  receita_bruta_mes: number
+  imposto_devido: number
+}
+
 export interface SnParsedData {
   cnpj: string
   razao_social: string
@@ -256,6 +262,7 @@ export interface SnParsedData {
   total_devido: number
   numero_recibo: string
   atividades?: SnAtividade[]
+  estabelecimentos?: SnEstabelecimento[]
 }
 
 export interface SnDeclaracao {

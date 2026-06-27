@@ -314,9 +314,35 @@ function ChipAnexo({ anexo, atividade }: { anexo: string; atividade: string }) {
   )
 }
 
+// ─── Helpers PGDAS grupo ─────────────────────────────────────────────────────
+
+function receitaParaCnpj(
+  parsed: SnParsedData,
+  cnpjEmpresa: string,
+): { receita: number; imposto: number; ehGrupo: boolean; cnpjEncontrado: boolean } {
+  const estabs = parsed.estabelecimentos ?? []
+  if (estabs.length < 2) return { receita: parsed.receita_bruta_mes, imposto: parsed.total_devido, ehGrupo: false, cnpjEncontrado: true }
+  const cnpjNorm = cnpjEmpresa.replace(/\D/g, '')
+  const match = estabs.find(e => e.cnpj.replace(/\D/g, '') === cnpjNorm)
+  return {
+    receita: match?.receita_bruta_mes ?? parsed.receita_bruta_mes,
+    imposto: match?.imposto_devido ?? parsed.total_devido,
+    ehGrupo: true,
+    cnpjEncontrado: !!match,
+  }
+}
+
 // ─── Modal de confirmação ─────────────────────────────────────────────────────
 
-type ModalItem = { parsed: SnParsedData; fileName: string; cnpjDivergente: boolean }
+type ModalItem = {
+  parsed: SnParsedData
+  fileName: string
+  cnpjDivergente: boolean
+  ehGrupo: boolean
+  cnpjEncontrado: boolean
+  receitaEmpresa: number
+  impostoEmpresa: number
+}
 
 function ModalConfirmarImport({
   items, cnpjEmpresa, onConfirm, onCancel, saving, saveError,
@@ -358,15 +384,25 @@ function ModalConfirmarImport({
 
         <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 340, overflowY: "auto", marginBottom: 20 }}>
           {items.map((item, i) => (
-            <div key={i} style={{ ...S.card, padding: "12px 16px", borderColor: item.cnpjDivergente ? "rgba(251,191,36,0.4)" : "var(--af-border)" }}>
+            <div key={i} style={{ ...S.card, padding: "12px 16px", borderColor: item.cnpjDivergente ? "rgba(251,191,36,0.4)" : item.ehGrupo ? "rgba(39,199,216,0.4)" : "var(--af-border)" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontWeight: 700, fontSize: 13 }}>{item.parsed.periodo}</span>
                   {item.parsed.tipo_declaracao === 'Retificadora' && <ChipRetif />}
                   {item.parsed.anexo && <ChipAnexo anexo={item.parsed.anexo} atividade={item.parsed.atividade} />}
+                  {item.ehGrupo && (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "rgba(39,199,216,0.12)", border: "1px solid rgba(39,199,216,0.3)", borderRadius: 20, padding: "1px 8px", fontSize: 10, fontWeight: 600, color: "rgba(39,199,216,0.9)" }}>
+                      Grupo (Matriz+Filial)
+                    </span>
+                  )}
                   {item.cnpjDivergente && (
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "rgba(251,191,36,0.12)", border: "1px solid rgba(251,191,36,0.3)", borderRadius: 20, padding: "1px 8px", fontSize: 10, fontWeight: 600, color: "var(--af-warning)" }}>
                       <AlertTriangle size={10} /> CNPJ diferente
+                    </span>
+                  )}
+                  {item.ehGrupo && !item.cnpjEncontrado && (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 20, padding: "1px 8px", fontSize: 10, fontWeight: 600, color: "var(--af-danger)" }}>
+                      <AlertTriangle size={10} /> CNPJ não localizado
                     </span>
                   )}
                 </div>
@@ -376,9 +412,20 @@ function ModalConfirmarImport({
               {item.cnpjDivergente && cnpjEmpresa && (
                 <div style={{ fontSize: 11, color: "var(--af-warning)", marginBottom: 6 }}>Empresa em análise: {cnpjEmpresa}</div>
               )}
+              {item.ehGrupo && item.cnpjEncontrado && cnpjEmpresa && (
+                <div style={{ fontSize: 11, color: "rgba(39,199,216,0.8)", marginBottom: 6 }}>
+                  Receita deste CNPJ: <strong>{money.format(item.receitaEmpresa)}</strong>
+                  {' · '}Total do grupo: <strong>{money.format(item.parsed.receita_bruta_mes)}</strong>
+                </div>
+              )}
+              {item.ehGrupo && !item.cnpjEncontrado && (
+                <div style={{ fontSize: 11, color: "var(--af-danger)", marginBottom: 6 }}>
+                  CNPJ desta empresa não encontrado no PGDAS de grupo — verifique se importou o arquivo correto.
+                </div>
+              )}
               <div style={{ display: "flex", gap: 16, fontSize: 12 }}>
-                <span>Receita: <strong>{money.format(item.parsed.receita_bruta_mes)}</strong></span>
-                <span>Imposto: <strong style={{ color: "var(--af-danger)" }}>{money.format(item.parsed.total_devido)}</strong></span>
+                <span>Receita{item.ehGrupo ? ' (este CNPJ)' : ''}: <strong>{money.format(item.receitaEmpresa)}</strong></span>
+                <span>Imposto{item.ehGrupo ? ' (este CNPJ)' : ''}: <strong style={{ color: "var(--af-danger)" }}>{money.format(item.impostoEmpresa)}</strong></span>
               </div>
             </div>
           ))}
@@ -412,7 +459,26 @@ function getTributo(d: SnDeclaracao, nome: string): number {
   return d.parsed_data?.tributos?.find(t => t.nome.toUpperCase() === nome.toUpperCase())?.valor ?? 0
 }
 
-function LinhaDeclaracao({ d, onDelete }: { d: SnDeclaracao; onDelete: (id: string) => void }) {
+function IndeterminateCheckbox({ checked, indeterminate, onChange, onClick, style }: {
+  checked: boolean
+  indeterminate: boolean
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void
+  onClick?: (e: React.MouseEvent<HTMLInputElement>) => void
+  style?: React.CSSProperties
+}) {
+  const ref = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = indeterminate
+  }, [indeterminate])
+  return <input ref={ref} type="checkbox" checked={checked} onChange={onChange} onClick={onClick} style={style} />
+}
+
+function LinhaDeclaracao({ d, onDelete, selecionado, onToggleSelect }: {
+  d: SnDeclaracao
+  onDelete: (id: string) => void
+  selecionado: boolean
+  onToggleSelect: (id: string) => void
+}) {
   const [expandida, setExpandida] = useState(false)
   const rb     = d.receita_bruta_mes ?? 0
   const total  = d.valor_total_devido ?? 0
@@ -427,43 +493,53 @@ function LinhaDeclaracao({ d, onDelete }: { d: SnDeclaracao; onDelete: (id: stri
 
   return (
     <>
-      <tr style={{ cursor: "pointer" }} onClick={() => setExpandida(e => !e)}>
+      <tr style={{ background: selecionado ? 'rgba(39,199,216,0.06)' : undefined }}>
+        {/* Checkbox */}
+        <td style={{ ...S.td, width: 40, paddingRight: 0 }} onClick={e => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            checked={selecionado}
+            onChange={() => onToggleSelect(d.id)}
+            style={{ cursor: 'pointer', accentColor: 'var(--af-primary)', width: 15, height: 15 }}
+          />
+        </td>
+
         {/* Expand toggle */}
-        <td style={{ ...S.td, width: 36, paddingRight: 0 }}>
+        <td style={{ ...S.td, width: 36, paddingRight: 0, cursor: 'pointer' }} onClick={() => setExpandida(e => !e)}>
           <span style={{ color: "var(--af-muted)", display: "flex", alignItems: "center" }}>
             {expandida ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
           </span>
         </td>
 
         {/* Período */}
-        <td style={{ ...S.td, fontWeight: 700, color: "var(--af-text)", whiteSpace: "nowrap" as const }}>
+        <td style={{ ...S.td, fontWeight: 700, color: "var(--af-text)", whiteSpace: "nowrap" as const, cursor: 'pointer' }} onClick={() => setExpandida(e => !e)}>
           {d.competencia}
         </td>
 
         {/* Tipo */}
-        <td style={{ ...S.td }}>
+        <td style={{ ...S.td, cursor: 'pointer' }} onClick={() => setExpandida(e => !e)}>
           {tipo === 'Retificadora' ? <ChipRetif /> : (
             <span style={{ fontSize: 12, color: "var(--af-muted)" }}>Original</span>
           )}
         </td>
 
         {/* Anexo */}
-        <td style={{ ...S.td }}>
+        <td style={{ ...S.td, cursor: 'pointer' }} onClick={() => setExpandida(e => !e)}>
           <ChipAnexo anexo={anexo} atividade={atividade} />
         </td>
 
         {/* Receita Bruta */}
-        <td style={{ ...S.tdNum, fontWeight: 600, color: "var(--af-text)" }}>
+        <td style={{ ...S.tdNum, fontWeight: 600, color: "var(--af-text)", cursor: 'pointer' }} onClick={() => setExpandida(e => !e)}>
           {money.format(rb)}
         </td>
 
         {/* Total Impostos */}
-        <td style={{ ...S.tdNum, fontWeight: 600, color: "var(--af-danger)" }}>
+        <td style={{ ...S.tdNum, fontWeight: 600, color: "var(--af-danger)", cursor: 'pointer' }} onClick={() => setExpandida(e => !e)}>
           {money.format(total)}
         </td>
 
         {/* Alíquota */}
-        <td style={{ ...S.tdNum, color: "var(--af-warning)", fontWeight: 600 }}>
+        <td style={{ ...S.tdNum, color: "var(--af-warning)", fontWeight: 600, cursor: 'pointer' }} onClick={() => setExpandida(e => !e)}>
           {pct(aliq)}
         </td>
 
@@ -482,7 +558,7 @@ function LinhaDeclaracao({ d, onDelete }: { d: SnDeclaracao; onDelete: (id: stri
       {/* Linha expandida */}
       {expandida && (
         <tr>
-          <td colSpan={8} style={{ padding: "0 14px 14px 52px", borderBottom: "1px solid var(--af-border)", background: "var(--af-surface-2)" }}>
+          <td colSpan={9} style={{ padding: "0 14px 14px 92px", borderBottom: "1px solid var(--af-border)", background: "var(--af-surface-2)" }}>
             {d.parsed_data?.atividades && d.parsed_data.atividades.length >= 2 ? (
               /* Múltiplas atividades — breakdown por atividade */
               <div style={{ display: "flex", flexDirection: "column", gap: 10, paddingTop: 10 }}>
@@ -542,43 +618,187 @@ function LinhaDeclaracao({ d, onDelete }: { d: SnDeclaracao; onDelete: (id: stri
   )
 }
 
-function TabelaDeclaracoes({ declaracoes, onDelete }: { declaracoes: SnDeclaracao[]; onDelete: (id: string) => void }) {
+function TabelaDeclaracoes({ declaracoes, onDelete, onDeleteMultiple }: {
+  declaracoes: SnDeclaracao[]
+  onDelete: (id: string) => void
+  onDeleteMultiple: (ids: string[]) => void
+}) {
   const sorted = useMemo(
     () => [...declaracoes].sort((a, b) => b.competencia.localeCompare(a.competencia)),
     [declaracoes]
   )
+
+  const byYear = useMemo(() => {
+    const groups = new Map<string, SnDeclaracao[]>()
+    for (const d of sorted) {
+      const ano = d.competencia.split('/')[1] ?? '?'
+      const arr = groups.get(ano) ?? []
+      arr.push(d)
+      groups.set(ano, arr)
+    }
+    return [...groups.entries()].sort((a, b) => b[0].localeCompare(a[0]))
+  }, [sorted])
+
+  const [anosExpandidos, setAnosExpandidos] = useState<Set<string>>(new Set())
+  const inicializadoRef = useRef(false)
+  useEffect(() => {
+    if (!inicializadoRef.current && byYear.length > 0) {
+      inicializadoRef.current = true
+      setAnosExpandidos(new Set([byYear[0][0]]))
+    }
+  }, [byYear])
+
+  const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
+
+  const toggleAno = useCallback((ano: string) => {
+    setAnosExpandidos(prev => {
+      const next = new Set(prev)
+      if (next.has(ano)) next.delete(ano)
+      else next.add(ano)
+      return next
+    })
+  }, [])
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelecionados(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+
+  const toggleSelectAno = useCallback((ids: string[], todosSelecionados: boolean) => {
+    setSelecionados(prev => {
+      const next = new Set(prev)
+      if (todosSelecionados) ids.forEach(id => next.delete(id))
+      else ids.forEach(id => next.add(id))
+      return next
+    })
+  }, [])
+
+  const handleDeleteSelecionados = useCallback(() => {
+    const ids = [...selecionados]
+    if (ids.length === 0) return
+    if (!confirm(`Remover ${ids.length} declaração(ões) selecionadas? Esta ação não pode ser desfeita.`)) return
+    setSelecionados(new Set())
+    onDeleteMultiple(ids)
+  }, [selecionados, onDeleteMultiple])
 
   if (sorted.length === 0) {
     return (
       <div style={{ textAlign: "center", padding: "48px 24px", color: "var(--af-muted)", fontSize: 13 }}>
         <FileText size={32} style={{ marginBottom: 12, opacity: 0.4 }} />
         <p>Nenhuma declaração importada.</p>
-        <p style={{ fontSize: 11, marginTop: 4 }}>Clique em &quot;+ Importar PDF&quot; para começar.</p>
       </div>
     )
   }
 
   return (
-    <div style={{ overflowX: "auto" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse" }}>
-        <thead>
-          <tr>
-            <th style={{ ...S.th, width: 36, paddingRight: 0 }} />
-            <th style={S.th}>Período</th>
-            <th style={S.th}>Tipo</th>
-            <th style={S.th}>Anexo</th>
-            <th style={S.thR}>Receita Bruta</th>
-            <th style={S.thR}>Total Impostos</th>
-            <th style={S.thR}>Alíquota Efetiva</th>
-            <th style={{ ...S.th, width: 40 }} />
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map(d => (
-            <LinhaDeclaracao key={d.id} d={d} onDelete={onDelete} />
-          ))}
-        </tbody>
-      </table>
+    <div>
+      {/* Barra de ação em massa */}
+      {selecionados.size > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, marginBottom: 12 }}>
+          <span style={{ fontSize: 13, color: 'var(--af-text-soft)', flex: 1 }}>
+            {selecionados.size} declaração(ões) selecionada(s)
+          </span>
+          <button
+            onClick={() => setSelecionados(new Set())}
+            style={{ background: 'none', border: '1px solid var(--af-border)', borderRadius: 8, padding: '5px 12px', fontSize: 12, color: 'var(--af-muted)', cursor: 'pointer' }}
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={handleDeleteSelecionados}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: '5px 14px', fontSize: 12, fontWeight: 600, color: 'var(--af-danger)', cursor: 'pointer' }}
+          >
+            <Trash2 size={13} />
+            Excluir {selecionados.size} selecionado(s)
+          </button>
+        </div>
+      )}
+
+      {/* Grupos por ano */}
+      {byYear.map(([ano, decls]) => {
+        const expandido = anosExpandidos.has(ano)
+        const totalReceita = decls.reduce((s, d) => s + (d.receita_bruta_mes ?? 0), 0)
+        const totalImposto = decls.reduce((s, d) => s + (d.valor_total_devido ?? 0), 0)
+        const aliqMedia = totalReceita > 0 ? totalImposto / totalReceita : 0
+        const ids = decls.map(d => d.id)
+        const todosSel = ids.length > 0 && ids.every(id => selecionados.has(id))
+        const algunsSel = ids.some(id => selecionados.has(id))
+
+        return (
+          <div key={ano} style={{ marginBottom: 10 }}>
+            {/* Cabeçalho do ano */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 16px', background: 'var(--af-surface)', border: '1px solid var(--af-border)', borderRadius: expandido ? '12px 12px 0 0' : 12 }}>
+              <IndeterminateCheckbox
+                checked={todosSel}
+                indeterminate={algunsSel && !todosSel}
+                onChange={() => toggleSelectAno(ids, todosSel)}
+                onClick={(e: React.MouseEvent<HTMLInputElement>) => e.stopPropagation()}
+                style={{ cursor: 'pointer', accentColor: 'var(--af-primary)', width: 15, height: 15, flexShrink: 0 }}
+              />
+              <button
+                onClick={() => toggleAno(ano)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, flex: 1, padding: 0, textAlign: 'left' as const }}
+              >
+                <span style={{ color: 'var(--af-muted)', display: 'flex', alignItems: 'center' }}>
+                  {expandido ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                </span>
+                <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--af-text)' }}>{ano}</span>
+                <span style={{ fontSize: 12, color: 'var(--af-muted)' }}>{decls.length} período(s)</span>
+              </button>
+              <div style={{ display: 'flex', gap: 24, alignItems: 'center', flexShrink: 0 }}>
+                <div style={{ textAlign: 'right' as const }}>
+                  <div style={{ fontSize: 10, color: 'var(--af-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>Receita</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--af-text)', fontVariantNumeric: 'tabular-nums' }}>{money.format(totalReceita)}</div>
+                </div>
+                <div style={{ textAlign: 'right' as const }}>
+                  <div style={{ fontSize: 10, color: 'var(--af-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>Simples</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--af-danger)', fontVariantNumeric: 'tabular-nums' }}>{money.format(totalImposto)}</div>
+                </div>
+                <div style={{ textAlign: 'right' as const }}>
+                  <div style={{ fontSize: 10, color: 'var(--af-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>Alíq. Média</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--af-warning)', fontVariantNumeric: 'tabular-nums' }}>{pct(aliqMedia)}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Tabela de declarações do ano */}
+            {expandido && (
+              <div style={{ border: '1px solid var(--af-border)', borderTop: 'none', borderRadius: '0 0 12px 12px', overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr>
+                      <th style={{ ...S.th, width: 40, paddingRight: 0 }} />
+                      <th style={{ ...S.th, width: 36, paddingRight: 0 }} />
+                      <th style={S.th}>Período</th>
+                      <th style={S.th}>Tipo</th>
+                      <th style={S.th}>Anexo</th>
+                      <th style={S.thR}>Receita Bruta</th>
+                      <th style={S.thR}>Total Impostos</th>
+                      <th style={S.thR}>Alíquota Efetiva</th>
+                      <th style={{ ...S.th, width: 40 }} />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {decls.map(d => (
+                      <LinhaDeclaracao
+                        key={d.id}
+                        d={d}
+                        onDelete={onDelete}
+                        selecionado={selecionados.has(d.id)}
+                        onToggleSelect={toggleSelect}
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -621,7 +841,40 @@ function BadgeConfronto({ status }: { status: ItemConfronto['status'] }) {
   )
 }
 
-function AbaConfronto({ items, carregando }: { items: ItemConfronto[]; carregando: boolean }) {
+function AbaConfronto({ items, carregando, onExportarExcel }: {
+  items: ItemConfronto[]
+  carregando: boolean
+  onExportarExcel: () => void
+}) {
+  const byYear = useMemo(() => {
+    const groups = new Map<string, ItemConfronto[]>()
+    for (const item of items) {
+      const ano = item.comp.split('/')[1] ?? '?'
+      const arr = groups.get(ano) ?? []
+      arr.push(item)
+      groups.set(ano, arr)
+    }
+    return [...groups.entries()].sort((a, b) => b[0].localeCompare(a[0]))
+  }, [items])
+
+  const [anosExpandidos, setAnosExpandidos] = useState<Set<string>>(new Set())
+  const inicializadoRef = useRef(false)
+  useEffect(() => {
+    if (!inicializadoRef.current && byYear.length > 0) {
+      inicializadoRef.current = true
+      setAnosExpandidos(new Set([byYear[0][0]]))
+    }
+  }, [byYear])
+
+  const toggleAno = useCallback((ano: string) => {
+    setAnosExpandidos(prev => {
+      const next = new Set(prev)
+      if (next.has(ano)) next.delete(ano)
+      else next.add(ano)
+      return next
+    })
+  }, [])
+
   if (carregando) {
     return (
       <div style={{ ...S.card, padding: '48px 24px', textAlign: 'center', color: 'var(--af-muted)', fontSize: 13 }}>
@@ -647,6 +900,24 @@ function AbaConfronto({ items, carregando }: { items: ItemConfronto[]; carregand
 
   return (
     <>
+      {/* Cabeçalho com legenda e exportação */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap' as const, gap: 10 }}>
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' as const, fontSize: 11, color: 'var(--af-muted)' }}>
+          <span>OK ≤ 1%</span>
+          <span>Divergência 1%–5%</span>
+          <span>Crítico &gt; 5%</span>
+          <span>XML &gt; PGDAS = possível sub-declaração</span>
+        </div>
+        <button
+          onClick={onExportarExcel}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(39,199,216,0.08)', border: '1px solid rgba(39,199,216,0.2)', borderRadius: 8, padding: '7px 14px', fontSize: 12, fontWeight: 600, color: 'var(--af-primary)', cursor: 'pointer' }}
+        >
+          <Download size={13} />
+          Exportar Excel
+        </button>
+      </div>
+
+      {/* Alerta de divergências */}
       {(criticos > 0 || alertas > 0) && (
         <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 12, padding: '12px 16px', marginBottom: 16 }}>
           <AlertTriangle size={16} style={{ color: 'var(--af-danger)', flexShrink: 0, marginTop: 1 }} />
@@ -669,61 +940,110 @@ function AbaConfronto({ items, carregando }: { items: ItemConfronto[]; carregand
         </div>
       )}
 
-      <div style={{ ...S.card, padding: 0, overflow: 'hidden' }}>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                <th style={S.th}>Período</th>
-                <th style={S.thR}>Receita PGDAS</th>
-                <th style={S.thR}>Receita XML considerada</th>
-                <th style={{ ...S.th, textAlign: 'center' as const }}>Qtd. docs</th>
-                <th style={S.thR}>Diferença</th>
-                <th style={{ ...S.thR, paddingRight: 14 }}>Variação</th>
-                <th style={{ ...S.th, textAlign: 'center' as const }}>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map(item => {
-                const diffPositivo = item.diff >= 0
-                const corDiff = item.diff === 0 ? 'var(--af-muted)' : diffPositivo ? 'var(--af-warning)' : 'var(--af-danger)'
-                const corPct = item.diffPct === 0 ? 'var(--af-muted)' : item.diffPct <= 0.01 ? '#16a34a' : item.diffPct <= 0.05 ? 'var(--af-warning)' : 'var(--af-danger)'
-                const semDados = item.receitaPgdas === 0 && item.totalNfe === 0
-                return (
-                  <tr key={item.comp}>
-                    <td style={{ ...S.td, fontWeight: 700, color: 'var(--af-text)' }}>{item.comp}</td>
-                    <td style={S.tdNum}>
-                      {item.receitaPgdas > 0 ? money.format(item.receitaPgdas) : <span style={{ color: 'var(--af-muted)' }}>—</span>}
-                    </td>
-                    <td style={S.tdNum}>
-                      {item.totalNfe > 0 ? money.format(item.totalNfe) : <span style={{ color: 'var(--af-muted)' }}>—</span>}
-                    </td>
-                    <td style={{ ...S.td, textAlign: 'center' as const, color: 'var(--af-text-soft)' }}>
-                      {item.qtdNfe > 0 ? item.qtdNfe : <span style={{ color: 'var(--af-muted)' }}>—</span>}
-                    </td>
-                    <td style={{ ...S.tdNum, color: corDiff, fontWeight: 600 }}>
-                      {semDados ? '—' : `${diffPositivo ? '+' : ''}${money.format(item.diff)}`}
-                    </td>
-                    <td style={{ ...S.tdNum, color: corPct, fontWeight: 600 }}>
-                      {item.receitaPgdas > 0 ? pct(item.diffPct) : '—'}
-                    </td>
-                    <td style={{ ...S.td, textAlign: 'center' as const }}>
-                      <BadgeConfronto status={item.status} />
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      {/* Grupos por ano */}
+      {byYear.map(([ano, anoItems]) => {
+        const expandido = anosExpandidos.has(ano)
+        const totalPgdas = anoItems.reduce((s, i) => s + i.receitaPgdas, 0)
+        const totalXml   = anoItems.reduce((s, i) => s + i.totalNfe, 0)
+        const totalDiff  = totalXml - totalPgdas
+        const diffPctAno = totalPgdas > 0 ? totalDiff / totalPgdas : (totalXml > 0 ? 1 : 0)
+        const statusAno: ItemConfronto['status'] = anoItems.some(i => i.status === 'critico') ? 'critico'
+          : anoItems.some(i => i.status === 'alerta') ? 'alerta'
+          : anoItems.some(i => i.status === 'sem_pgdas' || i.status === 'sem_nfe') ? 'sem_pgdas'
+          : 'ok'
+        const diffPos = totalDiff >= 0
+        const corDiffAno = totalDiff === 0 ? 'var(--af-muted)' : diffPos ? 'var(--af-warning)' : 'var(--af-danger)'
 
-      <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' as const, marginTop: 12, fontSize: 11, color: 'var(--af-muted)' }}>
-        <span>OK = diferença ≤ 1%</span>
-        <span>Divergência = 1% a 5%</span>
-        <span>Crítico = &gt; 5%</span>
-        <span>XML positivo = XML &gt; PGDAS (possível sub-declaração)</span>
-      </div>
+        return (
+          <div key={ano} style={{ marginBottom: 10 }}>
+            {/* Cabeçalho do ano */}
+            <div
+              onClick={() => toggleAno(ano)}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', background: 'var(--af-surface)', border: '1px solid var(--af-border)', borderRadius: expandido ? '12px 12px 0 0' : 12, cursor: 'pointer' }}
+            >
+              <span style={{ color: 'var(--af-muted)', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+                {expandido ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+              </span>
+              <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--af-text)', flex: 1 }}>{ano}</span>
+              <div style={{ display: 'flex', gap: 20, alignItems: 'center', flexShrink: 0, flexWrap: 'wrap' as const }}>
+                <div style={{ textAlign: 'right' as const }}>
+                  <div style={{ fontSize: 10, color: 'var(--af-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>Receita PGDAS</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--af-text)', fontVariantNumeric: 'tabular-nums' }}>{totalPgdas > 0 ? money.format(totalPgdas) : '—'}</div>
+                </div>
+                <div style={{ textAlign: 'right' as const }}>
+                  <div style={{ fontSize: 10, color: 'var(--af-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>Receita XML</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--af-text)', fontVariantNumeric: 'tabular-nums' }}>{totalXml > 0 ? money.format(totalXml) : '—'}</div>
+                </div>
+                <div style={{ textAlign: 'right' as const }}>
+                  <div style={{ fontSize: 10, color: 'var(--af-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>Diferença</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: corDiffAno, fontVariantNumeric: 'tabular-nums' }}>
+                    {totalPgdas === 0 && totalXml === 0 ? '—' : `${diffPos ? '+' : ''}${money.format(totalDiff)}`}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' as const }}>
+                  <div style={{ fontSize: 10, color: 'var(--af-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>Variação</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: Math.abs(diffPctAno) <= 0.01 ? '#16a34a' : Math.abs(diffPctAno) <= 0.05 ? 'var(--af-warning)' : 'var(--af-danger)' }}>
+                    {totalPgdas > 0 ? pct(Math.abs(diffPctAno)) : '—'}
+                  </div>
+                </div>
+                <BadgeConfronto status={statusAno} />
+              </div>
+            </div>
+
+            {/* Tabela de meses do ano */}
+            {expandido && (
+              <div style={{ border: '1px solid var(--af-border)', borderTop: 'none', borderRadius: '0 0 12px 12px', overflow: 'hidden' }}>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr>
+                        <th style={S.th}>Período</th>
+                        <th style={S.thR}>Receita PGDAS</th>
+                        <th style={S.thR}>Receita XML considerada</th>
+                        <th style={{ ...S.th, textAlign: 'center' as const }}>Qtd. docs</th>
+                        <th style={S.thR}>Diferença</th>
+                        <th style={{ ...S.thR, paddingRight: 14 }}>Variação</th>
+                        <th style={{ ...S.th, textAlign: 'center' as const }}>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {anoItems.map(item => {
+                        const diffPositivo = item.diff >= 0
+                        const corDiff = item.diff === 0 ? 'var(--af-muted)' : diffPositivo ? 'var(--af-warning)' : 'var(--af-danger)'
+                        const corPct = item.diffPct === 0 ? 'var(--af-muted)' : item.diffPct <= 0.01 ? '#16a34a' : item.diffPct <= 0.05 ? 'var(--af-warning)' : 'var(--af-danger)'
+                        const semDados = item.receitaPgdas === 0 && item.totalNfe === 0
+                        return (
+                          <tr key={item.comp}>
+                            <td style={{ ...S.td, fontWeight: 700, color: 'var(--af-text)' }}>{item.comp}</td>
+                            <td style={S.tdNum}>
+                              {item.receitaPgdas > 0 ? money.format(item.receitaPgdas) : <span style={{ color: 'var(--af-muted)' }}>—</span>}
+                            </td>
+                            <td style={S.tdNum}>
+                              {item.totalNfe > 0 ? money.format(item.totalNfe) : <span style={{ color: 'var(--af-muted)' }}>—</span>}
+                            </td>
+                            <td style={{ ...S.td, textAlign: 'center' as const, color: 'var(--af-text-soft)' }}>
+                              {item.qtdNfe > 0 ? item.qtdNfe : <span style={{ color: 'var(--af-muted)' }}>—</span>}
+                            </td>
+                            <td style={{ ...S.tdNum, color: corDiff, fontWeight: 600 }}>
+                              {semDados ? '—' : `${diffPositivo ? '+' : ''}${money.format(item.diff)}`}
+                            </td>
+                            <td style={{ ...S.tdNum, color: corPct, fontWeight: 600 }}>
+                              {item.receitaPgdas > 0 ? pct(item.diffPct) : '—'}
+                            </td>
+                            <td style={{ ...S.td, textAlign: 'center' as const }}>
+                              <BadgeConfronto status={item.status} />
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })}
     </>
   )
 }
@@ -2196,7 +2516,8 @@ export default function SimplesNacionalPage() {
         const cnpjArquivo = normalizaCnpj(parsed.cnpj)
         const cnpjDivergente = cnpjEmpresa.length >= 8 && cnpjArquivo.length >= 8
           && cnpjArquivo.slice(0, 8) !== cnpjEmpresa.slice(0, 8)
-        results.push({ parsed, fileName: file.name, cnpjDivergente })
+        const { receita, imposto, ehGrupo, cnpjEncontrado } = receitaParaCnpj(parsed, empresaAtiva.cnpj ?? '')
+        results.push({ parsed, fileName: file.name, cnpjDivergente, ehGrupo, cnpjEncontrado, receitaEmpresa: receita, impostoEmpresa: imposto })
       }
     }
 
@@ -2218,7 +2539,7 @@ export default function SimplesNacionalPage() {
     let algumErro: string | null = null
     let salvos = 0
 
-    for (const { parsed, fileName } of modalItems) {
+    for (const { parsed, fileName, receitaEmpresa, impostoEmpresa } of modalItems) {
       try {
         const res = await fetch('/api/simples_nacional', {
           method: 'POST',
@@ -2226,10 +2547,10 @@ export default function SimplesNacionalPage() {
           body: JSON.stringify({
             empresa_id:                  empresaAtiva.id,
             competencia:                 parsed.periodo,
-            receita_bruta_mes:           parsed.receita_bruta_mes,
+            receita_bruta_mes:           receitaEmpresa,
             receita_bruta_acumulada_12m: parsed.receita_bruta_acumulada_12m,
             receita_bruta_ano:           parsed.receita_bruta_ano,
-            valor_total_devido:          parsed.total_devido,
+            valor_total_devido:          impostoEmpresa,
             numero_recibo:               parsed.numero_recibo,
             nome_arquivo:                fileName,
             parsed_data:                 parsed,
@@ -2258,6 +2579,11 @@ export default function SimplesNacionalPage() {
     if (!confirm("Remover esta declaração?")) return
     const res = await fetch(`/api/simples_nacional?id=${id}`, { method: 'DELETE' })
     if (res.ok) setDeclaracoes(prev => prev.filter(d => d.id !== id))
+  }, [])
+
+  const handleDeleteMultiple = useCallback(async (ids: string[]) => {
+    await Promise.all(ids.map(id => fetch(`/api/simples_nacional?id=${id}`, { method: 'DELETE' })))
+    setDeclaracoes(prev => prev.filter(d => !ids.includes(d.id)))
   }, [])
 
   const handleLimparTudo = useCallback(async () => {
@@ -2321,6 +2647,39 @@ export default function SimplesNacionalPage() {
     const nome = `simples_nacional_${(empresaAtiva?.razao_social ?? 'empresa').replace(/[^a-zA-Z0-9]/g, '_').slice(0, 30)}_${new Date().toISOString().slice(0, 10)}.xlsx`
     XLSX.writeFile(wb, nome)
   }, [declaracoes, empresaAtiva])
+
+  const handleExportarConfrontoExcel = useCallback(() => {
+    if (!empresaAtiva || confrontoData.length === 0) return
+
+    const sortedConfronto = [...confrontoData].sort((a, b) => a.comp.localeCompare(b.comp))
+    const statusLabels: Record<ItemConfronto['status'], string> = {
+      ok: 'OK', alerta: 'Divergência', critico: 'Crítico', sem_pgdas: 'Sem PGDAS', sem_nfe: 'Sem NF-e',
+    }
+
+    const headers = ['Competência', 'Receita PGDAS', 'Receita XML', 'Diferença', 'Variação (%)', 'Status', 'Valor Simples Nacional', 'Percentual do Simples (%)']
+    const rows = sortedConfronto.map(item => {
+      const decl = declaracoes.find(d => d.competencia === item.comp)
+      const valorSimples = decl?.valor_total_devido ?? 0
+      const pctSimples = item.receitaPgdas > 0 ? valorSimples / item.receitaPgdas * 100 : 0
+      return [
+        item.comp,
+        item.receitaPgdas,
+        item.totalNfe,
+        item.diff,
+        item.receitaPgdas > 0 ? Number((item.diffPct * 100).toFixed(2)) : 0,
+        statusLabels[item.status],
+        valorSimples,
+        Number(pctSimples.toFixed(2)),
+      ]
+    })
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows])
+    ws['!cols'] = [{wch:12},{wch:16},{wch:16},{wch:14},{wch:12},{wch:14},{wch:22},{wch:22}]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Confronto')
+    const nomeArq = `confronto_simples_${(empresaAtiva.razao_social ?? 'empresa').replace(/[^a-zA-Z0-9]/g, '_').slice(0, 30)}_${new Date().toISOString().slice(0, 10)}.xlsx`
+    XLSX.writeFile(wb, nomeArq)
+  }, [confrontoData, declaracoes, empresaAtiva])
 
   const semEmpresa = !empresaAtiva
 
@@ -2465,6 +2824,27 @@ export default function SimplesNacionalPage() {
               </div>
             )}
 
+            {/* Dropzone compacto quando já há declarações */}
+            {!semEmpresa && declaracoes.length > 0 && (
+              <div
+                onDrop={handleDrop}
+                onDragOver={e => e.preventDefault()}
+                onClick={() => fileInputRef.current?.click()}
+                style={{ display: 'flex', alignItems: 'center', gap: 12, border: '1.5px dashed var(--af-border)', borderRadius: 10, padding: '10px 16px', cursor: 'pointer', marginBottom: 14, background: 'rgba(39,199,216,0.02)' }}
+              >
+                <Upload size={16} style={{ color: 'var(--af-primary)', flexShrink: 0 }} />
+                <span style={{ fontSize: 13, color: 'var(--af-muted)' }}>
+                  Solte novos PDFs PGDAS-D aqui ou{' '}
+                  <span style={{ color: 'var(--af-primary)', fontWeight: 600 }}>clique para importar</span>
+                </span>
+                {processando.length > 0 && (
+                  <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--af-primary)' }}>
+                    Processando {processando.length} arquivo(s)…
+                  </span>
+                )}
+              </div>
+            )}
+
             {/* Loading */}
             {carregando && declaracoes.length === 0 && (
               <div style={{ ...S.card, padding: "48px 24px", textAlign: "center", color: "var(--af-muted)", fontSize: 13 }}>
@@ -2472,30 +2852,32 @@ export default function SimplesNacionalPage() {
               </div>
             )}
 
-            {/* Tabela */}
+            {/* Tabela agrupada por ano */}
             {!semEmpresa && (declaracoes.length > 0 || carregando) && (
-              <div style={{ ...S.card, padding: 0, overflow: "hidden" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", borderBottom: "1px solid var(--af-border)" }}>
-                  <span style={{ fontWeight: 700, fontSize: 14 }}>Declarações PGDAS-D</span>
-                  <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" as const }}>
-                    {carregando && <span style={{ fontSize: 12, color: "var(--af-muted)" }}>Atualizando…</span>}
-                    <span style={{ fontSize: 12, color: "var(--af-muted)" }}>{declaracoes.length} período(s)</span>
-                    <span style={{ fontSize: 11, color: "var(--af-muted)", display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ background: "rgba(251,191,36,0.12)", border: "1px solid rgba(251,191,36,0.35)", borderRadius: 20, padding: "1px 8px", fontSize: 10, fontWeight: 700, color: "var(--af-warning)" }}>Retificadora</span>
-                      = declaração corrigida
-                    </span>
-                    <button
-                      onClick={handleExportarExcel}
-                      title="Exportar para Excel"
-                      style={{ ...S.btn, padding: "6px 12px", background: "rgba(39,199,216,0.08)", border: "1px solid rgba(39,199,216,0.2)", color: "var(--af-primary)", fontSize: 12 }}
-                    >
-                      <Download size={14} />
-                      Exportar Excel
-                    </button>
+              <>
+                <div style={{ ...S.card, padding: '14px 20px', marginBottom: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span style={{ fontWeight: 700, fontSize: 14 }}>Declarações PGDAS-D</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" as const }}>
+                      {carregando && <span style={{ fontSize: 12, color: "var(--af-muted)" }}>Atualizando…</span>}
+                      <span style={{ fontSize: 12, color: "var(--af-muted)" }}>{declaracoes.length} período(s)</span>
+                      <span style={{ fontSize: 11, color: "var(--af-muted)", display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ background: "rgba(251,191,36,0.12)", border: "1px solid rgba(251,191,36,0.35)", borderRadius: 20, padding: "1px 8px", fontSize: 10, fontWeight: 700, color: "var(--af-warning)" }}>Retificadora</span>
+                        = declaração corrigida
+                      </span>
+                      <button
+                        onClick={handleExportarExcel}
+                        title="Exportar para Excel"
+                        style={{ ...S.btn, padding: "6px 12px", background: "rgba(39,199,216,0.08)", border: "1px solid rgba(39,199,216,0.2)", color: "var(--af-primary)", fontSize: 12 }}
+                      >
+                        <Download size={14} />
+                        Exportar Excel
+                      </button>
+                    </div>
                   </div>
                 </div>
-                <TabelaDeclaracoes declaracoes={declaracoes} onDelete={handleDelete} />
-              </div>
+                <TabelaDeclaracoes declaracoes={declaracoes} onDelete={handleDelete} onDeleteMultiple={handleDeleteMultiple} />
+              </>
             )}
           </>
         )}
@@ -2524,7 +2906,7 @@ export default function SimplesNacionalPage() {
 
         {/* Aba: Confronto PGDAS × Apuração XML */}
         {abaAtiva === 'confronto_apuracao' && !semEmpresa && (
-          <AbaConfronto items={confrontoData} carregando={carregandoNfe} />
+          <AbaConfronto items={confrontoData} carregando={carregandoNfe} onExportarExcel={handleExportarConfrontoExcel} />
         )}
 
         {/* Aba: Configurações (stub) */}
