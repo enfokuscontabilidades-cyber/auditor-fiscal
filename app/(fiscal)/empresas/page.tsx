@@ -230,6 +230,7 @@ export default function EmpresasPage() {
           razao_social: form.razao_social,
           cnpj: form.cnpj,
           cnae_principal: form.cnae_principal,
+          inscricao_estadual: form.inscricao_estadual,
         })
       }
     } else {
@@ -480,7 +481,7 @@ export default function EmpresasPage() {
                     color: isAtiva ? 'var(--af-warning)' : 'rgba(250,204,21,0.6)',
                     cursor: 'pointer',
                   }}
-                  onClick={() => definirEmpresaAtiva({ id: emp.id, razao_social: emp.razao_social, cnpj: emp.cnpj, cnae_principal: emp.cnae_principal })}
+                  onClick={() => definirEmpresaAtiva({ id: emp.id, razao_social: emp.razao_social, cnpj: emp.cnpj, cnae_principal: emp.cnae_principal, inscricao_estadual: emp.inscricao_estadual })}
                   title={isAtiva ? 'Empresa em análise' : 'Definir como empresa em análise'}
                 >
                   <Star size={13} fill={isAtiva ? 'currentColor' : 'none'} />

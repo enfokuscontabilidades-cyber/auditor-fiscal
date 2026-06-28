@@ -138,9 +138,14 @@ function extractEstabelecimentos(text: string): SnEstabelecimento[] {
     const blocoFim = i + 1 < encontrados.length ? encontrados[i + 1].start : text.length
     const bloco = text.slice(blocoInicio, blocoFim)
 
-    // "Receita Bruta Informada: R$ 157.406,20" — presente quando há atividade no estabelecimento
-    const receitaMatch = bloco.match(/Receita\s+Bruta\s+Informada:\s+R\$\s+([\d.]+,\d{2})/)
-    const receita = receitaMatch ? parseBRL(receitaMatch[1]) : 0
+    // O total do CNPJ fica em "Valor Informado"; quando não houver, somamos as atividades.
+    const valorInformadoMatch = bloco.match(/Valor\s+Informado:\s*([\d.]+,\d{2})/)
+    const receitasAtividades = Array.from(
+      bloco.matchAll(/Receita\s+Bruta\s+Informada:\s+R\$\s+([\d.]+,\d{2})/g),
+    ).map(match => parseBRL(match[1]))
+    const receita = valorInformadoMatch
+      ? parseBRL(valorInformadoMatch[1])
+      : receitasAtividades.reduce((sum, valor) => sum + valor, 0)
 
     // Imposto: na seção "Totais do Estabelecimento", primeira linha com 9 valores BRL
     // (colunas IRPJ CSLL COFINS PIS/PASEP INSS/CPP ICMS IPI ISS Total)

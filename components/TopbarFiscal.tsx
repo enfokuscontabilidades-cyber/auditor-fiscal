@@ -1,26 +1,18 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { usePathname, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresaAtiva } from '@/lib/hooks/useEmpresaAtiva'
 import { useTheme } from '@/components/ThemeProvider'
 import { Bell, Building2, ChevronDown, LogOut, Moon, Search, Settings, Star, Sun } from 'lucide-react'
 
-type EmpresaItem = { id: string; razao_social: string; cnpj: string | null; cnae_principal?: string | null }
+type EmpresaItem = { id: string; razao_social: string; cnpj: string | null; cnae_principal?: string | null; inscricao_estadual?: string | null }
 
-const PAGE_TITLES: Record<string, string> = {
-  '/': 'Dashboard',
-  '/empresas': 'Empresas',
-  '/auditor_fiscal': 'Auditor SPED',
-  '/validador_entradas': 'Validador NF-e',
-  '/inconsistencias': 'Relatórios',
-  '/simples_nacional': 'Simples Nacional',
-  '/editor_sped': 'Editor SPED',
-  '/planejamento': 'Planejamento',
-  '/obrigacoes': 'Obrigações',
-  '/configuracoes': 'Configurações',
-  '/cobrancas': 'Cobranças',
+function formatarCnpj(cnpj?: string | null) {
+  const limpo = (cnpj ?? '').replace(/\D/g, '')
+  if (limpo.length !== 14) return cnpj ?? ''
+  return `${limpo.slice(0, 2)}.${limpo.slice(2, 5)}.${limpo.slice(5, 8)}/${limpo.slice(8, 12)}-${limpo.slice(12)}`
 }
 
 const iconBtn: React.CSSProperties = {
@@ -39,7 +31,6 @@ const iconBtn: React.CSSProperties = {
 }
 
 export default function TopbarFiscal() {
-  const pathname = usePathname()
   const router = useRouter()
   const supabase = createClient()
   const { empresaAtiva, definirEmpresaAtiva } = useEmpresaAtiva()
@@ -54,7 +45,6 @@ export default function TopbarFiscal() {
   const dropdownRef = useRef<HTMLDivElement>(null)
   const userMenuRef = useRef<HTMLDivElement>(null)
 
-  const pageTitle = PAGE_TITLES[pathname] ?? 'Sistema'
 
   useEffect(() => {
     fetch('/api/empresas')
@@ -105,6 +95,16 @@ export default function TopbarFiscal() {
     }).slice(0, 12)
   }, [busca, empresas])
 
+  const empresaTopo = useMemo(() => {
+    if (!empresaAtiva) return null
+    const detalhada = empresas.find(emp => emp.id === empresaAtiva.id)
+    return {
+      ...empresaAtiva,
+      cnpj: empresaAtiva.cnpj ?? detalhada?.cnpj ?? undefined,
+      inscricao_estadual: empresaAtiva.inscricao_estadual ?? detalhada?.inscricao_estadual ?? undefined,
+    }
+  }, [empresaAtiva, empresas])
+
   async function handleLogout() {
     sessionStorage.removeItem('session_active')
     localStorage.removeItem('stay_logged_in')
@@ -128,6 +128,7 @@ export default function TopbarFiscal() {
       razao_social: emp.razao_social,
       cnpj: emp.cnpj ?? undefined,
       cnae_principal: emp.cnae_principal ?? undefined,
+      inscricao_estadual: emp.inscricao_estadual ?? undefined,
     })
     setMenuAberto(false)
     setBusca('')
@@ -147,21 +148,24 @@ export default function TopbarFiscal() {
       boxSizing: 'border-box',
     }}>
 
-      {/* Área esquerda — título da página */}
-      <div style={{ flex: '0 0 auto', maxWidth: 260, minWidth: 0 }}>
+      {/* Dados da empresa ativa */}
+      <div style={{ flex: '0 0 auto', maxWidth: 360, minWidth: 0 }}>
         <div style={{
-          fontSize: 17,
-          fontWeight: 800,
-          color: 'var(--af-text)',
-          letterSpacing: '-0.02em',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          fontSize: 12,
+          fontWeight: 700,
+          color: empresaTopo?.cnpj ? 'var(--af-text)' : 'var(--af-muted)',
           whiteSpace: 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           lineHeight: 1.2,
         }}>
-          {pageTitle}
+          <Building2 size={15} style={{ color: 'var(--af-primary)', flexShrink: 0 }} />
+          {empresaTopo?.cnpj ? `CNPJ ${formatarCnpj(empresaTopo.cnpj)}` : 'Nenhuma empresa em analise'}
         </div>
-        {empresaAtiva?.cnpj && (
+        {empresaTopo?.inscricao_estadual && (
           <div style={{
             fontSize: 11,
             color: 'var(--af-muted)',
@@ -170,8 +174,9 @@ export default function TopbarFiscal() {
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             lineHeight: 1.2,
+            paddingLeft: 23,
           }}>
-            {empresaAtiva.cnpj}
+            IE {empresaTopo.inscricao_estadual}
           </div>
         )}
       </div>
@@ -320,7 +325,7 @@ export default function TopbarFiscal() {
                     </strong>
                     {emp.cnpj && (
                       <small style={{ display: 'block', fontSize: 11, color: 'var(--af-muted)', marginTop: 1 }}>
-                        {emp.cnpj}
+                        {formatarCnpj(emp.cnpj)}{emp.inscricao_estadual ? ` - IE ${emp.inscricao_estadual}` : ''}
                       </small>
                     )}
                   </span>

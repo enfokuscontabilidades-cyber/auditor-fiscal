@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   Upload, AlertTriangle, CheckCircle2, Search, Download,
   Filter, Trash2, FileText, FileX, ChevronDown, ChevronRight,
-  Tag, ArrowUpRight, ArrowDownLeft, Info,
+  Tag, ArrowUpRight, ArrowDownLeft, Info, Settings, Plus, X,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import ModalSessao, { type DadosSessao, type DadosSessaoLote } from "@/components/ModalSessao";
@@ -120,6 +120,10 @@ type XmlPendente = {
   tipoOperacao: string;
   valorTotal: number;
 };
+
+type TipoImportacaoXml = "terceiro" | "proprio" | "ambas";
+type CfopVinculo = { cfopSaida: string; cfopEntrada: string };
+type LimpezaTipo = "xml_entrada" | "xml_saida" | "sped_fiscal" | "sped_contrib";
 
 // ══════════════════════════════════════════════════════════════════════════════
 // TABELA CBenef — Goiás (IN 1518/2022-GSE)
@@ -242,6 +246,28 @@ function competenciaDaDataIso(data: string | null | undefined) {
   const [ano, mes] = data.split("-");
   if (!ano || !mes) return undefined;
   return `${mes}/${ano}`;
+}
+function competenciaParaMonth(competencia: string | null | undefined) {
+  const [mes, ano] = (competencia ?? "").split("/");
+  return mes && ano ? `${ano}-${mes.padStart(2, "0")}` : "";
+}
+function monthParaCompetencia(month: string) {
+  const [ano, mes] = month.split("-");
+  return mes && ano ? `${mes}/${ano}` : "";
+}
+function competenciasEntreMeses(inicio: string, fim: string) {
+  if (!inicio || !fim) return [];
+  const [anoIni, mesIni] = inicio.split("-").map(Number);
+  const [anoFim, mesFim] = fim.split("-").map(Number);
+  if (!anoIni || !mesIni || !anoFim || !mesFim) return [];
+  const atual = new Date(anoIni, mesIni - 1, 1);
+  const limite = new Date(anoFim, mesFim - 1, 1);
+  const comps: string[] = [];
+  while (atual <= limite) {
+    comps.push(`${String(atual.getMonth() + 1).padStart(2, "0")}/${atual.getFullYear()}`);
+    atual.setMonth(atual.getMonth() + 1);
+  }
+  return comps;
 }
 function fcnpj(v: string) {
   const l=ntx(v).replace(/\D/g,"");
@@ -1647,7 +1673,21 @@ function exportExcel(notas: NotaEntrada[], saidas: LinhaSaida[], emp: DadosEmpre
 // COMPONENTE
 // ══════════════════════════════════════════════════════════════════════════════
 
-type EmpresaSelecionada = { id: string; razao_social: string; cnpj: string; cnae_principal?: string };
+type EmpresaSelecionada = { id: string; razao_social: string; cnpj: string; cnae_principal?: string; inscricao_estadual?: string };
+type DocumentoFiscalDb = {
+  id: string; numero?: string; emitente_nome?: string; emitente_cnpj?: string;
+  destinatario_nome?: string; destinatario_cnpj?: string; data_emissao?: string;
+  tipo_movimento?: string;
+  fa_documentos_itens?: Array<{
+    id: string; codigo_produto?: string; descricao?: string; ncm?: string; cfop?: string;
+    quantidade: number; valor_unitario: number; valor_total: number;
+    valor_desconto: number; valor_frete: number; valor_ipi: number;
+    cst_icms?: string; csosn?: string; valor_bc_icms: number; aliquota_icms: number; valor_icms: number;
+    valor_bc_st: number; valor_st: number;
+    cst_pis?: string; valor_bc_pis: number; aliquota_pis: number; valor_pis: number;
+    cst_cofins?: string; valor_bc_cofins: number; aliquota_cofins: number; valor_cofins: number;
+  }>;
+};
 
 export default function ValidadorPage() {
   const [linhas,setLinhas]=useState<LinhaEntrada[]>([]);
@@ -1658,7 +1698,7 @@ export default function ValidadorPage() {
   const [expandidasS,setExpandidasS]=useState<Set<string>>(new Set());
   const [expandidasI,setExpandidasI]=useState<Set<string>>(new Set());
   const [filtros,setFiltros]=useState<Filtros>({somenteAlertas:false,cfop:"",ncm:"",busca:"",classificacao:""});
-  const [modulo,setModulo]=useState<"entradas"|"saidas"|"cfop">("entradas");
+  const [modulo,setModulo]=useState<"entradas"|"saidas"|"cfop"|"configuracoes">("entradas");
   const [abaE,setAbaE]=useState<"notas"|"itens">("notas");
   const [buscaS,setBuscaS]=useState("");
   const [soAlerS,setSoAlerS]=useState(false);
@@ -1692,6 +1732,25 @@ export default function ValidadorPage() {
   type CfopMapeamentoItem = { nota: string; fornecedor: string; cfopForn: string; cfopSel: string; opcoes: { cfop: string; tipo: string; descricao: string }[]; produtos: string[] };
   const [modalCfopAberto,setModalCfopAberto]=useState(false);
   const [cfopMapeamento,setCfopMapeamento]=useState<CfopMapeamentoItem[]>([]);
+  const [tipoImportacao,setTipoImportacao]=useState<TipoImportacaoXml>("ambas");
+  const [modalImportAberto,setModalImportAberto]=useState(false);
+  const [arquivosImportacao,setArquivosImportacao]=useState<File[]>([]);
+  const [arrastandoImport,setArrastandoImport]=useState(false);
+  const [importandoXml,setImportandoXml]=useState(false);
+  const [cfopVinculos,setCfopVinculos]=useState<CfopVinculo[]>([]);
+  const [cfopSaidaNovo,setCfopSaidaNovo]=useState("");
+  const [cfopEntradaNovo,setCfopEntradaNovo]=useState("");
+  const [periodoInicio,setPeriodoInicio]=useState("");
+  const [periodoFim,setPeriodoFim]=useState("");
+  const [carregandoPeriodo,setCarregandoPeriodo]=useState(false);
+  const [limpezaInicio,setLimpezaInicio]=useState("");
+  const [limpezaFim,setLimpezaFim]=useState("");
+  const [limpezaTipos,setLimpezaTipos]=useState<Record<LimpezaTipo, boolean>>({
+    xml_entrada: true,
+    xml_saida: true,
+    sped_fiscal: false,
+    sped_contrib: false,
+  });
   const pendingNe=useRef<LinhaEntrada[]>([]);
   const pendingNs=useRef<LinhaSaida[]>([]);
   const pendingQtdCanc=useRef(0);
@@ -1700,6 +1759,7 @@ export default function ValidadorPage() {
   const D=tema==="escuro";
   const refXmlTerceiros=useRef<HTMLInputElement|null>(null);
   const refXmlProprio=useRef<HTMLInputElement|null>(null);
+  const refXmlUnificado=useRef<HTMLInputElement|null>(null);
 
   useEffect(()=>{
     const salvo = (window.localStorage.getItem("af-theme") as "escuro"|"claro"|null) || "claro";
@@ -1739,6 +1799,92 @@ export default function ValidadorPage() {
       .finally(()=>setCarregandoSessoes(false));
   },[empresa]);
 
+  useEffect(()=>{
+    queueMicrotask(()=>{
+      if(!empresa) { setCfopVinculos([]); setLimpezaInicio(""); setLimpezaFim(""); return; }
+      const raw = window.localStorage.getItem(`validador-cfop-vinculos-${empresa.id}`);
+      if(!raw) { setCfopVinculos([]); return; }
+      try {
+        const parsed = JSON.parse(raw) as CfopVinculo[];
+        setCfopVinculos(Array.isArray(parsed) ? parsed.filter(v=>v.cfopSaida&&v.cfopEntrada) : []);
+      } catch {
+        setCfopVinculos([]);
+      }
+    });
+  },[empresa]);
+
+  useEffect(()=>{
+    if(!empresa) return;
+    window.localStorage.setItem(`validador-cfop-vinculos-${empresa.id}`, JSON.stringify(cfopVinculos));
+  },[empresa,cfopVinculos]);
+
+  function mapearDocumentosDb(docsDb: DocumentoFiscalDb[]) {
+    const mappedEntradas: LinhaEntrada[] = [];
+    const mappedSaidas: LinhaSaida[] = [];
+
+    for(const doc of docsDb){
+      const itens = doc.fa_documentos_itens ?? [];
+      for(const item of itens){
+        const cfopStr = item.cfop ?? "";
+        const isSaida = doc.tipo_movimento === "saida" || cfopStr.startsWith("5") || cfopStr.startsWith("6");
+        if(isSaida){
+          mappedSaidas.push({
+            id: item.id,
+            numero_nota: doc.numero ?? "-",
+            destinatario: doc.destinatario_nome ?? doc.destinatario_cnpj ?? "-",
+            data: doc.data_emissao ?? "",
+            codigo_produto: item.codigo_produto ?? "",
+            descricao: item.descricao ?? "",
+            ncm: item.ncm ?? "",
+            cfop: cfopStr,
+            cst_icms: item.cst_icms ?? item.csosn ?? "",
+            cst_pis: item.cst_pis ?? "",
+            cst_cofins: item.cst_cofins ?? "",
+            valor_contabil: item.valor_total,
+            valor_produto: item.valor_total,
+            valor_desconto: item.valor_desconto ?? 0,
+            valor_frete: item.valor_frete ?? 0,
+            valor_despesas: 0,
+            valor_ipi_item: item.valor_ipi ?? 0,
+            base_icms: item.valor_bc_icms, aliquota_icms: item.aliquota_icms, valor_icms: item.valor_icms,
+            base_st: item.valor_bc_st, valor_st: item.valor_st, valor_ipi: item.valor_ipi ?? 0,
+            base_pis: item.valor_bc_pis, aliquota_pis: item.aliquota_pis, valor_pis: item.valor_pis,
+            base_cofins: item.valor_bc_cofins, aliquota_cofins: item.aliquota_cofins, valor_cofins: item.valor_cofins,
+            valor_ibs: 0, valor_cbs: 0,
+            cbenef: "", cbenef_descricao: "",
+            alertas_saida: [], status: "OK",
+          });
+        } else {
+          mappedEntradas.push({
+            id: item.id,
+            numero_nota: doc.numero ?? "-",
+            fornecedor: doc.emitente_nome ?? doc.emitente_cnpj ?? "-",
+            data: doc.data_emissao ?? "",
+            codigo_produto: item.codigo_produto ?? "",
+            cst_icms: item.cst_icms ?? item.csosn ?? "",
+            ncm: item.ncm ?? "",
+            descricao: item.descricao ?? "",
+            cfop: cfopStr,
+            valor_contabil: item.valor_total,
+            base_icms: item.valor_bc_icms, aliquota_icms: item.aliquota_icms, valor_icms: item.valor_icms,
+            valor_produto: item.valor_total,
+            valor_desconto: item.valor_desconto ?? 0,
+            valor_frete: item.valor_frete ?? 0,
+            valor_despesas: 0,
+            valor_ipi_item: item.valor_ipi ?? 0,
+            status: "OK", avisos: [],
+            sugestao: { tipo: null, motivo: "", confianca: null },
+            classificacao: null,
+            fonte: "xml",
+            tipo_nfe: "terceiro",
+          });
+        }
+      }
+    }
+
+    return { mappedEntradas, mappedSaidas };
+  }
+
   async function carregarSessaoAnterior(sessao: SessaoSalva) {
     setSessaoExpandida(false);
     try {
@@ -1763,6 +1909,9 @@ export default function ValidadorPage() {
       // Sempre restaura sessão e competência, mesmo sem itens
       setCompetenciaXml(sessao.competencia);
       setSessaoAtual({ sessaoId: sessao.id, empresaId: empresa!.id, empresaNome: empresa!.razao_social, competencia: sessao.competencia });
+      const mesSessao = competenciaParaMonth(sessao.competencia);
+      setPeriodoInicio(mesSessao);
+      setPeriodoFim(mesSessao);
       setErro("");
 
       if(novasLinhas.length > 0 || novasSaidas.length > 0){
@@ -1875,7 +2024,39 @@ export default function ValidadorPage() {
     }
   }
 
-  async function processarXmls(files: FileList, forceTipo: "terceiro" | "proprio") {
+  function cfopEntradaConfigurado(cfopSaida: string) {
+    const cfop = cfopSaida.replace(/\D/g,"").slice(0,4);
+    return cfopVinculos.find(v=>v.cfopSaida===cfop)?.cfopEntrada ?? "";
+  }
+
+  function sugerirCfopEntradaEmpresa(cfopFornecedor: string, natureza: AnaliseSugestao["tipo"]) {
+    return cfopEntradaConfigurado(cfopFornecedor) || sugerirCfopEntrada(cfopFornecedor, natureza, ehIndustrial);
+  }
+
+  function salvarVinculosCfop(novos: CfopVinculo[]) {
+    setCfopVinculos(prev=>{
+      const mapa = new Map(prev.map(v=>[v.cfopSaida, v.cfopEntrada]));
+      for(const v of novos) {
+        if(v.cfopSaida && v.cfopEntrada) mapa.set(v.cfopSaida, v.cfopEntrada);
+      }
+      return Array.from(mapa.entries()).map(([cfopSaida, cfopEntrada])=>({cfopSaida, cfopEntrada})).sort((a,b)=>a.cfopSaida.localeCompare(b.cfopSaida));
+    });
+  }
+
+  function adicionarVinculoCfop() {
+    const cfopSaida = cfopSaidaNovo.replace(/\D/g,"").slice(0,4);
+    const cfopEntrada = cfopEntradaNovo.replace(/\D/g,"").slice(0,4);
+    if(cfopSaida.length!==4 || cfopEntrada.length!==4) {
+      setErro("Informe CFOP de saída e CFOP de entrada com 4 dígitos.");
+      return;
+    }
+    salvarVinculosCfop([{ cfopSaida, cfopEntrada }]);
+    setCfopSaidaNovo("");
+    setCfopEntradaNovo("");
+    setErro("");
+  }
+
+  async function processarXmls(files: FileList | File[], forceTipo: TipoImportacaoXml) {
     // ── PASSO 1: ler textos e separar cancelamentos ──────────────────────────
     const extraidos = await extrairXmlsDeArquivos(files);
     const txts: {nome:string;txt:string}[] = extraidos.arquivos;
@@ -1900,7 +2081,7 @@ export default function ValidadorPage() {
     // O set armazena tanto nomes de fornecedores (match amplo, sempre disponível)
     // quanto números de NF extraídos do refNFe (match preciso, quando disponível).
     const devolucaoRefs = new Set<string>();
-    if(forceTipo === "terceiro"){
+    if(forceTipo === "terceiro" || forceTipo === "ambas"){
       for(const {txt} of txts){
         if(detectarCancelamento(txt)) continue;
         const m = extrairMetadataXml(txt);
@@ -1930,10 +2111,19 @@ export default function ValidadorPage() {
       const meta = extrairMetadataXml(txt);
       const cfopsXml = extrairCfopsXml(txt);
       const ehDevolucaoVenda = meta?.tipo_operacao === "entrada" && cfopsXml.some(cfopEhDevolucaoVendaSimples);
+      let tipoArquivo: Exclude<TipoImportacaoXml, "ambas"> = forceTipo === "ambas" ? "terceiro" : forceTipo;
       if(meta){
         if(empresaCnpj){
           const emitCnpj = (meta.emitente_cnpj ?? "").replace(/\D/g,"");
           const destCnpj = (meta.destinatario_cnpj ?? "").replace(/\D/g,"");
+          if(forceTipo === "ambas"){
+            if(emitCnpj === empresaCnpj) tipoArquivo = "proprio";
+            else if(destCnpj === empresaCnpj) tipoArquivo = "terceiro";
+            else {
+              rejeitadosCnpj.push(`${nome}: emitente/destinatário não corresponde à empresa em análise`);
+              continue;
+            }
+          }
           if(forceTipo === "terceiro" && destCnpj && destCnpj !== empresaCnpj){
             rejeitadosCnpj.push(`${nome}: destinatário ${destCnpj} ≠ empresa em análise`);
             continue;
@@ -1945,7 +2135,7 @@ export default function ValidadorPage() {
         }
         // Nota de entrada do fornecedor (tpNF=0): NÃO importar como entrada da empresa.
         // Tentar vincular ao NF de saída própria referenciada (devolução).
-        if(forceTipo === "terceiro" && meta.tipo_operacao === "entrada"){
+        if(tipoArquivo === "terceiro" && meta.tipo_operacao === "entrada"){
           const forn = meta.emitente_nome || fcnpj(meta.emitente_cnpj || "");
           const nf = meta.numero_nf || "s/n";
           const refChave = meta.ref_nfe;
@@ -1968,12 +2158,12 @@ export default function ValidadorPage() {
       }
 
       // forceEntrada=true faz o parseXml tratar tudo como entrada (para terceiros)
-      const {itensEntrada,itensSaida,chaveNFe}=parseXml(txt, perfil, forceTipo === "terceiro");
+      const {itensEntrada,itensSaida,chaveNFe}=parseXml(txt, perfil, tipoArquivo === "terceiro");
       const ehCancelada = !!chaveNFe && chavesCanceladas.has(chaveNFe);
       if(ehCancelada) qtdCanc++;
 
       if(ehCancelada){
-        if(forceTipo === "terceiro"){
+        if(tipoArquivo === "terceiro"){
           ne.push(...itensEntrada.map(i=>({
             ...i,
             chave_nfe: chaveNFe,
@@ -2000,7 +2190,7 @@ export default function ValidadorPage() {
           })));
         }
       } else {
-        if(forceTipo === "terceiro"){
+        if(tipoArquivo === "terceiro"){
           // itensEntrada agora contém TODOS os itens (forceEntrada=true no parseXml)
           const AVISO_DEV = "⚠ Há uma nota de entrada do fornecedor referenciando esta NF. Verifique se a operação realmente aconteceu ou se foi cancelada/devolvida.";
           ne.push(...itensEntrada.map(item => {
@@ -2009,7 +2199,7 @@ export default function ValidadorPage() {
               ...item,
               chave_nfe: chaveNFe,
               tipo_nfe:"terceiro" as TipoNFe,
-              cfop_entrada_sugerido: sugerirCfopEntrada(item.cfop, item.sugestao.tipo, ehIndustrial),
+              cfop_entrada_sugerido: sugerirCfopEntradaEmpresa(item.cfop, item.sugestao.tipo),
               ...(temDev ? {
                 status: "ALERTA" as StatusValidacao,
                 avisos: [...item.avisos.filter(a => a !== "Sem inconsistências."), AVISO_DEV],
@@ -2131,6 +2321,7 @@ export default function ValidadorPage() {
   function onConfirmarCfopModal() {
     // Aplicar CFOPs selecionados aos itens pendentes
     const mapa = new Map(cfopMapeamento.map(m=>[`${m.nota}__${m.cfopForn}`, m.cfopSel]));
+    salvarVinculosCfop(cfopMapeamento.map(m=>({ cfopSaida: m.cfopForn, cfopEntrada: m.cfopSel })));
     const neAtualizado = pendingNe.current.map(item=>{
       if(item.tipo_nfe==="terceiro" && (item.cfop_entrada_sugerido??"") === ""){
         return {...item, cfop_entrada_sugerido: mapa.get(`${item.numero_nota}__${item.cfop}`) ?? item.cfop_entrada_sugerido};
@@ -2149,6 +2340,38 @@ export default function ValidadorPage() {
   async function onXmlProprio(e: React.ChangeEvent<HTMLInputElement>) {
     const files=e.target.files; if(!files||files.length===0)return;
     await processarXmls(files, "proprio");
+  }
+
+  async function onXmlUnificado(e: React.ChangeEvent<HTMLInputElement>) {
+    const files=e.target.files; if(!files||files.length===0)return;
+    adicionarArquivosImportacao(Array.from(files));
+  }
+
+  function adicionarArquivosImportacao(files: File[]) {
+    if(files.length===0) return;
+    setArquivosImportacao(prev=>{
+      const existentes = new Set(prev.map(f=>`${f.name}-${f.size}-${f.lastModified}`));
+      const novos = files.filter(f=>!existentes.has(`${f.name}-${f.size}-${f.lastModified}`));
+      return [...prev, ...novos];
+    });
+    if(refXmlUnificado.current) refXmlUnificado.current.value="";
+  }
+
+  function removerArquivoImportacao(idx: number) {
+    setArquivosImportacao(prev=>prev.filter((_,i)=>i!==idx));
+  }
+
+  async function confirmarImportacaoModal() {
+    if(arquivosImportacao.length===0 || !empresa) return;
+    setImportandoXml(true);
+    try {
+      await processarXmls(arquivosImportacao, tipoImportacao);
+      setModalImportAberto(false);
+      setArquivosImportacao([]);
+      setArrastandoImport(false);
+    } finally {
+      setImportandoXml(false);
+    }
   }
 
   function itensEntradaDoXml(x: XmlPendente) {
@@ -2298,6 +2521,9 @@ export default function ValidadorPage() {
 
   async function onConfirmarSessaoXmlNovo(dados: DadosSessao) {
     setSessaoAtual(dados);
+    const mesSessao = competenciaParaMonth(dados.competencia);
+    setPeriodoInicio(mesSessao);
+    setPeriodoFim(mesSessao);
     setErroSalvar("");
     setSalvouComSucesso(false);
     try {
@@ -2327,7 +2553,12 @@ export default function ValidadorPage() {
         totalSalvo += pendentes.length;
       }
       const ultima = dados.sessoes[dados.sessoes.length - 1];
-      if (ultima) setSessaoAtual({ sessaoId: ultima.sessaoId, empresaId: dados.empresaId, empresaNome: dados.empresaNome, competencia: ultima.competencia });
+      if (ultima) {
+        setSessaoAtual({ sessaoId: ultima.sessaoId, empresaId: dados.empresaId, empresaNome: dados.empresaNome, competencia: ultima.competencia });
+        const mesSessao = competenciaParaMonth(ultima.competencia);
+        setPeriodoInicio(mesSessao);
+        setPeriodoFim(mesSessao);
+      }
       setSalvouComSucesso(true);
       setInfoCanc(prev => {
         const msg = `${totalSalvo} XML(s) salvo(s) em ${dados.sessoes.length} competÃªncia(s).`;
@@ -2342,6 +2573,9 @@ export default function ValidadorPage() {
 
   async function onConfirmarSessaoXml(dados: DadosSessao) {
     setSessaoAtual(dados);
+    const mesSessao = competenciaParaMonth(dados.competencia);
+    setPeriodoInicio(mesSessao);
+    setPeriodoFim(mesSessao);
     setErroSalvar("");
     setSalvouComSucesso(false);
     try {
@@ -2490,7 +2724,7 @@ export default function ValidadorPage() {
   function setClass(id:string,cl:ClassificacaoManual){setLinhas(p=>p.map(l=>l.id===id?{...l,classificacao:cl,classificacaoManual:true}:l));}
   function setClassNota(chave:string,cl:ClassificacaoManual){const[n,...rf]=chave.split("__");const forn=rf.join("__");setLinhas(p=>p.map(l=>l.numero_nota===n&&l.fornecedor===forn?{...l,classificacao:cl,classificacaoManual:true}:l));}
   function setCfopEntrada(id:string,cfop:string){setLinhas(p=>p.map(l=>l.id===id?{...l,cfop_entrada_sugerido:cfop}:l));}
-  function limpar(){setLinhas([]);setSaidas([]);setErro("");setInfoCanc("");setPerfil("geral");setExpandidas(new Set());setExpandidasS(new Set());setFiltros({somenteAlertas:false,cfop:"",ncm:"",busca:"",classificacao:""});if(refXmlTerceiros.current)refXmlTerceiros.current.value="";if(refXmlProprio.current)refXmlProprio.current.value="";setSalvouComSucesso(false);}
+  function limpar(){setLinhas([]);setSaidas([]);setErro("");setInfoCanc("");setPerfil("geral");setExpandidas(new Set());setExpandidasS(new Set());setFiltros({somenteAlertas:false,cfop:"",ncm:"",busca:"",classificacao:""});if(refXmlTerceiros.current)refXmlTerceiros.current.value="";if(refXmlProprio.current)refXmlProprio.current.value="";if(refXmlUnificado.current)refXmlUnificado.current.value="";setSalvouComSucesso(false);}
   async function limparCompetenciaDb(){
     if(!sessaoAtual||!empresa) return;
     const msg=`Isso apagará todos os XMLs e documentos fiscais de ${sessaoAtual.competencia} do banco de dados. Esta ação não pode ser desfeita. Continuar?`;
@@ -2502,6 +2736,98 @@ export default function ValidadorPage() {
       limpar();
     }catch{ /* silencioso */ }
     finally{setLimpandoDb(false);}
+  }
+
+  async function selecionarPeriodo(month: string) {
+    const competencia = monthParaCompetencia(month);
+    if(!competencia) return;
+    const sessao = sessoesSalvas.find(s=>s.competencia===competencia);
+    if(sessao) {
+      await carregarSessaoAnterior(sessao);
+      return;
+    }
+    setInfoCanc(`Periodo ${competencia} ainda nao possui importacao para esta empresa.`);
+  }
+
+  async function selecionarPeriodos(inicioMonth: string, fimMonth: string) {
+    if(!empresa || !inicioMonth) return;
+    const inicioOrdenado = fimMonth && fimMonth < inicioMonth ? fimMonth : inicioMonth;
+    const fimOrdenado = fimMonth && fimMonth < inicioMonth ? inicioMonth : (fimMonth || inicioMonth);
+    const competencias = competenciasEntreMeses(inicioOrdenado, fimOrdenado);
+    if(!competencias.length) return;
+
+    setPeriodoInicio(inicioOrdenado);
+    setPeriodoFim(fimOrdenado);
+    setCarregandoPeriodo(true);
+    try {
+      if(competencias.length === 1) {
+        await selecionarPeriodo(inicioOrdenado);
+        return;
+      }
+
+      const entradas: LinhaEntrada[] = [];
+      const saidasPeriodo: LinhaSaida[] = [];
+      for(const competencia of competencias) {
+        const resDb = await fetch(
+          `/api/documentos-fiscais?empresa_id=${empresa.id}&competencia=${encodeURIComponent(competencia)}&incluir_itens=true`
+        );
+        if(!resDb.ok) continue;
+        const docsDb: DocumentoFiscalDb[] = await resDb.json();
+        const { mappedEntradas, mappedSaidas } = mapearDocumentosDb(docsDb);
+        entradas.push(...mappedEntradas);
+        saidasPeriodo.push(...mappedSaidas);
+      }
+
+      const compLabel = `${competencias[0]} a ${competencias[competencias.length - 1]}`;
+      setLinhas(entradas);
+      setSaidas(saidasPeriodo);
+      setCompetenciaXml(compLabel);
+      setSessaoAtual({ sessaoId: `periodos-${inicioOrdenado}-${fimOrdenado}`, empresaId: empresa.id, empresaNome: empresa.razao_social, competencia: compLabel });
+      setErro("");
+      setInfoCanc(
+        entradas.length || saidasPeriodo.length
+          ? `Periodos ${compLabel} carregados - ${entradas.length} it. entrada / ${saidasPeriodo.length} it. saida`
+          : `Nenhum documento encontrado nos periodos ${compLabel}.`
+      );
+    } catch {
+      setErro("Nao foi possivel carregar os periodos selecionados.");
+    } finally {
+      setCarregandoPeriodo(false);
+    }
+  }
+
+  async function limparConfiguradoDb(){
+    if(!empresa||!limpezaInicio||!limpezaFim) return;
+    const tipos = Object.entries(limpezaTipos).filter(([,ativo])=>ativo).map(([tipo])=>tipo);
+    if(tipos.length===0){ setErro("Selecione ao menos um tipo de dado para excluir."); return; }
+    const competencias = competenciasEntreMeses(limpezaInicio, limpezaFim);
+    if(competencias.length===0){ setErro("Informe um intervalo de periodos valido."); return; }
+    const labels: Record<string,string> = { xml_entrada:"NF-e de entrada", xml_saida:"NF-e de saída", sped_fiscal:"SPED Fiscal", sped_contrib:"SPED Contribuições" };
+    const msg=`Isso apagará ${tipos.map(t=>labels[t]).join(", ")} de ${competencias[0]} ate ${competencias[competencias.length-1]}. Esta acao nao pode ser desfeita. Continuar?`;
+    if(!window.confirm(msg)) return;
+    setLimpandoDb(true);
+    try{
+      for(const competencia of competencias){
+        const res = await fetch(`/api/fiscal/limpar-competencia?empresa_id=${empresa.id}&competencia=${encodeURIComponent(competencia)}`,{
+          method:"DELETE",
+          headers:{ "Content-Type":"application/json" },
+          body: JSON.stringify({ tipos }),
+        });
+        if(!res.ok) throw new Error("Falha ao limpar periodo.");
+      }
+      if(sessaoAtual?.competencia && competencias.includes(sessaoAtual.competencia)) {
+        setSessaoAtual(null);
+        limpar();
+      }
+      setInfoCanc(`${competencias.length} periodo(s) limpo(s) conforme selecao.`);
+      setErro("");
+      fetch(`/api/sessoes?empresa_id=${empresa.id}`)
+        .then(r=>r.json())
+        .then((lista: SessaoSalva[])=>{ if(Array.isArray(lista)) setSessoesSalvas(lista); })
+        .catch(()=>{});
+    }catch{
+      setErro("Não foi possível limpar o período selecionado.");
+    }finally{setLimpandoDb(false);}
   }
   function changePerfil(p:PerfilEmpresa){setPerfil(p);setLinhas(prev=>reproc(prev,p,ehIndustrial));}
   function toggleE(c:string){setExpandidas(p=>{const n=new Set(p);n.has(c)?n.delete(c):n.add(c);return n;});}
@@ -2732,7 +3058,6 @@ export default function ValidadorPage() {
   // CNPJ e nome da empresa analisada: prefere empresa já selecionada
   const cnpjEmpresaXml = empresa?.cnpj?.replace(/\D/g,"") || xmlsPendentes.find(x => x.tipoOperacao === "entrada")?.destinatarioCnpj || "";
   const nomeEmpresaXml = empresa?.razao_social || xmlsPendentes.find(x => x.tipoOperacao === "entrada")?.destinatarioNome || "";
-
   return (
     <main style={S.page}><div style={S.inner}>
 
@@ -2786,6 +3111,69 @@ export default function ValidadorPage() {
         </div>
       )}
 
+      {modalImportAberto && (
+        <div style={{position:"fixed",inset:0,zIndex:950,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,0.58)",padding:20}}>
+          <div style={{width:"min(720px,100%)",maxHeight:"86vh",overflow:"hidden",display:"flex",flexDirection:"column" as const,background:T.cardBg,border:T.cardBrd,borderRadius:12,boxShadow:"0 24px 64px rgba(0,0,0,0.38)"}}>
+            <div style={{padding:"20px 22px",borderBottom:"1px solid var(--af-border)",display:"flex",alignItems:"center",gap:10}}>
+              <Upload size={18} style={{color:"var(--af-primary)"}}/>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:16,fontWeight:800,color:T.pageClr}}>Importar NF-e</div>
+                <div style={{fontSize:12,color:T.accentDim,marginTop:2}}>Selecione o tipo de XML e adicione arquivos XML ou ZIP.</div>
+              </div>
+              <button type="button" onClick={()=>{setModalImportAberto(false);setArquivosImportacao([]);setArrastandoImport(false);}} style={{background:"transparent",border:"none",color:T.accentDim,cursor:"pointer",padding:4}}><X size={18}/></button>
+            </div>
+
+            <div style={{padding:22,overflowY:"auto" as const}}>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
+                {([
+                  ["ambas","Entrada e saida", "Detecta pelo CNPJ da empresa"],
+                  ["terceiro","Entrada", "XMLs recebidos de fornecedores"],
+                  ["proprio","Saida", "XMLs emitidos pela empresa"],
+                ] as const).map(([tipo,label,desc])=>(
+                  <button key={tipo} type="button" onClick={()=>setTipoImportacao(tipo)} style={{textAlign:"left" as const,borderRadius:10,border:tipoImportacao===tipo?"1px solid var(--af-primary)":"1px solid var(--af-border)",background:tipoImportacao===tipo?"var(--af-primary-soft)":T.bGbg,padding:"12px 14px",cursor:"pointer",color:T.pageClr}}>
+                    <div style={{fontSize:13,fontWeight:800,marginBottom:3}}>{label}</div>
+                    <div style={{fontSize:11,color:T.accentDim,lineHeight:1.35}}>{desc}</div>
+                  </button>
+                ))}
+              </div>
+
+              <label
+                onDragOver={e=>{e.preventDefault();setArrastandoImport(true);}}
+                onDragLeave={()=>setArrastandoImport(false)}
+                onDrop={e=>{e.preventDefault();setArrastandoImport(false);adicionarArquivosImportacao(Array.from(e.dataTransfer.files));}}
+                style={{display:"flex",flexDirection:"column" as const,alignItems:"center",justifyContent:"center",gap:8,minHeight:170,borderRadius:12,border:arrastandoImport?"1px solid var(--af-primary)":"1px dashed var(--af-border)",background:arrastandoImport?"var(--af-primary-soft)":D?"rgba(255,255,255,0.035)":"var(--af-surface-2)",cursor:"pointer",textAlign:"center" as const,padding:24}}
+              >
+                <Upload size={28} style={{color:"var(--af-primary)"}}/>
+                <div style={{fontSize:14,fontWeight:800,color:T.pageClr}}>Arraste os arquivos aqui</div>
+                <div style={{fontSize:12,color:T.accentDim}}>ou clique para selecionar XMLs e ZIPs</div>
+                <input ref={refXmlUnificado} type="file" accept=".xml,.zip,.rar" multiple style={{display:"none"}} onChange={onXmlUnificado} disabled={!empresa}/>
+              </label>
+
+              {arquivosImportacao.length>0 && (
+                <div style={{marginTop:16,border:"1px solid var(--af-border)",borderRadius:10,overflow:"hidden"}}>
+                  <div style={{padding:"9px 12px",fontSize:11,fontWeight:800,color:T.accentDim,textTransform:"uppercase" as const,letterSpacing:"0.06em",background:D?"rgba(255,255,255,0.03)":"var(--af-surface-2)"}}>{arquivosImportacao.length} arquivo(s) selecionado(s)</div>
+                  <div style={{maxHeight:180,overflowY:"auto" as const}}>
+                    {arquivosImportacao.map((file,idx)=>(
+                      <div key={`${file.name}-${file.size}-${file.lastModified}`} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderTop:"1px solid var(--af-border)"}}>
+                        <FileText size={14} style={{color:"var(--af-primary)",flexShrink:0}}/>
+                        <span style={{flex:1,minWidth:0,fontSize:12,color:T.pageClr,whiteSpace:"nowrap" as const,overflow:"hidden",textOverflow:"ellipsis"}}>{file.name}</span>
+                        <span style={{fontSize:11,color:T.accentDim}}>{(file.size/1024).toLocaleString("pt-BR",{maximumFractionDigits:1})} KB</span>
+                        <button type="button" onClick={()=>removerArquivoImportacao(idx)} style={{background:"transparent",border:"none",color:"var(--af-danger)",cursor:"pointer",padding:2}}><X size={14}/></button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div style={{padding:"14px 22px",borderTop:"1px solid var(--af-border)",display:"flex",justifyContent:"flex-end",gap:10}}>
+              <button type="button" onClick={()=>{setModalImportAberto(false);setArquivosImportacao([]);}} style={S.bG}>Cancelar</button>
+              <button type="button" onClick={confirmarImportacaoModal} disabled={!empresa||arquivosImportacao.length===0||importandoXml} style={{...S.bP,opacity:(!empresa||arquivosImportacao.length===0||importandoXml)?0.55:1,cursor:importandoXml?"wait":"pointer"}}>{importandoXml?"Importando...":"Importar arquivos"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <ModalSessao
         aberto={modalAberto}
         cnpjEmpresa={cnpjEmpresaXml || undefined}
@@ -2803,70 +3191,51 @@ export default function ValidadorPage() {
         subtitle="Importe XMLs de NF-e para análise de entradas, saídas, CFOP, NCM e benefícios fiscais (CBenef GO)."
       />
 
-      {/* ── BARRA DE AÇÕES ────────────────────────────────────────────────────── */}
+      <button
+        type="button"
+        onClick={()=>setModulo(modulo==="configuracoes"?"entradas":"configuracoes")}
+        style={{position:"absolute",right:0,top:2,width:38,height:38,display:"inline-flex",alignItems:"center",justifyContent:"center",borderRadius:10,background:modulo==="configuracoes"?"var(--af-primary-soft)":T.bGbg,border:modulo==="configuracoes"?"1px solid rgba(39,199,216,0.42)":T.bGbrd,color:modulo==="configuracoes"?T.accent:T.bGclr,cursor:"pointer"}}
+        title="Configuracoes"
+      >
+        <Settings size={16}/>
+      </button>
+
+      {/* Barra de acoes */}
       <div style={{display:"flex",flexWrap:"wrap" as const,alignItems:"center",gap:8,marginBottom:20,borderBottom:"1px solid var(--af-border)",paddingBottom:16}}>
-        {/* Sessão ativa — lado esquerdo */}
-        {sessaoAtual ? (
-          <span style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:12,fontWeight:600,background:D?"var(--af-primary-soft)":"#dbeafe",border:D?"1px solid rgba(39,199,216,0.25)":"1px solid #93c5fd",color:D?"var(--af-primary)":"var(--af-primary-hover)",borderRadius:20,padding:"4px 12px",whiteSpace:"nowrap" as const}}>
-            <span style={{width:6,height:6,borderRadius:"50%",background:"var(--af-primary)",display:"inline-block",flexShrink:0}}/>
-            {sessaoAtual.competencia}
-          </span>
-        ) : (
-          <span style={{fontSize:12,color:"var(--af-muted)"}}>Nenhuma sessão ativa</span>
-        )}
-
-        {/* Separador flexível */}
-        <div style={{flex:1}}/>
-
-        {/* Botões de importação */}
-        <label style={{...S.bG,cursor:empresa?"pointer":"not-allowed",opacity:empresa?1:0.45,background:D?"rgba(39,199,216,0.07)":"rgba(10,102,116,0.07)",borderColor:D?"rgba(39,199,216,0.3)":"rgba(10,102,116,0.3)"}} title={empresa?"Importar XMLs de fornecedores (notas de entrada)":"Selecione uma empresa antes de importar"}>
-          <ArrowDownLeft size={14}/>Terceiros (Entradas)
-          <input ref={refXmlTerceiros} type="file" accept=".xml,.zip,.rar" multiple style={{display:"none"}} onChange={onXmlTerceiros} disabled={!empresa}/>
-        </label>
-        <label style={{...S.bG,cursor:empresa?"pointer":"not-allowed",opacity:empresa?1:0.45,background:D?"rgba(52,211,153,0.07)":"rgba(5,100,60,0.07)",borderColor:D?"rgba(52,211,153,0.25)":"rgba(5,100,60,0.25)",color:D?"#34d399":"#156543"}} title={empresa?"Importar XMLs emitidos pela própria empresa (notas de saída)":"Selecione uma empresa antes de importar"}>
-          <ArrowUpRight size={14}/>Próprios (Saídas)
-          <input ref={refXmlProprio} type="file" accept=".xml,.zip,.rar" multiple style={{display:"none"}} onChange={onXmlProprio} disabled={!empresa}/>
-        </label>
-        <button type="button" onClick={()=>exportExcel(nf,saidas,null)} disabled={vazio} style={{...S.bG,opacity:vazio?0.35:1,cursor:vazio?"not-allowed":"pointer"}}><Download size={14}/>Exportar Excel</button>
-        <button type="button" onClick={limpar} style={S.bD}><Trash2 size={14}/>Limpar</button>
-        {sessaoAtual && (
-          <button type="button" onClick={limparCompetenciaDb} disabled={limpandoDb}
-            style={{...S.bD,background:"rgba(239,68,68,0.08)",color:"var(--af-danger)",borderColor:"rgba(239,68,68,0.2)",opacity:limpandoDb?0.6:1,cursor:limpandoDb?"wait":"pointer"}}>
-            <Trash2 size={14}/>{limpandoDb?`Limpando…`:`Limpar ${sessaoAtual.competencia}`}
-          </button>
-        )}
-        {/* Sessões salvas — dropdown */}
-        {empresa && sessoesSalvas.length > 0 && (
-          <div style={{position:"relative" as const}}>
-            <button type="button"
-              onClick={()=>setSessaoExpandida(v=>!v)}
-              style={{...S.bG,fontSize:11,color:"rgba(39,199,216,0.85)",background:"rgba(39,199,216,0.07)",borderColor:"rgba(39,199,216,0.25)",display:"flex",alignItems:"center",gap:5}}>
-              {carregandoSessoes ? "…" : `${sessoesSalvas.length} sessão(ões)`}
-              <span style={{fontSize:9,opacity:0.7}}>{sessaoExpandida?"▲":"▼"}</span>
-            </button>
-            {sessaoExpandida && (
-              <div style={{position:"absolute" as const,top:"calc(100% + 4px)",right:0,zIndex:400,background:D?"#071b2a":"var(--af-surface)",border:"1px solid rgba(39,199,216,0.2)",borderRadius:10,padding:"8px",minWidth:260,boxShadow:"0 12px 32px rgba(0,0,0,0.35)",marginTop:2}}>
-                <div style={{fontSize:10,fontWeight:700,color:"var(--af-muted)",textTransform:"uppercase" as const,letterSpacing:"0.08em",padding:"4px 8px 6px"}}>Reabrir sessão anterior</div>
-                {sessoesSalvas.map(s=>{
-                  const qtdXml = s.xmls?.[0]?.count ?? 0;
-                  return (
-                    <button key={s.id} type="button"
-                      onClick={()=>{ carregarSessaoAnterior(s); setSessaoExpandida(false); }}
-                      style={{display:"flex",alignItems:"center",justifyContent:"space-between",width:"100%",background:sessaoAtual?.sessaoId===s.id?"var(--af-primary-soft)":"transparent",border:"none",borderRadius:6,padding:"7px 10px",cursor:"pointer",gap:8,marginBottom:2,color:"var(--af-text)",fontSize:12}}
-                      onMouseEnter={ev=>(ev.currentTarget.style.background="var(--af-primary-soft)")}
-                      onMouseLeave={ev=>(ev.currentTarget.style.background=sessaoAtual?.sessaoId===s.id?"var(--af-primary-soft)":"transparent")}>
-                      <div style={{display:"flex",flexDirection:"column" as const,alignItems:"flex-start",gap:2}}>
-                        <span style={{fontWeight:600,color:"var(--af-primary)"}}>{s.competencia}</span>
-                        {qtdXml > 0 && <span style={{fontSize:10,color:"var(--af-muted)"}}>{qtdXml} XML{qtdXml!==1?"s":""}</span>}
-                      </div>
-                      <span style={{fontSize:10,color:"var(--af-muted)",flexShrink:0}}>{new Date(s.created_at).toLocaleDateString("pt-BR")}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+        {empresa && (
+          <div style={{display:"inline-flex",alignItems:"center",gap:8,flexWrap:"wrap" as const}}>
+            <span style={{fontSize:11,fontWeight:800,color:T.accentDim,letterSpacing:"0.08em",textTransform:"uppercase" as const}}>Periodo</span>
+            <input
+              type="month"
+              value={periodoInicio}
+              onChange={e=>selecionarPeriodos(e.target.value, periodoFim)}
+              disabled={carregandoPeriodo}
+              style={{...S.inp,width:174,padding:"9px 12px",opacity:carregandoPeriodo?0.65:1}}
+              title="Periodo inicial"
+            />
+            <span style={{fontSize:12,color:T.accentDim,fontWeight:700}}>ate</span>
+            <input
+              type="month"
+              value={periodoFim}
+              onChange={e=>selecionarPeriodos(periodoInicio || e.target.value, e.target.value)}
+              disabled={carregandoPeriodo || !periodoInicio}
+              style={{...S.inp,width:174,padding:"9px 12px",opacity:carregandoPeriodo?0.65:1}}
+              title="Periodo final"
+            />
           </div>
         )}
+
+        <div style={{flex:1}}/>
+
+        <button type="button" onClick={()=>setModalImportAberto(true)} disabled={!empresa} style={{...S.bP,opacity:empresa?1:0.45,cursor:empresa?"pointer":"not-allowed"}} title={empresa?"Importar XMLs de NF-e":"Selecione uma empresa antes de importar"}>
+          <Upload size={14}/>Importar NF-e
+        </button>
+        {sessaoAtual?.competencia && !sessaoAtual.competencia.includes(" a ") && (
+          <button type="button" onClick={()=>router.push(`/simples_nacional?aba=apuracao_sistema&competencia=${encodeURIComponent(sessaoAtual.competencia)}`)} style={S.bG}>
+            <ArrowUpRight size={14}/>Apuracao do Simples
+          </button>
+        )}
+        <button type="button" onClick={()=>exportExcel(nf,saidas,null)} disabled={vazio} style={{...S.bG,opacity:vazio?0.35:1,cursor:vazio?"not-allowed":"pointer"}}><Download size={14}/>Exportar Excel</button>
       </div>
 
       {/* ── NOTIFICAÇÕES INLINE (sem card) ─────────────────────────────────────── */}
@@ -2890,54 +3259,20 @@ export default function ValidadorPage() {
         </div>
       )}
 
-      {/* ── INDICADORES ────────────────────────────────────────────────────────── */}
-      <div style={{...S.card,padding:"16px 20px",marginBottom:16}}>
-        {/* Entradas */}
-        <div>
-          <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.09em",textTransform:"uppercase" as const,color:D?"var(--af-muted)":"rgba(10,102,116,0.4)",marginBottom:8,display:"flex",alignItems:"center",gap:5}}><ArrowDownLeft size={11}/>Entradas</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10}}>
-            {[{lb:"Notas",v:res.totalNotas,sub:`${res.totalItens} itens`,cor:"var(--af-primary)"},{lb:"Notas OK",v:res.totalNotas-res.notasAlerta,sub:"sem alertas",cor:"#86efac"},{lb:"Com Alerta",v:res.notasAlerta,sub:"revisar",cor:"var(--af-warning)"},{lb:"Valor Contábil",v:fmoe(res.totalValor),sub:"entradas",cor:"var(--af-primary)"},{lb:"ICMS",v:fmoe(res.totalIcms),sub:"a conferir",cor:"#a78bfa"}].map(s=>(
-              <div key={s.lb} style={{borderRadius:14,background:T.statBg,border:T.statBrd,padding:"12px 16px"}}>
-                <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase" as const,letterSpacing:"0.07em",color:T.accent,marginBottom:4,opacity:0.75}}>{s.lb}</div>
-                <div style={{fontSize:18,fontWeight:700,color:s.cor,lineHeight:1.2}}>{s.v}</div>
-                <div style={{fontSize:10,color:T.statDim,marginTop:2}}>{s.sub}</div>
-              </div>
-            ))}
-          </div>
+      {(erro||infoCanc)&&(
+        <div style={{marginBottom:16,display:"flex",flexDirection:"column" as const,gap:10}}>
+          {erro&&<div style={{background:"rgba(239,68,68,0.07)",border:"1px solid rgba(239,68,68,0.18)",borderRadius:10,padding:"10px 16px",fontSize:13,color:D?"var(--af-danger)":"#991b1b",display:"flex",gap:8,alignItems:"flex-start"}}><FileX size={15} style={{flexShrink:0,marginTop:1}}/>{erro}</div>}
+          {infoCanc&&<div style={{background:D?"rgba(167,139,250,0.07)":"rgba(130,100,250,0.08)",border:D?"1px solid rgba(167,139,250,0.22)":"1px solid rgba(100,70,200,0.25)",borderRadius:10,padding:"10px 16px",fontSize:13,color:D?"#c4b5fd":"#5b2dcc",display:"flex",gap:8,alignItems:"flex-start"}}>
+            <span style={{fontSize:16,flexShrink:0}}>!</span>
+            <span style={{flex:1,whiteSpace:"pre-line" as const,lineHeight:1.55}}>{infoCanc}</span>
+            <button onClick={()=>setInfoCanc("")} style={{flexShrink:0,background:"none",border:"none",cursor:"pointer",color:"inherit",fontSize:16,lineHeight:1,padding:"0 2px",opacity:0.7}} title="Fechar">x</button>
+          </div>}
         </div>
-        {/* Saídas — exibe apenas quando há XMLs de saída */}
-        {saidas.length>0&&<div style={{marginTop:14}}>
-          <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.09em",textTransform:"uppercase" as const,color:"rgba(52,211,153,0.5)",marginBottom:8,display:"flex",alignItems:"center",gap:5}}><ArrowUpRight size={11}/>Saídas</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10}}>
-            {[
-              {lb:"Notas",v:new Set(saidas.map(i=>`${i.numero_nota}__${i.destinatario}`)).size,sub:`${saidas.length} itens`,cor:"#34d399"},
-              {lb:"Com Alerta",v:saidas.filter(i=>i.status==="ALERTA").length,sub:"verificar",cor:saidas.filter(i=>i.status==="ALERTA").length>0?"var(--af-warning)":"#86efac"},
-              {lb:"Valor Contábil",v:fmoe(totalSaidasContabil),sub:"saídas",cor:"#34d399"},
-              {lb:"ICMS",v:fmoe(saidas.reduce((a,i)=>a+i.valor_icms,0)),sub:"destacado",cor:"#a78bfa"},
-              {lb:"PIS + COFINS",v:fmoe(saidas.reduce((a,i)=>a+i.valor_pis+i.valor_cofins,0)),sub:`${saidas.filter(i=>i.cbenef&&i.cbenef!=="SEM CBENEF").length} com CBenef`,cor:"#60a5fa"},
-            ].map(s=>(
-              <div key={s.lb} style={{borderRadius:14,background:D?"rgba(52,211,153,0.03)":"rgba(52,211,153,0.06)",border:D?"1px solid rgba(52,211,153,0.1)":"1px solid rgba(52,211,153,0.2)",padding:"12px 16px"}}>
-                <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase" as const,letterSpacing:"0.07em",color:D?"rgba(52,211,153,0.55)":"rgba(5,100,60,0.7)",marginBottom:4}}>{s.lb}</div>
-                <div style={{fontSize:18,fontWeight:700,color:s.cor,lineHeight:1.2}}>{s.v}</div>
-                <div style={{fontSize:10,color:D?"rgba(52,211,153,0.35)":"rgba(5,100,60,0.45)",marginTop:2}}>{s.sub}</div>
-              </div>
-            ))}
-          </div>
-        </div>}
+      )}
 
-        {/* Erros de parsing */}
-        {erro&&<div style={{marginTop:12,background:"rgba(239,68,68,0.07)",border:"1px solid rgba(239,68,68,0.18)",borderRadius:10,padding:"10px 16px",fontSize:13,color:D?"var(--af-danger)":"#991b1b",display:"flex",gap:8,alignItems:"flex-start"}}><FileX size={15} style={{flexShrink:0,marginTop:1}}/>{erro}</div>}
-        {infoCanc&&<div style={{marginTop:10,background:D?"rgba(167,139,250,0.07)":"rgba(130,100,250,0.08)",border:D?"1px solid rgba(167,139,250,0.22)":"1px solid rgba(100,70,200,0.25)",borderRadius:10,padding:"10px 16px",fontSize:13,color:D?"#c4b5fd":"#5b2dcc",display:"flex",gap:8,alignItems:"flex-start"}}>
-          <span style={{fontSize:16,flexShrink:0}}>⚠</span>
-          <span style={{flex:1,whiteSpace:"pre-line" as const,lineHeight:1.55}}>{infoCanc}</span>
-          <button onClick={()=>setInfoCanc("")} style={{flexShrink:0,background:"none",border:"none",cursor:"pointer",color:"inherit",fontSize:16,lineHeight:1,padding:"0 2px",opacity:0.7}} title="Fechar">×</button>
-        </div>}
-      </div>
-
-      {/* MÓDULOS */}
       <div style={{display:"flex",gap:8,marginBottom:16}}>
-        {([["entradas","Entradas",ArrowDownLeft],["saidas","Saídas",ArrowUpRight],["cfop","Resumo CFOP",Tag]] as const).map(([m,lb,Icon])=>(
-          <button key={m} type="button" onClick={()=>setModulo(m as "entradas"|"saidas")} style={{display:"flex",alignItems:"center",gap:7,padding:"10px 22px",borderRadius:12,fontSize:13,fontWeight:700,border:"none",cursor:"pointer",background:modulo===m?D?"var(--af-primary-soft)":"var(--af-primary-soft)":D?"rgba(255,255,255,0.04)":"var(--af-primary-soft)",color:modulo===m?T.accent:T.accentDim,borderBottom:modulo===m?"2px solid var(--af-primary)":"2px solid transparent"}}>
+        {([["entradas","Entradas",ArrowDownLeft],["saidas","Saidas",ArrowUpRight],["cfop","Resumo CFOP",Tag]] as const).map(([m,lb,Icon])=>(
+          <button key={m} type="button" onClick={()=>setModulo(m)} style={{display:"flex",alignItems:"center",gap:7,padding:"10px 22px",borderRadius:12,fontSize:13,fontWeight:700,border:"none",cursor:"pointer",background:modulo===m?D?"var(--af-primary-soft)":"var(--af-primary-soft)":D?"rgba(255,255,255,0.04)":"var(--af-primary-soft)",color:modulo===m?T.accent:T.accentDim,borderBottom:modulo===m?"2px solid var(--af-primary)":"2px solid transparent"}}>
             <Icon size={14}/>{lb} {m==="entradas"?`(${linhas.length} itens)`:m==="saidas"?`(${saidas.length} itens)`:``}
           </button>
         ))}
@@ -3261,6 +3596,61 @@ export default function ValidadorPage() {
           </div>
         </div>
       </>}
+
+      {modulo==="configuracoes"&&<>
+        <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(320px,0.8fr)",gap:16}}>
+          <div style={{...S.card,padding:"18px 22px"}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14,color:T.accent,fontWeight:800,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase" as const}}><Settings size={14}/>Vinculacao CFOP por empresa</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr auto",gap:10,alignItems:"end",marginBottom:14}}>
+              <div><div style={{fontSize:11,color:T.accentDim,marginBottom:5}}>CFOP da nota de saida</div><input value={cfopSaidaNovo} onChange={e=>setCfopSaidaNovo(e.target.value.replace(/\D/g,"").slice(0,4))} placeholder="5102" style={S.inp}/></div>
+              <div><div style={{fontSize:11,color:T.accentDim,marginBottom:5}}>CFOP de entrada</div><input value={cfopEntradaNovo} onChange={e=>setCfopEntradaNovo(e.target.value.replace(/\D/g,"").slice(0,4))} placeholder="1102" style={S.inp}/></div>
+              <button type="button" onClick={adicionarVinculoCfop} style={{...S.bP,height:38}}><Plus size={14}/>Adicionar</button>
+            </div>
+            <div style={{overflowX:"auto" as const,border:"1px solid var(--af-border)",borderRadius:10}}>
+              <table style={{width:"100%",borderCollapse:"collapse" as const,fontSize:12}}>
+                <thead><tr>{["CFOP saida","Descricao saida","CFOP entrada","Descricao entrada",""] .map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {!cfopVinculos.length?<tr><td colSpan={5} style={{padding:"28px",textAlign:"center",color:T.accentDim}}>Nenhum vinculo cadastrado para esta empresa.</td></tr>
+                  :cfopVinculos.map(v=>(
+                    <tr key={v.cfopSaida}>
+                      <td style={{...S.td,fontWeight:800,color:T.accent}}>{v.cfopSaida}</td>
+                      <td style={{...S.td,fontSize:11}}>{descCFOP(v.cfopSaida)}</td>
+                      <td style={{...S.td,fontWeight:800,color:"#34d399"}}>{v.cfopEntrada}</td>
+                      <td style={{...S.td,fontSize:11}}>{descCFOP(v.cfopEntrada)}</td>
+                      <td style={{...S.td,textAlign:"right" as const}}><button type="button" onClick={()=>setCfopVinculos(prev=>prev.filter(item=>item.cfopSaida!==v.cfopSaida))} style={{background:"transparent",border:"none",color:"var(--af-danger)",cursor:"pointer"}} title="Remover"><X size={15}/></button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div style={{...S.card,padding:"18px 22px"}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14,color:"var(--af-danger)",fontWeight:800,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase" as const}}><Trash2 size={14}/>Exclusao em massa</div>
+            <div style={{display:"flex",flexDirection:"column" as const,gap:10}}>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                <div><div style={{fontSize:11,color:T.accentDim,marginBottom:5}}>Periodo inicial</div><input type="month" value={limpezaInicio} onChange={e=>setLimpezaInicio(e.target.value)} style={S.inp}/></div>
+                <div><div style={{fontSize:11,color:T.accentDim,marginBottom:5}}>Periodo final</div><input type="month" value={limpezaFim} onChange={e=>setLimpezaFim(e.target.value)} style={S.inp}/></div>
+              </div>
+              {([
+                ["xml_entrada","NF-e de entrada"],
+                ["xml_saida","NF-e de saida"],
+                ["sped_fiscal","SPED Fiscal"],
+                ["sped_contrib","SPED Contribuicoes"],
+              ] as const).map(([tipo,label])=>(
+                <label key={tipo} style={{display:"flex",alignItems:"center",gap:8,fontSize:13,color:T.pageClr,cursor:"pointer"}}>
+                  <input type="checkbox" checked={limpezaTipos[tipo]} onChange={e=>setLimpezaTipos(prev=>({...prev,[tipo]:e.target.checked}))} style={{accentColor:"var(--af-danger)"}}/>
+                  {label}
+                </label>
+              ))}
+              <button type="button" onClick={limparConfiguradoDb} disabled={!empresa||!limpezaInicio||!limpezaFim||limpandoDb} style={{...S.bD,justifyContent:"center",opacity:(!empresa||!limpezaInicio||!limpezaFim||limpandoDb)?0.55:1,cursor:limpandoDb?"wait":"pointer"}}>
+                <Trash2 size={14}/>{limpandoDb?"Limpando...":"Excluir selecao"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </>}
+
 
     </div></main>
   );

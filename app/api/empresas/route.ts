@@ -9,7 +9,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from('empresas')
-    .select('id, razao_social, nome_fantasia, cnpj, regime, cnae_principal')
+    .select('id, razao_social, nome_fantasia, cnpj, regime, cnae_principal, inscricao_estadual')
     .eq('status', 'Ativo')
     .order('razao_social')
 
@@ -47,7 +47,7 @@ export async function POST(request: Request) {
       uf: uf || 'GO',
       status: 'Ativo',
     })
-    .select('id, razao_social, nome_fantasia, cnpj, regime, cnae_principal')
+    .select('id, razao_social, nome_fantasia, cnpj, regime, cnae_principal, inscricao_estadual')
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

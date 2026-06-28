@@ -10,6 +10,7 @@ export type EmpresaAtiva = {
   razao_social: string
   cnpj?: string
   cnae_principal?: string
+  inscricao_estadual?: string
 }
 
 function lerEmpresaAtiva(): EmpresaAtiva | null {
