@@ -4,6 +4,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 function isPublicPath(pathname: string): boolean {
   return (
     pathname.startsWith('/login') ||
+    pathname.startsWith('/landing') ||
     pathname.startsWith('/cadastro') ||
     pathname.startsWith('/auth') ||
     pathname === '/api/stripe/webhook' ||

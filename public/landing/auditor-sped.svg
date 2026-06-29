@@ -1,0 +1,47 @@
+<svg width="1200" height="760" viewBox="0 0 1200 760" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="760" rx="28" fill="#0f1b2d"/>
+  <rect x="34" y="34" width="1132" height="692" rx="24" fill="#142238" stroke="#2d4b6d"/>
+  <text x="72" y="92" fill="#f8fafc" font-family="Segoe UI, Arial" font-size="30" font-weight="800">Auditor SPED</text>
+  <text x="72" y="126" fill="#a8b8ca" font-family="Segoe UI, Arial" font-size="17">Cruzamento Fiscal x Contribuicoes e motor de regras.</text>
+  <rect x="72" y="164" width="212" height="64" rx="14" fill="#27c7d822" stroke="#27c7d855"/>
+  <text x="96" y="204" fill="#dbeafe" font-family="Segoe UI, Arial" font-size="17" font-weight="700">SPED Fiscal</text>
+  <rect x="304" y="164" width="252" height="64" rx="14" fill="#4ade8022" stroke="#4ade8055"/>
+  <text x="328" y="204" fill="#dbeafe" font-family="Segoe UI, Arial" font-size="17" font-weight="700">SPED Contribuicoes</text>
+  <rect x="576" y="164" width="250" height="64" rx="14" fill="#fbbf2422" stroke="#fbbf2455"/>
+  <text x="600" y="204" fill="#dbeafe" font-family="Segoe UI, Arial" font-size="17" font-weight="700">Executar analise</text>
+  <rect x="72" y="270" width="1056" height="392" rx="18" fill="#0f1b2d" stroke="#2d4b6d"/>
+  <rect x="72" y="270" width="1056" height="52" rx="18" fill="#1c2c45"/>
+  <text x="104" y="303" fill="#a8b8ca" font-family="Segoe UI, Arial" font-size="13" font-weight="800">DOCUMENTO</text>
+  <text x="386" y="303" fill="#a8b8ca" font-family="Segoe UI, Arial" font-size="13" font-weight="800">STATUS</text>
+  <text x="584" y="303" fill="#a8b8ca" font-family="Segoe UI, Arial" font-size="13" font-weight="800">RISCO</text>
+  <text x="766" y="303" fill="#a8b8ca" font-family="Segoe UI, Arial" font-size="13" font-weight="800">REGRA</text>
+  <g font-family="Segoe UI, Arial" font-size="15">
+    <text x="104" y="366" fill="#dbeafe">NF-e 10543</text>
+    <rect x="386" y="346" width="86" height="28" rx="14" fill="#4ade8022" stroke="#4ade8055"/>
+    <text x="408" y="366" fill="#4ade80" font-weight="700">OK</text>
+    <rect x="584" y="346" width="92" height="28" rx="14" fill="#fbbf2422" stroke="#fbbf2455"/>
+    <text x="606" y="366" fill="#fbbf24" font-weight="700">Medio</text>
+    <text x="766" y="366" fill="#dbeafe">Divergencia Fiscal x Contrib</text>
+    <line x1="104" y1="396" x2="1096" y2="396" stroke="#223149"/>
+    <text x="104" y="448" fill="#dbeafe">Item 0200 - mercadoria</text>
+    <rect x="386" y="428" width="136" height="28" rx="14" fill="#fb718522" stroke="#fb718555"/>
+    <text x="408" y="448" fill="#fb7185" font-weight="700">Com alerta</text>
+    <rect x="584" y="428" width="72" height="28" rx="14" fill="#fb718522" stroke="#fb718555"/>
+    <text x="606" y="448" fill="#fb7185" font-weight="700">Alto</text>
+    <text x="766" y="448" fill="#dbeafe">Uso e consumo com credito ICMS</text>
+    <line x1="104" y1="478" x2="1096" y2="478" stroke="#223149"/>
+    <text x="104" y="530" fill="#dbeafe">Registro C170</text>
+    <rect x="386" y="510" width="136" height="28" rx="14" fill="#fb718522" stroke="#fb718555"/>
+    <text x="408" y="530" fill="#fb7185" font-weight="700">Com alerta</text>
+    <rect x="584" y="510" width="72" height="28" rx="14" fill="#fb718522" stroke="#fb718555"/>
+    <text x="606" y="530" fill="#fb7185" font-weight="700">Alto</text>
+    <text x="766" y="530" fill="#dbeafe">NCM com ST sem tratamento</text>
+    <line x1="104" y1="560" x2="1096" y2="560" stroke="#223149"/>
+    <text x="104" y="612" fill="#dbeafe">Apuracao M200/M600</text>
+    <rect x="386" y="592" width="86" height="28" rx="14" fill="#4ade8022" stroke="#4ade8055"/>
+    <text x="408" y="612" fill="#4ade80" font-weight="700">OK</text>
+    <rect x="584" y="592" width="88" height="28" rx="14" fill="#27c7d822" stroke="#27c7d855"/>
+    <text x="606" y="612" fill="#27c7d8" font-weight="700">Baixo</text>
+    <text x="766" y="612" fill="#dbeafe">Base conferida</text>
+  </g>
+</svg>

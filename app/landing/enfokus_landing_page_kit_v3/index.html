@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Enfokus Fiscal — Auditoria fiscal inteligente para escritórios</title>
+<meta name="description" content="Importe SPED Fiscal, SPED Contribuições, XMLs e PGDAS-D. Cruze dados, encontre inconsistências e transforme a conferência fiscal em uma rotina operacional."/>
+<style>
+:root{--bg:#061323;--surface:#0f2036;--surface2:#122741;--line:#294463;--text:#f7fbff;--muted:#a9bdd5;--cyan:#2dc7ef;--cyan2:#13a8d0;--green:#42e28d;--gold:#d6b25c;--danger:#ff7c87}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:radial-gradient(1000px 600px at 80% -10%,#17395b 0%,transparent 60%),var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.5}a{text-decoration:none;color:inherit}.wrap{width:min(1180px,calc(100% - 40px));margin:auto}.nav{height:72px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(169,189,213,.14)}.brand img{height:34px;width:auto;display:block}.navlinks{display:flex;gap:22px;align-items:center;color:var(--muted);font-size:14px}.button{border:1px solid transparent;border-radius:10px;padding:13px 18px;display:inline-flex;align-items:center;justify-content:center;gap:8px;font-weight:800;font-size:14px;transition:.2s;cursor:pointer}.primary{background:var(--cyan);color:#02111f}.secondary{border-color:#315779;background:#10233d;color:var(--text)}.button:hover{transform:translateY(-1px);filter:brightness(1.06)}
+.hero{padding:28px 0 20px;display:grid;grid-template-columns:1.03fr .97fr;gap:28px;align-items:center}.eyebrow{display:inline-flex;color:#8ee8ff;border:1px solid rgba(45,199,239,.38);background:rgba(45,199,239,.08);padding:7px 10px;border-radius:99px;font-size:12px;font-weight:800;letter-spacing:.04em;text-transform:uppercase}.hero h1{font-size:clamp(38px,4.7vw,62px);line-height:1.03;margin:12px 0 13px;letter-spacing:-.045em}.hero h1 em{color:var(--cyan);font-style:normal}.hero p{font-size:17px;color:var(--muted);max-width:620px;margin:0 0 18px}.actions{display:flex;gap:12px;flex-wrap:wrap}.fine{font-size:13px;color:#90a9c5;margin-top:12px}.screen{border-radius:20px;border:1px solid #2b4a6a;background:#10223a;padding:0;box-shadow:0 28px 80px rgba(0,0,0,.32);overflow:hidden}.screen img{width:100%;border-radius:18px;display:block}
+.proof{display:flex;gap:10px;align-items:center;color:#c8d9eb;font-size:13px;margin-top:14px}.proof b{color:var(--green)}.numbers{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;padding:14px 0 52px}.metric{border:1px solid var(--line);background:linear-gradient(145deg,rgba(20,42,70,.9),rgba(10,25,44,.9));border-radius:16px;padding:19px}.metric strong{font-size:26px;color:var(--cyan);display:block;line-height:1.12}.metric span{font-size:14px;color:var(--muted);display:block;margin-top:6px}
+.section{padding:74px 0}.section.alt{background:linear-gradient(180deg,rgba(18,39,65,.62),rgba(6,19,35,.3));border-top:1px solid rgba(169,189,213,.12);border-bottom:1px solid rgba(169,189,213,.12)}.heading{max-width:760px;margin-bottom:32px}.heading h2{font-size:36px;line-height:1.12;margin:0 0 12px;letter-spacing:-.03em}.heading p{color:var(--muted);margin:0;font-size:17px}.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}.card{background:rgba(15,32,54,.92);border:1px solid var(--line);border-radius:16px;padding:24px}.icon{width:42px;height:42px;border-radius:12px;background:rgba(45,199,239,.12);border:1px solid rgba(45,199,239,.35);color:var(--cyan);display:grid;place-items:center;font-weight:900;margin-bottom:17px}.card h3{margin:0 0 8px;font-size:18px}.card p{margin:0;color:var(--muted);font-size:15px}
+.feature{display:grid;grid-template-columns:.92fr 1.08fr;gap:36px;align-items:center;margin:0 0 66px}.feature:nth-child(even){grid-template-columns:1.08fr .92fr}.feature:nth-child(even) .feature-copy{order:2}.feature:nth-child(even) .shot{order:1}.feature h3{font-size:28px;line-height:1.15;margin:10px 0 12px;letter-spacing:-.025em}.feature p{color:var(--muted);font-size:16px}.bullets{display:grid;gap:10px;margin-top:20px}.bullet{color:#d9e6f4;font-size:15px}.bullet:before{content:"✓";color:var(--green);font-weight:900;margin-right:10px}.shot{border-radius:17px;padding:6px;background:#11243e;border:1px solid var(--line);overflow:hidden}.shot img{display:block;width:100%;border-radius:12px}
+.audit-panel{display:grid;grid-template-columns:1.05fr .95fr;gap:20px}.audit-copy{border:1px solid var(--line);border-radius:18px;padding:28px;background:linear-gradient(145deg,rgba(18,43,70,.9),rgba(10,25,44,.9))}.audit-copy h3{font-size:28px;line-height:1.14;margin:10px 0 12px;letter-spacing:-.025em}.audit-copy p{color:var(--muted);margin:0}.rule-list{display:grid;gap:10px;margin-top:20px}.rule{padding:12px 14px;border:1px solid rgba(41,68,99,.9);background:rgba(6,19,35,.45);border-radius:12px;font-size:14px;color:#dce8f4}.rule b{color:#8ee8ff}.rule small{color:#a9bdd5}.callout{border:1px solid rgba(66,226,141,.42);border-radius:18px;background:rgba(66,226,141,.06);padding:26px}.callout h3{margin:0 0 10px;font-size:22px}.callout p{margin:0;color:var(--muted)}.callout ul{padding-left:18px;color:#d9e6f4;margin:16px 0 0}.callout li{margin:9px 0}
+.roadmap{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.road{border-radius:16px;padding:24px;border:1px solid var(--line);background:#0d1e34}.status{display:inline-flex;border-radius:99px;padding:5px 9px;font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;margin-bottom:14px}.ready{background:rgba(66,226,141,.12);color:#66eda3;border:1px solid rgba(66,226,141,.35)}.building{background:rgba(45,199,239,.11);color:#74def7;border:1px solid rgba(45,199,239,.35)}.planned{background:rgba(214,178,92,.11);color:#e4c877;border:1px solid rgba(214,178,92,.35)}.road h3{margin:0 0 8px}.road p{color:var(--muted);margin:0;font-size:15px}.founder{padding:74px 0}.founder-box{border:1px solid rgba(45,199,239,.5);border-radius:24px;background:linear-gradient(130deg,#123558,#0d1f36 60%,#102843);padding:42px;display:grid;grid-template-columns:1fr auto;align-items:center;gap:32px;box-shadow:0 22px 70px rgba(0,0,0,.25)}.founder h2{font-size:34px;line-height:1.12;margin:10px 0}.founder p{color:#c7d9eb;max-width:700px;margin:0}.footer{padding:30px 0;border-top:1px solid rgba(169,189,213,.14);color:#849bb7;font-size:13px;display:flex;justify-content:space-between;gap:18px}
+@media(max-width:900px){.hero,.feature,.feature:nth-child(even),.audit-panel{grid-template-columns:1fr}.feature:nth-child(even) .feature-copy,.feature:nth-child(even) .shot{order:initial}.grid3,.roadmap,.numbers{grid-template-columns:1fr}.founder-box{grid-template-columns:1fr}.navlinks{display:none}.hero{padding-top:28px}.section{padding:56px 0}.footer{flex-direction:column}.feature{margin-bottom:46px}.hero h1{font-size:46px}}
+</style>
+</head>
+<body>
+<header class="wrap nav">
+  <a class="brand" href="#top"><img src="logo-enfokus-white.png" alt="Enfokus"></a>
+  <nav class="navlinks"><a href="#recursos">Recursos</a><a href="#auditoria">Auditoria SPED</a><a href="#roadmap">Roadmap</a><a class="button primary" href="#founder">Participar do beta</a></nav>
+</header>
+<main id="top">
+<section class="wrap hero">
+  <div>
+    <span class="eyebrow">Beta fechado para escritórios contábeis</span>
+    <h1>Auditoria fiscal que transforma arquivos em <em>decisão e ação.</em></h1>
+    <p>Centralize SPED Fiscal, SPED Contribuições, XMLs de NF-e e PGDAS-D. O Enfokus organiza a base, cruza informações e destaca divergências para que seu time investigue o que realmente importa.</p>
+    <div class="actions"><a class="button primary" href="#founder">Quero uma das 10 vagas</a><a class="button secondary" href="#auditoria">Ver o que a plataforma analisa</a></div>
+    <div class="proof"><b>10 escritórios parceiros.</b><span>Acesso inicial sem custo em troca de testes e feedbacks reais.</span></div>
+  </div>
+  <div class="screen"><img src="hero-enfokus.png" alt="Visão geral do painel fiscal da plataforma Enfokus"></div>
+</section>
+<section class="wrap numbers">
+  <div class="metric"><strong>Uma base fiscal</strong><span>Importe uma vez e reutilize os dados em relatórios, conferências e apurações.</span></div>
+  <div class="metric"><strong>SPED + XML + PGDAS-D</strong><span>Fontes reunidas para enxergar documentos, tributos, receita e divergências no mesmo fluxo.</span></div>
+  <div class="metric"><strong>Multiempresa</strong><span>Estrutura pensada para escritórios que precisam acompanhar várias empresas com segurança.</span></div>
+</section>
+<section class="section alt" id="recursos"><div class="wrap">
+  <div class="heading"><h2>O fiscal deixa de ser uma sequência de arquivos isolados.</h2><p>Você não precisa abrir planilha após planilha para localizar uma inconsistência. A plataforma conecta informações importadas em uma base operacional para conferência, análise e priorização.</p></div>
+  <div class="grid3">
+    <article class="card"><div class="icon">01</div><h3>Importe com controle</h3><p>Envie XMLs diretos ou em ZIP, além de SPED Fiscal e Contribuições. A importação valida a empresa ativa para evitar mistura de dados.</p></article>
+    <article class="card"><div class="icon">02</div><h3>Cruze fontes fiscais</h3><p>Compare documentos e apurações entre SPED Fiscal e Contribuições, confronte receita XML com PGDAS-D e encontre diferenças antes que elas virem problema.</p></article>
+    <article class="card"><div class="icon">03</div><h3>Priorize a atuação</h3><p>Transforme regras técnicas em alertas, relatórios e exportações para orientar a revisão da equipe e a conversa com o cliente.</p></article>
+  </div>
+</div></section>
+<section class="section" id="auditoria"><div class="wrap">
+  <div class="heading"><h2>Auditor SPED: encontre conflitos que normalmente ficam espalhados entre arquivos.</h2><p>O núcleo de auditoria cruza SPED Fiscal e SPED Contribuições, interpreta registros relevantes e reúne pontos de revisão em uma mesma tela.</p></div>
+  <div class="audit-panel">
+    <div class="audit-copy"><span class="eyebrow">Já disponível no núcleo fiscal</span><h3>Do arquivo bruto à análise técnica em poucos passos.</h3><p>Importe múltiplos arquivos, execute a análise automática e exporte a documentação da revisão. A plataforma trabalha com documentos, itens C170, CFOP, apurações de ICMS, PIS e COFINS.</p><div class="rule-list">
+      <div class="rule"><b>Notas ausentes entre os SPEDs</b><br><small>Identifique notas de saída no Fiscal que não aparecem no Contribuições e o caminho inverso.</small></div>
+      <div class="rule"><b>Possíveis divergências de base e classificação</b><br><small>Alertas para ICMS na base de PIS/COFINS, CST incompatível, CFOP invertido e alíquota efetiva atípica.</small></div>
+      <div class="rule"><b>Validação analítica de itens</b><br><small>Leitura por NCM, CFOP, CST, crédito, uso e consumo, imobilizado, ST e CIAP.</small></div>
+    </div></div>
+    <aside class="callout"><h3>O que sua equipe ganha na prática</h3><p>Mais contexto para decidir onde começar a revisão e menos dependência de conferências manuais desconectadas.</p><ul><li>Exportação Excel com cruzamento, apuração, inconsistências e itens analisados.</li><li>Alertas classificados por nível para apoiar a priorização.</li><li>Dados por empresa e competência, prontos para investigação técnica.</li><li>Estrutura de regras que evolui com as dores dos escritórios parceiros.</li></ul></aside>
+  </div>
+</div></section>
+<section class="section alt"><div class="wrap">
+  <div class="feature">
+    <div class="feature-copy"><span class="eyebrow">Relatórios fiscais</span><h3>Documentos, produtos, participantes, NCM e CFOP em uma visão operacional.</h3><p>Filtre competências, analise entradas e saídas, confira quantidades e valores e exporte a base para trabalhar com segurança nas rotinas do escritório.</p><div class="bullets"><div class="bullet">Relatórios detalhados e resumidos por movimento</div><div class="bullet">Visões por documento, produto, participante, CFOP e NCM</div><div class="bullet">Excel para análises maiores e entregas internas</div></div></div>
+    <div class="shot"><img src="tela_02_anonimizada.png" alt="Relatórios fiscais"></div>
+  </div>
+  <div class="feature">
+    <div class="feature-copy"><span class="eyebrow">Simples Nacional</span><h3>Confronte a receita fiscal com o PGDAS-D antes de confiar no número declarado.</h3><p>A apuração usa a mesma base fiscal dos relatórios. Isso evita leituras desencontradas e mostra, por competência, faturamento XML, devoluções, receita considerada, PGDAS-D e diferença.</p><div class="bullets"><div class="bullet">Identificação de CFOPs e naturezas com impacto em receita</div><div class="bullet">Devoluções de venda tratadas como redutoras da receita</div><div class="bullet">Confronto visual, Excel e PDF da apuração</div></div></div>
+    <div class="shot"><img src="tela_03_anonimizada.png" alt="Confronto do Simples Nacional"></div>
+  </div>
+  <div class="feature">
+    <div class="feature-copy"><span class="eyebrow">Validador NF-e</span><h3>Importe XMLs em lote sem perder o controle de quem pertence a cada empresa.</h3><p>Fluxos separados para notas de terceiros e notas próprias, validação de CNPJ, detecção por competência, classificação de itens e organização da base que alimenta os outros módulos.</p><div class="bullets"><div class="bullet">XML direto ou ZIP, com múltiplas competências</div><div class="bullet">Proteção contra importação de XML de outra empresa</div><div class="bullet">Sugestão de CFOP de entrada e classificação por item</div></div></div>
+    <div class="shot"><img src="tela_04_anonimizada.png" alt="Apuração e conferência de XML no Simples Nacional"></div>
+  </div>
+  <div class="feature">
+    <div class="feature-copy"><span class="eyebrow">Editor SPED</span><h3>Uma rotina assistida para mesclar bases e revisar o Bloco K.</h3><p>Fluxo guiado para usar uma base fiscal correta, incorporar o Bloco K de outra fonte, identificar conflitos e gerar um novo arquivo após a conferência.</p><div class="bullets"><div class="bullet">Importação de arquivo base e fonte do Bloco K</div><div class="bullet">Conflitos apresentados para tratamento manual</div><div class="bullet">Fluxo em sete etapas: importar, validar, comparar, editar, verificar e gerar</div></div></div>
+    <div class="shot"><img src="tela_06_anonimizada.png" alt="Editor SPED Fiscal"></div>
+  </div>
+</div></section>
+<section class="section" id="roadmap"><div class="wrap">
+  <div class="heading"><h2>Entre agora para influenciar o que vem depois.</h2><p>O núcleo fiscal já está em uso de validação. Os próximos módulos serão construídos sobre a mesma base de dados, com prioridade para os problemas reais dos parceiros fundadores.</p></div>
+  <div class="roadmap">
+    <article class="road"><span class="status ready">Núcleo em validação</span><h3>Fiscal inteligente</h3><p>SPED Fiscal e Contribuições, XML, relatórios, regras, alertas, Simples Nacional e exportações.</p></article>
+    <article class="road"><span class="status building">Em evolução</span><h3>Planejamento tributário</h3><p>Simulação de cenários, comparação de regimes, grupos econômicos e risco de desenquadramento.</p></article>
+    <article class="road"><span class="status planned">Próximos pilares</span><h3>Obrigações, Contábil, DP e Financeiro</h3><p>Calendário e controle de entregas, além da evolução gradual dos módulos integrados.</p></article>
+  </div>
+</div></section>
+<section class="founder" id="founder"><div class="wrap founder-box">
+  <div><span class="eyebrow">Acesso gratuito de validação</span><h2>Seu escritório pode ajudar a definir a próxima ferramenta que vai usar.</h2><p>Serão liberados apenas 10 acessos gratuitos para escritórios que realmente queiram testar a plataforma, validar fluxos com dados do dia a dia e enviar feedback direto. Após essa fase, o Founder Access reunirá os parceiros que apoiam o desenvolvimento e acompanham de perto as próximas entregas.</p></div>
+  <a class="button primary" href="mailto:contato@enfokus.com.br?subject=Quero%20participar%20do%20beta%20Enfokus">Quero participar do beta</a>
+</div></section>
+</main>
+<footer class="wrap footer"><span>© 2026 Enfokus. Auditoria fiscal para escritórios contábeis.</span><span>Dados exibidos nas imagens são demonstrativos.</span></footer>
+</body></html>

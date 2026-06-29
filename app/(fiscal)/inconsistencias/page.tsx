@@ -10,6 +10,7 @@ import PageHeader from '@/components/ui/PageHeader'
 import GlassCard from '@/components/ui/GlassCard'
 import EmptyState from '@/components/ui/EmptyState'
 import PaginationControls, { getPageItems } from '@/components/ui/PaginationControls'
+import { useNotifications } from '@/components/notifications/NotificationProvider'
 
 // ─── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -129,6 +130,11 @@ type RelatorioFiscalResposta = {
   error?: string
 }
 
+function workbookToXlsxBlob(wb: XLSX.WorkBook) {
+  const data = XLSX.write(wb, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer
+  return new Blob([data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+}
+
 type DivergenciaSimplesCandidato = {
   documento_id: string
   numero: string
@@ -196,6 +202,7 @@ function competenciaLabel(comp: string) {
 export default function RelatoriosPage() {
   const supabase = createClient()
   const { empresaAtiva: empresa } = useEmpresaAtiva()
+  const { runTask } = useNotifications()
   const empresaId = empresa?.id
 
   // Estado de navegação
@@ -633,6 +640,12 @@ export default function RelatoriosPage() {
     setExportandoExcel(true)
     setErroRel(null)
     try {
+      await runTask({
+        title: 'Gerando Excel de relatorios',
+        runningMessage: 'O relatorio esta sendo preparado.',
+        successTitle: 'Excel de relatorios pronto',
+        errorTitle: 'Erro ao gerar Excel',
+      }, async () => {
       const rowsFonte = abaFiscal ? await buscarFiscalParaExcel() : []
       let rows: Record<string, string | number | null | undefined>[] = []
 
@@ -739,7 +752,17 @@ export default function RelatoriosPage() {
         const sufixo = rows.length > maxLinhasPorAba ? `_${Math.floor(i / maxLinhasPorAba) + 1}` : ''
         XLSX.utils.book_append_sheet(wb, ws, `Relatorio${sufixo}`)
       }
-      XLSX.writeFile(wb, nomeArquivoExcel())
+      const filename = nomeArquivoExcel()
+      return {
+        message: 'Clique para baixar o relatorio gerado.',
+        action: {
+          type: 'download',
+          filename,
+          mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          blob: workbookToXlsxBlob(wb),
+        },
+      }
+      })
     } catch (err) {
       setErroRel(err instanceof Error ? err.message : 'Erro ao exportar Excel')
     } finally {

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getOrgId } from '@/lib/supabase/org'
 import { validarEmpresaDaOrg, respostaForbidden } from '@/lib/supabase/validation'
-import { competenciasEntre, normalizarCompetencia } from '@/lib/fiscal/competencia'
+import { competenciaKey, competenciasEntre, normalizarCompetencia } from '@/lib/fiscal/competencia'
 import { fetchAll } from '@/lib/supabase/fetchAll'
 import { carregarXmlLegacy, type XmlLegacyItem } from '@/lib/fiscal/xmlLegacy'
 import { cfopEhDevolucaoVenda, cfopEhFaturamento } from '@/lib/simples/cfopReceita'
@@ -105,6 +105,7 @@ export async function GET(request: Request) {
     return respostaForbidden('empresa_id')
   }
 
+  try {
   let declaracoesQuery = supabase
     .from('sn_declaracoes')
     .select('competencia, receita_bruta_mes')
@@ -118,9 +119,10 @@ export async function GET(request: Request) {
 
   const declaracoes = (declaracoesData ?? []) as Declaracao[]
   const compsDeclaradas = declaracoes.map(d => d.competencia).filter(Boolean)
-  const competencias = competenciasFiltro.length > 0
+  const competencias = (competenciasFiltro.length > 0
     ? competenciasFiltro
     : compsDeclaradas
+  ).sort((a, b) => competenciaKey(a) - competenciaKey(b))
 
   if (competencias.length === 0) return NextResponse.json([])
 
@@ -298,4 +300,10 @@ export async function GET(request: Request) {
   }).filter(row => row.status !== 'ok' && row.status !== 'sem_dados')
 
   return NextResponse.json(resultado)
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : String(err) },
+      { status: 500 },
+    )
+  }
 }

@@ -13,6 +13,7 @@ import { useEmpresaAtiva } from "@/lib/hooks/useEmpresaAtiva";
 import PageHeader from "@/components/ui/PageHeader";
 import PaginationControls, { getPageItems } from "@/components/ui/PaginationControls";
 import { extrairXmlsDeArquivos } from "@/lib/fiscal/xmlArchive";
+import { useNotifications } from "@/components/notifications/NotificationProvider";
 
 // ══════════════════════════════════════════════════════════════════════════════
 // TIPOS
@@ -37,6 +38,16 @@ type DadosEmpresa = {
 };
 
 type TipoNFe = "terceiro" | "proprio" | null;
+type ImportacaoXmlReport = {
+  tipo: TipoImportacaoXml;
+  arquivos: number;
+  entradas: number;
+  saidas: number;
+  canceladas: number;
+  avisos: string[];
+  rejeitados: string[];
+  devolucoes: string[];
+};
 
 type LinhaEntrada = {
   id: string;
@@ -1737,6 +1748,35 @@ function agruparSaidas(saidas: LinhaSaida[]): NotaSaida[] {
 // EXPORTAÇÃO EXCEL
 // ══════════════════════════════════════════════════════════════════════════════
 
+function workbookToXlsxBlob(wb: XLSX.WorkBook) {
+  const data = XLSX.write(wb, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
+  return new Blob([data], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+}
+
+function criarRelatorioImportacaoXml(report: ImportacaoXmlReport) {
+  const wb = XLSX.utils.book_new();
+  const tipoLabel = report.tipo === "terceiro" ? "Entrada / Terceiros" : "Saida / Proprios";
+  const resumo = [
+    ["Tipo", tipoLabel],
+    ["Arquivos XML encontrados", report.arquivos],
+    ["Itens de entrada importados", report.entradas],
+    ["Itens de saida importados", report.saidas],
+    ["Notas canceladas detectadas", report.canceladas],
+    ["Avisos", report.avisos.length],
+    ["Arquivos rejeitados por CNPJ", report.rejeitados.length],
+    ["Entradas de devolucao nao importadas", report.devolucoes.length],
+    ["Gerado em", new Date().toLocaleString("pt-BR")],
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(resumo), "Resumo");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(report.avisos.map((mensagem, idx) => ({ Item: idx + 1, Aviso: mensagem }))), "Avisos");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(report.rejeitados.map((mensagem, idx) => ({ Item: idx + 1, Rejeicao: mensagem }))), "Rejeitados");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(report.devolucoes.map((mensagem, idx) => ({ Item: idx + 1, Aviso: mensagem }))), "Devolucoes");
+  return {
+    blob: workbookToXlsxBlob(wb),
+    filename: `Relatorio_Importacao_XML_${report.tipo}_${Date.now()}.xlsx`,
+  };
+}
+
 function exportExcel(notas: NotaEntrada[], saidas: LinhaSaida[], emp: DadosEmpresa|null) {
   const wb=XLSX.utils.book_new();
   const CC="FF0D3340",CB="FFFFFFFF",CA="FFFFF3CD",CO="FFD4EDDA";
@@ -1852,7 +1892,10 @@ function exportExcel(notas: NotaEntrada[], saidas: LinhaSaida[], emp: DadosEmpre
 
   const per=emp?`_${emp.periodoInicial?.replace(/\//g,"-")}_${emp.periodoFinal?.replace(/\//g,"-")}`:"";
   const ne=emp?.nome?`_${emp.nome.slice(0,20).replace(/[^a-zA-Z0-9]/g,"_")}`:"";
-  XLSX.writeFile(wb,`Enfokus_Validacao${ne}${per}.xlsx`);
+  return {
+    blob: workbookToXlsxBlob(wb),
+    filename: `Enfokus_Validacao${ne}${per}.xlsx`,
+  };
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1876,6 +1919,7 @@ type DocumentoFiscalDb = {
 };
 
 export default function ValidadorPage() {
+  const { addNotification, runTask } = useNotifications();
   const [linhas,setLinhas]=useState<LinhaEntrada[]>([]);
   const [saidas,setSaidas]=useState<LinhaSaida[]>([]);
   const [erro,setErro]=useState("");
@@ -1941,6 +1985,7 @@ export default function ValidadorPage() {
   const pendingQtdCanc=useRef(0);
   const pendingMeta=useRef<XmlMetadata[]>([]);
   const pendingDevRefs=useRef<Set<string>>(new Set());
+  const pendingImportReport=useRef<ImportacaoXmlReport | null>(null);
   const D=tema==="escuro";
   const refXmlTerceiros=useRef<HTMLInputElement|null>(null);
   const refXmlProprio=useRef<HTMLInputElement|null>(null);
@@ -2242,6 +2287,24 @@ export default function ValidadorPage() {
     setErro("");
   }
 
+  function notificarImportacaoXml(report: ImportacaoXmlReport) {
+    const arquivo = criarRelatorioImportacaoXml(report);
+    const problemas = report.avisos.length + report.rejeitados.length + report.devolucoes.length;
+    const tipoLabel = report.tipo === "terceiro" ? "entrada / terceiros" : "saida / proprios";
+    addNotification({
+      title: "Importacao XML finalizada",
+      message: `${report.entradas} item(ns) de entrada, ${report.saidas} item(ns) de saida. ${problemas} aviso(s) no relatorio.`,
+      status: "success",
+      action: {
+        type: "download",
+        filename: arquivo.filename,
+        mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        blob: arquivo.blob,
+      },
+    });
+    if(problemas > 0) setInfoCanc(`Importacao XML (${tipoLabel}) finalizada com ${problemas} aviso(s). Baixe o relatorio pelo sino de avisos.`);
+  }
+
   async function processarXmls(files: FileList | File[], forceTipo: TipoImportacaoXml) {
     const extraidos = await extrairXmlsDeArquivos(files);
     const txts: {nome:string;txt:string}[] = extraidos.arquivos;
@@ -2401,6 +2464,16 @@ export default function ValidadorPage() {
       .filter((m): m is XmlMetadata => m !== null);
 
     if(!ne.length&&!ns.length){
+      notificarImportacaoXml({
+        tipo: forceTipo,
+        arquivos: txts.length,
+        entradas: 0,
+        saidas: 0,
+        canceladas: qtdCanc,
+        avisos: extraidos.avisos,
+        rejeitados: rejeitadosCnpj,
+        devolucoes: avisosDevolucao,
+      });
       setErro("Nenhum item encontrado nos XMLs. Verifique se sao NF-e validas.");
       return;
     }
@@ -2424,6 +2497,16 @@ export default function ValidadorPage() {
     }
 
     if(semMapa.size > 0){
+      pendingImportReport.current = {
+        tipo: forceTipo,
+        arquivos: txts.length,
+        entradas: ne.length,
+        saidas: ns.length,
+        canceladas: qtdCanc,
+        avisos: extraidos.avisos,
+        rejeitados: rejeitadosCnpj,
+        devolucoes: avisosDevolucao,
+      };
       pendingNe.current = ne;
       pendingNs.current = ns;
       pendingQtdCanc.current = qtdCanc;
@@ -2432,11 +2515,20 @@ export default function ValidadorPage() {
       setCfopMapeamento(Array.from(semMapa.values()));
       setModalCfopAberto(true);
     } else {
-      finalizarImportacao(ne, ns, metadados, devolucaoRefs);
+      finalizarImportacao(ne, ns, metadados, devolucaoRefs, {
+        tipo: forceTipo,
+        arquivos: txts.length,
+        entradas: ne.length,
+        saidas: ns.length,
+        canceladas: qtdCanc,
+        avisos: extraidos.avisos,
+        rejeitados: rejeitadosCnpj,
+        devolucoes: avisosDevolucao,
+      });
     }
   }
 
-  function finalizarImportacao(ne: LinhaEntrada[], ns: LinhaSaida[], metadados: XmlMetadata[], devRefs: Set<string> = new Set()) {
+  function finalizarImportacao(ne: LinhaEntrada[], ns: LinhaSaida[], metadados: XmlMetadata[], devRefs: Set<string> = new Set(), report?: ImportacaoXmlReport) {
     if(ne.length>0){
       const AVISO_DEV = "Ha uma nota de entrada do fornecedor referenciando esta NF. Verifique se a operacao realmente aconteceu ou se foi cancelada/devolvida.";
       setLinhas(prev=>{
@@ -2476,6 +2568,7 @@ export default function ValidadorPage() {
       })));
       setModalAberto(true);
     }
+    if(report) notificarImportacaoXml(report);
   }
 
   function onConfirmarCfopModal() {
@@ -2487,7 +2580,8 @@ export default function ValidadorPage() {
       return item;
     });
     setModalCfopAberto(false);
-    finalizarImportacao(neAtualizado, pendingNs.current, pendingMeta.current, pendingDevRefs.current);
+    finalizarImportacao(neAtualizado, pendingNs.current, pendingMeta.current, pendingDevRefs.current, pendingImportReport.current ?? undefined);
+    pendingImportReport.current = null;
   }
 
   async function onXmlTerceiros(e: React.ChangeEvent<HTMLInputElement>) {
@@ -3005,14 +3099,33 @@ export default function ValidadorPage() {
     if(!window.confirm(msg)) return;
     setLimpandoDb(true);
     try{
-      for(const competencia of competencias){
-        const res = await fetch(`/api/fiscal/limpar-competencia?empresa_id=${empresa.id}&competencia=${encodeURIComponent(competencia)}`,{
-          method:"DELETE",
-          headers:{ "Content-Type":"application/json" },
-          body: JSON.stringify({ tipos }),
-        });
-        if(!res.ok) throw new Error("Falha ao limpar período.");
-      }
+      await runTask({
+        title: "Exclusao em massa iniciada",
+        runningMessage: `Limpando ${competencias.length} periodo(s) selecionado(s).`,
+        successTitle: "Exclusao em massa finalizada",
+        errorTitle: "Erro na exclusao em massa",
+      }, async()=>{
+        for(const competencia of competencias){
+          const res = await fetch(`/api/fiscal/limpar-competencia?empresa_id=${empresa.id}&competencia=${encodeURIComponent(competencia)}`,{
+            method:"DELETE",
+            headers:{ "Content-Type":"application/json" },
+            body: JSON.stringify({ tipos }),
+          });
+          if(!res.ok) throw new Error("Falha ao limpar periodo.");
+        }
+        return {
+          message: `${competencias.length} periodo(s) limpo(s): ${competencias[0]} ate ${competencias[competencias.length-1]}.`,
+          action: {
+            type: "details",
+            details: [
+              `Empresa: ${empresa.razao_social}`,
+              `Periodo: ${competencias[0]} ate ${competencias[competencias.length-1]}`,
+              `Tipos: ${tipos.map(t=>labels[t]).join(", ")}`,
+              `Total de periodos: ${competencias.length}`,
+            ].join("\n"),
+          },
+        };
+      });
       if(sessaoAtual?.competencia && competencias.includes(sessaoAtual.competencia)) {
         setSessaoAtual(null);
         limpar();
@@ -3316,7 +3429,7 @@ export default function ValidadorPage() {
               ))}
             </div>
             <div style={{display:"flex",gap:10,marginTop:20,justifyContent:"flex-end",flexShrink:0}}>
-              <button onClick={()=>{setModalCfopAberto(false);pendingNe.current=[];pendingNs.current=[];pendingMeta.current=[];}} style={{background:"none",border:D?"1px solid rgba(255,255,255,0.12)":"1px solid #cbd5e1",borderRadius:7,color:"var(--af-muted)",fontSize:13,fontWeight:600,padding:"8px 18px",cursor:"pointer"}}>Cancelar</button>
+              <button onClick={()=>{setModalCfopAberto(false);pendingNe.current=[];pendingNs.current=[];pendingMeta.current=[];pendingImportReport.current=null;}} style={{background:"none",border:D?"1px solid rgba(255,255,255,0.12)":"1px solid #cbd5e1",borderRadius:7,color:"var(--af-muted)",fontSize:13,fontWeight:600,padding:"8px 18px",cursor:"pointer"}}>Cancelar</button>
               <button onClick={onConfirmarCfopModal} style={{background:"var(--af-primary)",border:"none",borderRadius:7,color:"#fff",fontSize:13,fontWeight:700,padding:"8px 22px",cursor:"pointer"}}>Confirmar e continuar</button>
             </div>
           </div>
@@ -3435,7 +3548,28 @@ export default function ValidadorPage() {
             <ArrowUpRight size={14}/>Apuração do Simples
           </button>
         )}
-        <button type="button" onClick={()=>exportExcel(nf,saidas,null)} disabled={vazio} style={{...S.bG,opacity:vazio?0.35:1,cursor:vazio?"not-allowed":"pointer"}}><Download size={14}/>Exportar Excel</button>
+        <button
+          type="button"
+          onClick={()=>void runTask({
+            title: "Gerando Excel do Validador",
+            runningMessage: "O relatorio esta sendo preparado.",
+            successTitle: "Excel do Validador pronto",
+            errorTitle: "Erro ao gerar Excel",
+          }, async()=>{
+            const arquivo = exportExcel(nf, saidas, null);
+            return {
+              message: "Clique para baixar o relatorio de validacao fiscal.",
+              action: {
+                type: "download",
+                filename: arquivo.filename,
+                mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                blob: arquivo.blob,
+              },
+            };
+          })}
+          disabled={vazio}
+          style={{...S.bG,opacity:vazio?0.35:1,cursor:vazio?"not-allowed":"pointer"}}
+        ><Download size={14}/>Exportar Excel</button>
       </div>
 
       {/* ── NOTIFICAÇÕES INLINE (sem card) ─────────────────────────────────────── */}

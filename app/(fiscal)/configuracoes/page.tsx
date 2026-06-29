@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { Users, UserPlus, Trash2, Crown, Building2 } from 'lucide-react'
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
+import { Bell, BellRing, Users, UserPlus, Trash2, Crown, Building2, Volume2, VolumeX } from 'lucide-react'
 import PageHeader from '@/components/ui/PageHeader'
+import { useNotifications } from '@/components/notifications/NotificationProvider'
 
 type Membro = {
   id: string
@@ -19,6 +20,7 @@ type Org = {
 }
 
 export default function ConfiguracoesPage() {
+  const { preferences, updatePreferences, addNotification } = useNotifications()
   const [org, setOrg] = useState<Org | null>(null)
   const [membros, setMembros] = useState<Membro[]>([])
   const [novoEmail, setNovoEmail] = useState('')
@@ -74,6 +76,70 @@ export default function ConfiguracoesPage() {
     enterprise: 'Enterprise',
   }
 
+  function testarNotificacao() {
+    addNotification({
+      title: 'Aviso de teste',
+      message: 'As notificacoes estao funcionando com suas preferencias atuais.',
+      status: 'success',
+    })
+  }
+
+  const toggleStyle = (ativo: boolean): CSSProperties => ({
+    width: 44,
+    height: 24,
+    borderRadius: 999,
+    border: `1px solid ${ativo ? 'rgba(39,199,216,0.45)' : 'rgba(71,85,105,0.7)'}`,
+    background: ativo ? 'rgba(39,199,216,0.22)' : 'rgba(30,41,59,0.85)',
+    padding: 2,
+    cursor: 'pointer',
+    display: 'flex',
+    justifyContent: ativo ? 'flex-end' : 'flex-start',
+    alignItems: 'center',
+  })
+
+  const toggleKnob: CSSProperties = {
+    width: 18,
+    height: 18,
+    borderRadius: '50%',
+    background: '#f8fafc',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+  }
+
+  function renderPreferenceRow({
+    title,
+    description,
+    icon,
+    checked,
+    onChange,
+  }: {
+    title: string
+    description: string
+    icon: ReactNode
+    checked: boolean
+    onChange: () => void
+  }) {
+    return (
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 14,
+        padding: '14px 0',
+        borderTop: '1px solid rgba(51,65,85,0.45)',
+      }}>
+        <div style={{ color: checked ? 'rgba(39,199,216,0.95)' : 'rgba(148,163,184,0.7)', flexShrink: 0 }}>
+          {icon}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#f1f5f9' }}>{title}</div>
+          <div style={{ fontSize: 12, color: 'rgba(148,163,184,0.72)', marginTop: 3, lineHeight: 1.4 }}>{description}</div>
+        </div>
+        <button type="button" onClick={onChange} style={toggleStyle(checked)} aria-pressed={checked}>
+          <span style={toggleKnob} />
+        </button>
+      </div>
+    )
+  }
+
   return (
     <div style={{ padding: '32px 40px', maxWidth: 720, margin: '0 auto', color: 'var(--af-text)' }}>
       <PageHeader
@@ -83,6 +149,63 @@ export default function ConfiguracoesPage() {
       <p style={{ fontSize: 13, color: 'var(--af-muted)', margin: '0 0 36px' }}>
         Gerencie o escritório e os usuários com acesso ao sistema.
       </p>
+
+      <section style={{
+        background: 'rgba(15,23,42,0.8)',
+        border: '1px solid rgba(51,65,85,0.6)',
+        borderRadius: 12,
+        padding: '24px 28px',
+        marginBottom: 28,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginBottom: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <BellRing size={18} style={{ color: 'rgba(39,199,216,0.8)' }} />
+            <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0, color: '#f1f5f9' }}>Notificacoes</h2>
+          </div>
+          <button
+            type="button"
+            onClick={testarNotificacao}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 7,
+              padding: '8px 13px',
+              background: 'rgba(39,199,216,0.12)',
+              border: '1px solid rgba(39,199,216,0.28)',
+              borderRadius: 8,
+              color: 'rgba(39,199,216,0.95)',
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+          >
+            <Bell size={13} />
+            Testar
+          </button>
+        </div>
+
+        {renderPreferenceRow({
+          title: "Mostrar aviso sobre a tela",
+          description: "Exibe um card temporario quando uma tarefa inicia, termina ou falha.",
+          icon: <BellRing size={17} />,
+          checked: preferences.toastEnabled,
+          onChange: () => updatePreferences({ toastEnabled: !preferences.toastEnabled }),
+        })}
+        {renderPreferenceRow({
+          title: "Avisar quando a tarefa iniciar",
+          description: "Mostra a mensagem de que voce pode navegar por outras paginas enquanto a tarefa roda.",
+          icon: <Bell size={17} />,
+          checked: preferences.runningToastEnabled,
+          onChange: () => updatePreferences({ runningToastEnabled: !preferences.runningToastEnabled }),
+        })}
+        {renderPreferenceRow({
+          title: "Som ao finalizar",
+          description: "Toca um som curto quando uma tarefa termina com sucesso ou erro.",
+          icon: preferences.soundEnabled ? <Volume2 size={17} /> : <VolumeX size={17} />,
+          checked: preferences.soundEnabled,
+          onChange: () => updatePreferences({ soundEnabled: !preferences.soundEnabled }),
+        })}
+      </section>
 
       {/* Organização */}
       <section style={{

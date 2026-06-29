@@ -3,6 +3,7 @@ import { getOrgId } from '@/lib/supabase/org'
 import { redirect } from 'next/navigation'
 import SidebarFiscal from './SidebarFiscal'
 import TopbarFiscal from '@/components/TopbarFiscal'
+import { NotificationProvider } from '@/components/notifications/NotificationProvider'
 
 export default async function FiscalLayout({
   children,
@@ -26,12 +27,14 @@ export default async function FiscalLayout({
   if (org?.plano === 'pendente') redirect('/aguardando-ativacao')
 
   return (
-    <div className="fiscal-shell">
-      <SidebarFiscal />
-      <div className="fiscal-area">
-        <TopbarFiscal />
-        <main className="fiscal-main">{children}</main>
+    <NotificationProvider>
+      <div className="fiscal-shell">
+        <SidebarFiscal />
+        <div className="fiscal-area">
+          <TopbarFiscal />
+          <main className="fiscal-main">{children}</main>
+        </div>
       </div>
-    </div>
+    </NotificationProvider>
   )
 }

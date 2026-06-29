@@ -1,0 +1,42 @@
+<svg width="1200" height="760" viewBox="0 0 1200 760" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="760" rx="28" fill="#0f1b2d"/>
+  <rect x="34" y="34" width="1132" height="692" rx="24" fill="#142238" stroke="#2d4b6d"/>
+  <text x="72" y="92" fill="#f8fafc" font-family="Segoe UI, Arial" font-size="30" font-weight="800">Relatorios e Inconsistencias</text>
+  <text x="72" y="126" fill="#a8b8ca" font-family="Segoe UI, Arial" font-size="17">Central de riscos, documentos, participantes, produtos, CFOP e NCM.</text>
+  <rect x="72" y="170" width="320" height="470" rx="18" fill="#0f1b2d" stroke="#2d4b6d"/>
+  <text x="104" y="218" fill="#f8fafc" font-family="Segoe UI, Arial" font-size="20" font-weight="800">Resumo de riscos</text>
+  <circle cx="232" cy="374" r="96" stroke="#223149" stroke-width="30"/>
+  <path d="M232 278a96 96 0 0 1 88 134" stroke="#fb7185" stroke-width="30" stroke-linecap="round"/>
+  <path d="M320 412a96 96 0 0 1-130 47" stroke="#fbbf24" stroke-width="30" stroke-linecap="round"/>
+  <path d="M190 459a96 96 0 0 1-48-83" stroke="#27c7d8" stroke-width="30" stroke-linecap="round"/>
+  <text x="198" y="382" fill="#f8fafc" font-family="Segoe UI, Arial" font-size="34" font-weight="800">34</text>
+  <text x="118" y="544" fill="#fb7185" font-family="Segoe UI, Arial" font-size="15" font-weight="700">Alto: 9</text>
+  <text x="118" y="578" fill="#fbbf24" font-family="Segoe UI, Arial" font-size="15" font-weight="700">Medio: 17</text>
+  <text x="118" y="612" fill="#27c7d8" font-family="Segoe UI, Arial" font-size="15" font-weight="700">Baixo: 8</text>
+  <rect x="430" y="170" width="698" height="470" rx="18" fill="#0f1b2d" stroke="#2d4b6d"/>
+  <rect x="430" y="170" width="698" height="52" rx="18" fill="#1c2c45"/>
+  <text x="462" y="203" fill="#a8b8ca" font-family="Segoe UI, Arial" font-size="13" font-weight="800">ALERTA</text>
+  <text x="782" y="203" fill="#a8b8ca" font-family="Segoe UI, Arial" font-size="13" font-weight="800">NIVEL</text>
+  <text x="930" y="203" fill="#a8b8ca" font-family="Segoe UI, Arial" font-size="13" font-weight="800">STATUS</text>
+  <g font-family="Segoe UI, Arial" font-size="15">
+    <text x="462" y="278" fill="#dbeafe">Credito ICMS em uso e consumo</text>
+    <rect x="782" y="258" width="74" height="28" rx="14" fill="#fb718522" stroke="#fb718555"/>
+    <text x="804" y="278" fill="#fb7185" font-weight="700">Alto</text>
+    <text x="930" y="278" fill="#fbbf24" font-weight="700">Aberto</text>
+    <line x1="462" y1="310" x2="1094" y2="310" stroke="#223149"/>
+    <text x="462" y="362" fill="#dbeafe">NCM com beneficio nao aplicado</text>
+    <rect x="782" y="342" width="92" height="28" rx="14" fill="#fbbf2422" stroke="#fbbf2455"/>
+    <text x="804" y="362" fill="#fbbf24" font-weight="700">Medio</text>
+    <text x="930" y="362" fill="#fbbf24" font-weight="700">Aberto</text>
+    <line x1="462" y1="394" x2="1094" y2="394" stroke="#223149"/>
+    <text x="462" y="446" fill="#dbeafe">SPED zerado com receita declarada</text>
+    <rect x="782" y="426" width="74" height="28" rx="14" fill="#fb718522" stroke="#fb718555"/>
+    <text x="804" y="446" fill="#fb7185" font-weight="700">Alto</text>
+    <text x="930" y="446" fill="#27c7d8" font-weight="700">Revisao</text>
+    <line x1="462" y1="478" x2="1094" y2="478" stroke="#223149"/>
+    <text x="462" y="530" fill="#dbeafe">CFOP incompatível com CNAE</text>
+    <rect x="782" y="510" width="92" height="28" rx="14" fill="#fbbf2422" stroke="#fbbf2455"/>
+    <text x="804" y="530" fill="#fbbf24" font-weight="700">Medio</text>
+    <text x="930" y="530" fill="#fbbf24" font-weight="700">Aberto</text>
+  </g>
+</svg>

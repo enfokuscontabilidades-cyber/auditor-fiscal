@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresaAtiva } from '@/lib/hooks/useEmpresaAtiva'
 import { useTheme } from '@/components/ThemeProvider'
-import { Bell, Building2, ChevronDown, LogOut, Moon, Search, Settings, Star, Sun } from 'lucide-react'
+import { useNotifications, type FiscalNotification } from '@/components/notifications/NotificationProvider'
+import { AlertTriangle, Bell, Building2, CheckCircle2, ChevronDown, Clock3, Download, FileText, LogOut, Moon, Search, Settings, Star, Sun, Trash2, X } from 'lucide-react'
 
 type EmpresaItem = { id: string; razao_social: string; cnpj: string | null; cnae_principal?: string | null; inscricao_estadual?: string | null }
 
@@ -35,15 +36,27 @@ export default function TopbarFiscal() {
   const supabase = createClient()
   const { empresaAtiva, definirEmpresaAtiva } = useEmpresaAtiva()
   const { tema, alternarTema } = useTheme()
+  const {
+    notifications,
+    unreadCount,
+    markAsRead,
+    markAllAsRead,
+    removeNotification,
+    clearRead,
+    triggerAction,
+  } = useNotifications()
 
   const [empresas, setEmpresas] = useState<EmpresaItem[]>([])
   const [menuAberto, setMenuAberto] = useState(false)
   const [userMenuAberto, setUserMenuAberto] = useState(false)
+  const [notifAberto, setNotifAberto] = useState(false)
+  const [detalheAberto, setDetalheAberto] = useState<string | null>(null)
   const [busca, setBusca] = useState('')
   const [userInitials, setUserInitials] = useState('--')
 
   const dropdownRef = useRef<HTMLDivElement>(null)
   const userMenuRef = useRef<HTMLDivElement>(null)
+  const notifRef = useRef<HTMLDivElement>(null)
 
 
   useEffect(() => {
@@ -78,6 +91,17 @@ export default function TopbarFiscal() {
     function handleClick(e: MouseEvent) {
       if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
         setUserMenuAberto(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+        setNotifAberto(false)
+        setDetalheAberto(null)
       }
     }
     document.addEventListener('mousedown', handleClick)
@@ -132,6 +156,28 @@ export default function TopbarFiscal() {
     })
     setMenuAberto(false)
     setBusca('')
+  }
+
+  function formatarHora(ts: number) {
+    return new Date(ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  }
+
+  function statusMeta(item: FiscalNotification) {
+    if (item.status === 'running') return { label: 'Em andamento', color: '#f59e0b', icon: <Clock3 size={14} /> }
+    if (item.status === 'error') return { label: 'Erro', color: '#ef4444', icon: <AlertTriangle size={14} /> }
+    return { label: 'Concluido', color: '#22c55e', icon: <CheckCircle2 size={14} /> }
+  }
+
+  function abrirNotificacao(item: FiscalNotification) {
+    markAsRead(item.id)
+    if (item.status !== 'success') return
+    if (item.action?.type === 'download') {
+      triggerAction(item.id)
+      return
+    }
+    if (item.action?.type === 'details') {
+      setDetalheAberto(prev => prev === item.id ? null : item.id)
+    }
   }
 
   return (
@@ -347,20 +393,91 @@ export default function TopbarFiscal() {
           <Search size={18} />
         </button>
 
-        {/* Notificações */}
-        <button type="button" title="Notificações" style={iconBtn}>
-          <Bell size={18} />
-          <span style={{
-            position: 'absolute',
-            top: 7,
-            right: 7,
-            width: 8,
-            height: 8,
-            background: '#ef4444',
-            borderRadius: '50%',
-            border: '2px solid var(--af-surface)',
-          }} />
-        </button>
+        <div ref={notifRef} style={{ position: 'relative', flexShrink: 0 }}>
+          <button
+            type="button"
+            title="Notificacoes"
+            onClick={() => setNotifAberto(v => !v)}
+            style={{
+              ...iconBtn,
+              color: notifAberto ? 'var(--af-primary)' : iconBtn.color,
+              background: notifAberto ? 'var(--af-primary-soft)' : 'transparent',
+              border: notifAberto ? '1px solid var(--af-primary)' : '1px solid transparent',
+            }}
+          >
+            <Bell size={18} />
+            {unreadCount > 0 && (
+              <span style={{
+                position: 'absolute',
+                top: 3,
+                right: 3,
+                minWidth: 16,
+                height: 16,
+                padding: '0 4px',
+                background: '#ef4444',
+                borderRadius: 999,
+                border: '2px solid var(--af-surface)',
+                color: '#fff',
+                fontSize: 9,
+                fontWeight: 800,
+                lineHeight: '12px',
+                textAlign: 'center',
+                boxSizing: 'border-box',
+              }}>
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
+          </button>
+
+          {notifAberto && (
+            <div style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, width: 380, maxWidth: 'calc(100vw - 32px)', background: 'var(--af-elevated)', border: '1px solid var(--af-border)', borderRadius: 14, boxShadow: 'var(--af-shadow)', zIndex: 350, overflow: 'hidden' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '12px 12px 10px', borderBottom: '1px solid var(--af-border)' }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--af-text)' }}>Avisos</div>
+                  <div style={{ fontSize: 11, color: 'var(--af-muted)', marginTop: 2 }}>{notifications.length === 0 ? 'Nenhuma tarefa recente' : `${notifications.length} aviso(s) nesta sessao`}</div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <button type="button" title="Marcar tudo como lido" onClick={markAllAsRead} style={{ ...iconBtn, width: 30, height: 30, borderRadius: 8 }}><CheckCircle2 size={15} /></button>
+                  <button type="button" title="Limpar avisos lidos" onClick={clearRead} style={{ ...iconBtn, width: 30, height: 30, borderRadius: 8 }}><Trash2 size={15} /></button>
+                </div>
+              </div>
+
+              <div style={{ maxHeight: 420, overflowY: 'auto', padding: 8 }}>
+                {notifications.length === 0 ? (
+                  <div style={{ padding: '22px 14px', textAlign: 'center', color: 'var(--af-muted)', fontSize: 12 }}>Quando uma tarefa terminar, ela aparece aqui.</div>
+                ) : notifications.map(item => {
+                  const meta = statusMeta(item)
+                  const isDownload = item.action?.type === 'download'
+                  const isDetails = item.action?.type === 'details'
+                  const expanded = detalheAberto === item.id && isDetails
+                  return (
+                    <div key={item.id} style={{ border: `1px solid ${item.read ? 'var(--af-border)' : 'rgba(39,199,216,0.38)'}`, borderRadius: 12, marginBottom: 8, background: item.read ? 'var(--af-surface)' : 'var(--af-primary-soft)', overflow: 'hidden', position: 'relative' }}>
+                      <button type="button" onClick={() => abrirNotificacao(item)} style={{ width: '100%', border: 0, background: 'transparent', color: 'var(--af-text)', padding: '10px 34px 10px 10px', cursor: item.status === 'success' && item.action ? 'pointer' : 'default', textAlign: 'left', display: 'flex', alignItems: 'flex-start', gap: 9 }}>
+                        <span style={{ color: meta.color, flexShrink: 0, marginTop: 1 }}>{meta.icon}</span>
+                        <span style={{ minWidth: 0, flex: 1 }}>
+                          <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 3 }}>
+                            <strong style={{ fontSize: 12, fontWeight: 800, color: 'var(--af-text)' }}>{item.title}</strong>
+                            <small style={{ fontSize: 10, color: 'var(--af-muted)', whiteSpace: 'nowrap' }}>{formatarHora(item.completedAt ?? item.createdAt)}</small>
+                          </span>
+                          <span style={{ display: 'block', fontSize: 11, color: 'var(--af-muted)', lineHeight: 1.35 }}>{item.message}</span>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 7, color: meta.color, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                            {meta.label}
+                            {isDownload && <><Download size={12} /> Baixar</>}
+                            {isDetails && <><FileText size={12} /> Detalhes</>}
+                          </span>
+                        </span>
+                      </button>
+                      {expanded && item.action?.type === 'details' && (
+                        <pre style={{ margin: '0 10px 10px 33px', padding: 10, borderRadius: 10, background: 'var(--af-surface-2)', color: 'var(--af-text-soft)', border: '1px solid var(--af-border)', fontSize: 11, lineHeight: 1.45, whiteSpace: 'pre-wrap', maxHeight: 180, overflowY: 'auto', fontFamily: 'inherit' }}>{item.action.details}</pre>
+                      )}
+                      <button type="button" title="Remover aviso" onClick={() => removeNotification(item.id)} style={{ position: 'absolute', top: 7, right: 7, width: 22, height: 22, border: 0, borderRadius: 7, background: 'transparent', color: 'var(--af-muted)', cursor: 'pointer' }}><X size={13} /></button>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Avatar do usuário + menu dropdown */}
         <div ref={userMenuRef} style={{ position: 'relative', flexShrink: 0, marginLeft: 4 }}>

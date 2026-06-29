@@ -1,0 +1,50 @@
+<svg width="1200" height="760" viewBox="0 0 1200 760" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="760" rx="28" fill="#0f1b2d"/>
+  <rect x="34" y="34" width="1132" height="692" rx="24" fill="#142238" stroke="#2d4b6d"/>
+  <text x="72" y="92" fill="#f8fafc" font-family="Segoe UI, Arial" font-size="30" font-weight="800">Validador NF-e</text>
+  <text x="72" y="126" fill="#a8b8ca" font-family="Segoe UI, Arial" font-size="17">XMLs de entrada e saida com CFOP, NCM, classificacao e alertas.</text>
+  <rect x="72" y="164" width="190" height="52" rx="14" fill="#27c7d8"/>
+  <text x="98" y="197" fill="#06111f" font-family="Segoe UI, Arial" font-size="16" font-weight="800">Importar XML</text>
+  <rect x="286" y="164" width="178" height="52" rx="14" fill="#0f1b2d" stroke="#2d4b6d"/>
+  <text x="310" y="197" fill="#dbeafe" font-family="Segoe UI, Arial" font-size="16" font-weight="700">Somente alertas</text>
+  <rect x="72" y="250" width="1056" height="410" rx="18" fill="#0f1b2d" stroke="#2d4b6d"/>
+  <rect x="72" y="250" width="1056" height="52" rx="18" fill="#1c2c45"/>
+  <text x="104" y="283" fill="#a8b8ca" font-family="Segoe UI, Arial" font-size="13" font-weight="800">NOTA</text>
+  <text x="266" y="283" fill="#a8b8ca" font-family="Segoe UI, Arial" font-size="13" font-weight="800">PRODUTO</text>
+  <text x="570" y="283" fill="#a8b8ca" font-family="Segoe UI, Arial" font-size="13" font-weight="800">CFOP</text>
+  <text x="694" y="283" fill="#a8b8ca" font-family="Segoe UI, Arial" font-size="13" font-weight="800">CLASSIFICACAO</text>
+  <text x="922" y="283" fill="#a8b8ca" font-family="Segoe UI, Arial" font-size="13" font-weight="800">STATUS</text>
+  <g font-family="Segoe UI, Arial" font-size="15">
+    <text x="104" y="350" fill="#dbeafe">000182</text>
+    <text x="266" y="350" fill="#dbeafe">Mercadoria para revenda</text>
+    <text x="570" y="350" fill="#dbeafe">5102</text>
+    <rect x="694" y="330" width="112" height="28" rx="14" fill="#4ade8022" stroke="#4ade8055"/>
+    <text x="718" y="350" fill="#4ade80" font-weight="700">Revenda</text>
+    <rect x="922" y="330" width="78" height="28" rx="14" fill="#4ade8022" stroke="#4ade8055"/>
+    <text x="944" y="350" fill="#4ade80" font-weight="700">OK</text>
+    <line x1="104" y1="380" x2="1096" y2="380" stroke="#223149"/>
+    <text x="104" y="432" fill="#dbeafe">000183</text>
+    <text x="266" y="432" fill="#dbeafe">Material de uso e consumo</text>
+    <text x="570" y="432" fill="#dbeafe">1556</text>
+    <rect x="694" y="412" width="166" height="28" rx="14" fill="#fbbf2422" stroke="#fbbf2455"/>
+    <text x="718" y="432" fill="#fbbf24" font-weight="700">Uso e consumo</text>
+    <rect x="922" y="412" width="118" height="28" rx="14" fill="#fb718522" stroke="#fb718555"/>
+    <text x="944" y="432" fill="#fb7185" font-weight="700">ALERTA</text>
+    <line x1="104" y1="462" x2="1096" y2="462" stroke="#223149"/>
+    <text x="104" y="514" fill="#dbeafe">000184</text>
+    <text x="266" y="514" fill="#dbeafe">Equipamento industrial</text>
+    <text x="570" y="514" fill="#dbeafe">2551</text>
+    <rect x="694" y="494" width="140" height="28" rx="14" fill="#a78bfa22" stroke="#a78bfa55"/>
+    <text x="718" y="514" fill="#a78bfa" font-weight="700">Imobilizado</text>
+    <rect x="922" y="494" width="118" height="28" rx="14" fill="#fb718522" stroke="#fb718555"/>
+    <text x="944" y="514" fill="#fb7185" font-weight="700">ALERTA</text>
+    <line x1="104" y1="544" x2="1096" y2="544" stroke="#223149"/>
+    <text x="104" y="596" fill="#dbeafe">000185</text>
+    <text x="266" y="596" fill="#dbeafe">Servico tomado</text>
+    <text x="570" y="596" fill="#dbeafe">1933</text>
+    <rect x="694" y="576" width="102" height="28" rx="14" fill="#60a5fa22" stroke="#60a5fa55"/>
+    <text x="718" y="596" fill="#60a5fa" font-weight="700">Servico</text>
+    <rect x="922" y="576" width="78" height="28" rx="14" fill="#4ade8022" stroke="#4ade8055"/>
+    <text x="944" y="596" fill="#4ade80" font-weight="700">OK</text>
+  </g>
+</svg>
