@@ -121,7 +121,7 @@ type XmlPendente = {
   valorTotal: number;
 };
 
-type TipoImportacaoXml = "terceiro" | "proprio" | "ambas";
+type TipoImportacaoXml = "terceiro" | "proprio";
 type CfopVinculo = { cfopSaida: string; cfopEntrada: string };
 type LimpezaTipo = "xml_entrada" | "xml_saida" | "sped_fiscal" | "sped_contrib";
 
@@ -293,385 +293,571 @@ function tagTxt(node: Element|null|undefined, tagName: string): string {
 
 // Descrição resumida do CFOP para exibição no resumo
 const DESC_CFOP: Record<string,string> = {
-  // ── 1xxx — Entradas / Aquisições internas ─────────────────────────────────
+  // 1xxx - Entradas / aquisicoes internas
   "1101":"Compra p/ industrialização ou produção rural",
   "1102":"Compra p/ comercialização",
-  "1111":"Compra p/ industrialização de produto sob encomenda",
-  "1113":"Compra p/ industrialização — ativo imobilizado",
-  "1116":"Compra p/ uso e consumo",
-  "1117":"Compra p/ ativo imobilizado",
-  "1118":"Compra de embalagem",
-  "1120":"Compra p/ industrialização em zona franca",
-  "1121":"Compra p/ industrialização em zona franca — recebido de terceiro",
-  "1122":"Compra p/ comercialização em zona franca",
-  "1124":"Industrialização por encomenda — produto retornado",
-  "1125":"Industrialização por encomenda — insumo retornado",
-  "1126":"Compra p/ utilização na prestação de serviço sujeito ao ICMS",
-  "1151":"Transferência p/ industrialização",
+  "1111":"Compra p/ industrialização de mercadoria recebida anteriormente em consignação industrial",
+  "1113":"Compra p/ comercialização, de mercadoria recebida anteriormente em consignação mercantil",
+  "1116":"Compra p/ industrialização ou produção rural originada de encomenda p/ recebimento futuro",
+  "1117":"Compra p/ comercialização originada de encomenda p/ recebimento futuro",
+  "1118":"Compra de mercadoria p/ comercialização pelo adquirente originário, entregue pelo vendedor remetente ao destinatário, em venda à ordem.",
+  "1120":"Compra p/ industrialização, em venda à ordem, já recebida do vendedor remetente",
+  "1121":"Compra p/ comercialização, em venda à ordem, já recebida do vendedor remetente",
+  "1122":"Compra p/ industrialização em que a mercadoria foi remetida pelo fornecedor ao industrializador sem transitar pelo estabelecimento adquirente",
+  "1124":"Industrialização efetuada por outra empresa",
+  "1125":"Industrialização efetuada por outra empresa quando a mercadoria remetida p/ utilização no processo de industrialização não transitou pelo estabelecimento adquirente da mercadoria",
+  "1126":"Compra p/ utilização na prestação de serviço sujeita ao ICMS",
+  "1128":"Compra p/ utilização na prestação de serviço sujeita ao ISSQN",
+  "1151":"Transferência p/ industrialização ou produção rural",
   "1152":"Transferência p/ comercialização",
   "1153":"Transferência de energia elétrica p/ distribuição",
   "1154":"Transferência p/ utilização na prestação de serviço",
-  "1201":"Devolução de venda de produto industrializado",
-  "1202":"Devolução de venda de mercadoria",
-  "1203":"Devolução de venda de produto de extração mineral",
-  "1204":"Devolução de venda de bem do ativo imobilizado",
-  "1205":"Anulação de prestação de serviço de comunicação",
-  "1206":"Anulação de prestação de serviço de transporte",
-  "1207":"Anulação de venda de energia elétrica",
-  "1208":"Devolução de venda — simples nacional (excedente)",
-  "1209":"Devolução de venda — ST (excedente)",
-  "1210":"Devolução de venda — simples nacional",
-  "1250":"Compra de energia elétrica p/ distribuição",
-  "1251":"Compra de energia elétrica p/ consumo próprio",
-  "1252":"Compra de energia elétrica p/ estab. industrial",
-  "1253":"Compra de energia elétrica p/ estab. comercial",
-  "1256":"Compra de energia elétrica p/ produtor rural",
-  "1257":"Compra de energia elétrica p/ uso e consumo",
-  "1301":"Aquis. de serviço de comunicação p/ execução de serviço da mesma natureza",
-  "1302":"Aquis. de serviço de comunicação p/ execução de radiodifusão sonora",
-  "1303":"Aquis. de serviço de comunicação p/ estab. industrial",
-  "1304":"Aquis. de serviço de comunicação p/ estab. comercial",
-  "1307":"Aquis. de serviço de comunicação p/ uso e consumo",
-  "1351":"Aquis. de serviço de transporte p/ execução de serviço da mesma natureza",
-  "1352":"Aquis. de serviço de transporte p/ estab. industrial",
-  "1353":"Aquis. de serviço de transporte p/ estab. comercial",
-  "1354":"Aquis. de serviço de transporte p/ prestador de serviço de comunicação",
-  "1355":"Aquis. de serviço de transporte p/ uso e consumo",
-  "1356":"Aquis. de serviço de transporte p/ produtor rural",
-  "1401":"Compra de combustível p/ industrialização",
-  "1403":"Compra de combustível p/ comercialização",
-  "1406":"Compra de combustível p/ ativo imobilizado",
-  "1407":"Compra de combustível p/ uso e consumo",
+  "1201":"Devolução de venda de produção do estabelecimento",
+  "1202":"Devolução de venda de mercadoria adquirida ou recebida de terceiros",
+  "1203":"Devolução de venda de produção do estabelecimento, destinada à ZFM ou ALC",
+  "1204":"Devolução de venda de mercadoria adquirida ou recebida de terceiros, destinada à ZFM ou ALC",
+  "1205":"Anulação de valor relativo à prestação de serviço de comunicação",
+  "1206":"Anulação de valor relativo à prestação de serviço de transporte",
+  "1207":"Anulação de valor relativo à venda de energia elétrica",
+  "1208":"Devolução de produção do estabelecimento, remetida em transferência",
+  "1209":"Devolução de mercadoria adquirida ou recebida de terceiros, remetida em transferência",
+  "1212":"Devolução de venda no mercado interno de mercadoria industrializada e insumo importado sob o Regime Aduaneiro Especial de Entreposto Industrial (Recof-Sped)",
+  "1251":"Compra de energia elétrica p/ distribuição ou comercialização",
+  "1252":"Compra de energia elétrica por estabelecimento industrial",
+  "1253":"Compra de energia elétrica por estabelecimento comercial",
+  "1254":"Compra de energia elétrica por estabelecimento prestador de serviço de transporte",
+  "1255":"Compra de energia elétrica por estabelecimento prestador de serviço de comunicação",
+  "1256":"Compra de energia elétrica por estabelecimento de produtor rural",
+  "1257":"Compra de energia elétrica p/ consumo por demanda contratada",
+  "1301":"Aquisição de serviço de comunicação p/ execução de serviço da mesma natureza",
+  "1302":"Aquisição de serviço de comunicação por estabelecimento industrial",
+  "1303":"Aquisição de serviço de comunicação por estabelecimento comercial",
+  "1304":"Aquisição de serviço de comunicação por estabelecimento de prestador de serviço de transporte",
+  "1305":"Aquisição de serviço de comunicação por estabelecimento de geradora ou de distribuidora de energia elétrica",
+  "1306":"Aquisição de serviço de comunicação por estabelecimento de produtor rural",
+  "1351":"Aquisição de serviço de transporte p/ execução de serviço da mesma natureza",
+  "1352":"Aquisição de serviço de transporte por estabelecimento industrial",
+  "1353":"Aquisição de serviço de transporte por estabelecimento comercial",
+  "1354":"Aquisição de serviço de transporte por estabelecimento de prestador de serviço de comunicação",
+  "1355":"Aquisição de serviço de transporte por estabelecimento de geradora ou de distribuidora de energia elétrica",
+  "1356":"Aquisição de serviço de transporte por estabelecimento de produtor rural",
+  "1360":"Aquisição de serviço de transporte por contribuinte-substituto em relação ao serviço de transporte",
+  "1401":"Compra p/ industrialização ou produção rural de mercadoria sujeita a ST",
+  "1403":"Compra p/ comercialização em operação com mercadoria sujeita a ST",
+  "1406":"Compra de bem p/ o ativo imobilizado cuja mercadoria está sujeita a ST",
+  "1407":"Compra de mercadoria p/ uso ou consumo cuja mercadoria está sujeita a ST",
+  "1408":"Transferência p/ industrialização ou produção rural de mercadoria sujeita a ST",
+  "1409":"Transferência p/ comercialização em operação com mercadoria sujeita a ST",
+  "1410":"Devolução de venda de mercadoria, de produção do estabelecimento, sujeita a ST",
+  "1411":"Devolução de venda de mercadoria adquirida ou recebida de terceiros em operação com mercadoria sujeita a ST",
+  "1414":"Retorno de mercadoria de produção do estabelecimento, remetida p/ venda fora do estabelecimento, sujeita a ST",
+  "1415":"Retorno de mercadoria adquirida ou recebida de terceiros, remetida p/ venda fora do estabelecimento em operação com mercadoria sujeita a ST",
+  "1451":"Retorno de animal do estabelecimento produtor",
+  "1452":"Retorno de insumo não utilizado na produção",
   "1501":"Entrada de mercadoria recebida com fim específico de exportação",
-  "1503":"Entrada de mercadoria de estab. que destina ao exterior",
-  "1551":"Compra de bem p/ ativo imobilizado",
+  "1503":"Entrada decorrente de devolução de produto, de fabricação do estabelecimento, remetido com fim específico de exportação",
+  "1504":"Entrada decorrente de devolução de mercadoria remetida com fim específico de exportação, adquirida ou recebida de terceiros",
+  "1505":"Entrada decorrente de devolução simbólica de mercadoria remetida p/ formação de lote de exportação, de produto industrializado ou produzido pelo próprio estabelecimento.",
+  "1506":"Entrada decorrente de devolução simbólica de mercadoria, adquirida ou recebida de terceiros, remetida p/ formação de lote de exportação.",
+  "1551":"Compra de bem p/ o ativo imobilizado",
   "1552":"Transferência de bem do ativo imobilizado",
   "1553":"Devolução de venda de bem do ativo imobilizado",
-  "1554":"Retorno de bem do ativo imobilizado p/ conserto",
-  "1555":"Entrada de bem do ativo imobilizado de terceiro",
-  "1556":"Compra de material de uso e consumo",
-  "1557":"Transferência de material de uso e consumo",
-  "1603":"Importação de combustível",
-  "1651":"Compra de combustível — ST",
-  "1652":"Compra de combustível — contribuinte substituto",
-  "1653":"Compra de combustível — sem ST (exceto volume morto)",
+  "1554":"Retorno de bem do ativo imobilizado remetido p/ uso fora do estabelecimento",
+  "1555":"Entrada de bem do ativo imobilizado de terceiro, remetido p/ uso no estabelecimento",
+  "1556":"Compra de material p/ uso ou consumo",
+  "1557":"Transferência de material p/ uso ou consumo",
+  "1601":"Recebimento, por transferência, de crédito de ICMS",
+  "1602":"Recebimento, por transferência, de saldo credor do ICMS, de outro estabelecimento da mesma empresa, p/ compensação de saldo devedor do imposto.",
+  "1603":"Ressarcimento de ICMS retido por substituição tributária",
+  "1604":"Lançamento do crédito relativo à compra de bem p/ o ativo imobilizado",
+  "1605":"Recebimento, por transferência, de saldo devedor do ICMS de outro estabelecimento da mesma empresa",
+  "1651":"Compra de combustível ou lubrificante p/ industrialização subseqüente",
+  "1652":"Compra de combustível ou lubrificante p/ comercialização",
+  "1653":"Compra de combustível ou lubrificante por consumidor ou usuário final",
+  "1658":"Transferência de combustível ou lubrificante p/ industrialização",
+  "1659":"Transferência de combustível ou lubrificante p/ comercialização",
+  "1660":"Devolução de venda de combustível ou lubrificante destinados à industrialização subseqüente",
+  "1661":"Devolução de venda de combustível ou lubrificante destinados à comercialização",
+  "1662":"Devolução de venda de combustível ou lubrificante destinados a consumidor ou usuário final",
+  "1663":"Entrada de combustível ou lubrificante p/ armazenagem",
+  "1664":"Retorno de combustível ou lubrificante remetidos p/ armazenagem",
   "1901":"Entrada p/ industrialização por encomenda",
   "1902":"Retorno de mercadoria remetida p/ industrialização por encomenda",
-  "1910":"Entrada de bonificação em mercadoria",
+  "1903":"Entrada de mercadoria remetida p/ industrialização e não aplicada no referido processo",
+  "1904":"Retorno de remessa p/ venda fora do estabelecimento",
+  "1905":"Entrada de mercadoria recebida p/ depósito em depósito fechado ou armazém geral",
+  "1906":"Retorno de mercadoria remetida p/ depósito fechado ou armazém geral",
+  "1907":"Retorno simbólico de mercadoria remetida p/ depósito fechado ou armazém geral",
+  "1908":"Entrada de bem por conta de contrato de comodato",
+  "1909":"Retorno de bem remetido por conta de contrato de comodato",
+  "1910":"Entrada de bonificação, doação ou brinde",
   "1911":"Entrada de amostra grátis",
-  "1912":"Entrada de mercadoria em doação",
-  "1913":"Entrada de brinde",
-  "1914":"Entrada de mercadoria p/ demonstração",
-  "1915":"Retorno de mercadoria remetida p/ demonstração",
-  "1916":"Entrada de produto recebido de armazém-geral",
-  "1919":"Retorno de produto enviado a armazém-geral",
-  "1924":"Retorno de remessa p/ industrialização por encomenda",
+  "1912":"Entrada de mercadoria ou bem recebido p/ demonstração",
+  "1913":"Retorno de mercadoria ou bem remetido p/ demonstração",
+  "1914":"Retorno de mercadoria ou bem remetido p/ exposição ou feira",
+  "1915":"Entrada de mercadoria ou bem recebido p/ conserto ou reparo",
+  "1916":"Retorno de mercadoria ou bem remetido p/ conserto ou reparo",
+  "1917":"Entrada de mercadoria recebida em consignação mercantil ou industrial",
+  "1918":"Devolução de mercadoria remetida em consignação mercantil ou industrial",
+  "1919":"Devolução simbólica de mercadoria vendida ou utilizada em processo industrial, remetida anteriormente em consignação mercantil ou industrial",
+  "1920":"Entrada de vasilhame ou sacaria",
+  "1921":"Retorno de vasilhame ou sacaria",
+  "1922":"Lançamento efetuado a título de simples faturamento decorrente de compra p/ recebimento futuro",
+  "1923":"Entrada de mercadoria recebida do vendedor remetente, em venda à ordem",
+  "1924":"Entrada p/ industrialização por conta e ordem do adquirente da mercadoria, quando esta não transitar pelo estabelecimento do adquirente",
+  "1925":"Retorno de mercadoria remetida p/ industrialização por conta e ordem do adquirente da mercadoria, quando esta não transitar pelo estabelecimento do adquirente",
+  "1926":"Lançamento efetuado a título de reclassificação de mercadoria decorrente de formação de kit ou de sua desagregação",
+  "1931":"Lançamento efetuado pelo tomador do serviço de transporte, quando a responsabilidade de retenção do imposto for atribuída ao remetente ou alienante da mercadoria, pelo serviço de transporte realizado por transportador autônomo ou por transportador não-inscrito na UF onde se tenha iniciado o serviço.",
+  "1932":"Aquisição de serviço de transporte iniciado em UF diversa daquela onde esteja inscrito o prestador",
+  "1933":"Aquisição de serviço tributado pelo Imposto sobre Serviços de Qualquer Natureza",
+  "1934":"Entrada simbólica de mercadoria recebida p/ depósito fechado ou armazém geral",
   "1949":"Outra entrada de mercadoria ou prestação de serviço não especificada",
-  // ── 2xxx — Entradas / Aquisições interestaduais ───────────────────────────
-  "2101":"Compra p/ industrialização ou produção rural (interestadual)",
-  "2102":"Compra p/ comercialização (interestadual)",
-  "2111":"Compra p/ industrialização de produto sob encomenda (interestadual)",
-  "2113":"Compra p/ industrialização — ativo imobilizado (interestadual)",
-  "2116":"Compra p/ uso e consumo (interestadual)",
-  "2117":"Compra p/ ativo imobilizado (interestadual)",
-  "2118":"Compra de embalagem (interestadual)",
-  "2120":"Compra p/ industrialização em zona franca (interestadual)",
-  "2122":"Compra p/ comercialização em zona franca (interestadual)",
-  "2124":"Industrialização por encomenda — produto retornado (interestadual)",
-  "2125":"Industrialização por encomenda — insumo retornado (interestadual)",
-  "2126":"Compra p/ utilização na prestação de serviço sujeito ao ICMS (interestadual)",
-  "2151":"Transferência p/ industrialização (interestadual)",
-  "2152":"Transferência p/ comercialização (interestadual)",
-  "2153":"Transferência de energia elétrica p/ distribuição (interestadual)",
-  "2154":"Transferência p/ utilização na prestação de serviço (interestadual)",
-  "2201":"Devolução de venda de produto industrializado (interestadual)",
-  "2202":"Devolução de venda de mercadoria (interestadual)",
-  "2203":"Devolução de venda de produto de extração mineral (interestadual)",
-  "2204":"Devolução de venda de bem do ativo imobilizado (interestadual)",
-  "2205":"Anulação de prestação de serviço de comunicação (interestadual)",
-  "2206":"Anulação de prestação de serviço de transporte (interestadual)",
-  "2207":"Anulação de venda de energia elétrica (interestadual)",
-  "2208":"Devolução de venda — simples nacional (interestadual)",
-  "2250":"Compra de energia elétrica p/ distribuição (interestadual)",
-  "2251":"Compra de energia elétrica p/ consumo próprio (interestadual)",
-  "2252":"Compra de energia elétrica p/ estab. industrial (interestadual)",
-  "2253":"Compra de energia elétrica p/ estab. comercial (interestadual)",
-  "2256":"Compra de energia elétrica p/ produtor rural (interestadual)",
-  "2257":"Compra de energia elétrica p/ uso e consumo (interestadual)",
-  "2301":"Aquis. de serviço de comunicação p/ execução de serviço da mesma natureza (interestadual)",
-  "2302":"Aquis. de serviço de comunicação p/ radiodifusão sonora (interestadual)",
-  "2303":"Aquis. de serviço de comunicação p/ estab. industrial (interestadual)",
-  "2304":"Aquis. de serviço de comunicação p/ estab. comercial (interestadual)",
-  "2307":"Aquis. de serviço de comunicação p/ uso e consumo (interestadual)",
-  "2351":"Aquis. de serviço de transporte p/ execução de serviço da mesma natureza (interestadual)",
-  "2352":"Aquis. de serviço de transporte p/ estab. industrial (interestadual)",
-  "2353":"Aquis. de serviço de transporte p/ estab. comercial (interestadual)",
-  "2355":"Aquis. de serviço de transporte p/ uso e consumo (interestadual)",
-  "2401":"Compra de combustível p/ industrialização (interestadual)",
-  "2403":"Compra de combustível p/ comercialização (interestadual)",
-  "2406":"Compra de combustível p/ ativo imobilizado (interestadual)",
-  "2407":"Compra de combustível p/ uso e consumo (interestadual)",
-  "2501":"Entrada de mercadoria recebida com fim específico de exportação (interestadual)",
-  "2551":"Compra de bem p/ ativo imobilizado (interestadual)",
-  "2552":"Transferência de bem do ativo imobilizado (interestadual)",
-  "2553":"Devolução de venda de bem do ativo imobilizado (interestadual)",
-  "2555":"Entrada de bem do ativo imobilizado de terceiro (interestadual)",
-  "2556":"Compra de material de uso e consumo (interestadual)",
-  "2557":"Transferência de material de uso e consumo (interestadual)",
-  "2603":"Importação de combustível (interestadual)",
-  "2651":"Compra de combustível — ST (interestadual)",
-  "2910":"Entrada de bonificação em mercadoria (interestadual)",
-  "2911":"Entrada de amostra grátis (interestadual)",
-  "2912":"Entrada de mercadoria em doação (interestadual)",
-  "2914":"Entrada de mercadoria p/ demonstração (interestadual)",
-  "2916":"Entrada de produto recebido de armazém-geral (interestadual)",
-  "2949":"Outra entrada de mercadoria ou prestação de serviço não especificada (interestadual)",
-  // ── 3xxx — Entradas / Aquisições do exterior ──────────────────────────────
-  "3101":"Compra p/ industrialização ou produção rural — importação",
-  "3102":"Compra p/ comercialização — importação",
-  "3126":"Compra p/ utilização na prestação de serviço — importação",
-  "3127":"Compra p/ industrialização — ativo imobilizado — importação",
-  "3201":"Devolução de venda p/ o exterior",
-  "3211":"Devolução de venda de bem do ativo imobilizado p/ o exterior",
-  "3251":"Compra de bem p/ ativo imobilizado — importação",
-  "3301":"Aquis. de serviço de comunicação p/ execução de serviço da mesma natureza — importação",
-  "3351":"Aquis. de serviço de transporte p/ execução de serviço da mesma natureza — importação",
-  "3352":"Aquis. de serviço de transporte p/ estab. industrial — importação",
-  "3353":"Aquis. de serviço de transporte p/ estab. comercial — importação",
-  "3356":"Aquis. de serviço de transporte p/ uso e consumo — importação",
-  "3503":"Devolução de mercadoria exportada com fim específico de exportação",
-  "3551":"Compra de bem p/ ativo imobilizado — importação",
-  "3553":"Devolução de venda de bem do ativo imobilizado — importação",
-  "3556":"Compra de material de uso e consumo — importação",
-  "3651":"Importação de combustível",
-  "3949":"Outra entrada de mercadoria — importação",
-  // ── 5xxx — Saídas / Prestações internas ──────────────────────────────────
-  "5101":"Venda de produto industrializado",
-  "5102":"Venda de mercadoria adquirida p/ comercialização",
-  "5103":"Venda de produto industrializado — produção própria p/ encomendante",
-  "5104":"Venda de mercadoria utilizada no processo produtivo",
-  "5105":"Venda de produto industrializado — mão de obra de terceiros",
-  "5106":"Venda de produto industrializado — ativo imobilizado",
-  "5109":"Venda de produto industrializado utilizado como insumo — zona franca",
-  "5110":"Venda de produto industrializado — transferência de crédito",
-  "5111":"Venda de produto industrializado — zona franca",
-  "5112":"Venda de produto — encomenda (insumos do encomendante)",
-  "5113":"Venda de produto — zona franca — mão de obra de terceiros",
-  "5114":"Venda de produto — encomenda — insumos próprios",
-  "5115":"Venda de insumo importado com suspensão do IPI",
-  "5116":"Venda de produto industrializado originada de encomenda",
-  "5117":"Venda de mercadoria adquirida originada de encomenda",
-  "5118":"Venda de produto de ativo imobilizado",
-  "5119":"Venda de produto industrializado — falta de mercadoria",
-  "5120":"Venda de produto industrializado p/ zona franca",
-  "5122":"Venda de produto — zona franca — recebido de terceiro",
-  "5123":"Venda de produto — zona franca — equiparado ao exportador",
-  "5124":"Industrialização efetuada p/ outras empresas",
-  "5125":"Industrialização efetuada p/ outras empresas — insumos de terceiros",
-  "5151":"Transferência p/ industrialização",
-  "5152":"Transferência p/ comercialização",
+  // 2xxx - Entradas / aquisicoes interestaduais
+  "2101":"Compra p/ industrialização ou produção rural",
+  "2102":"Compra p/ comercialização",
+  "2111":"Compra p/ industrialização de mercadoria recebida anteriormente em consignação industrial",
+  "2113":"Compra p/ comercialização, de mercadoria recebida anteriormente em consignação mercantil",
+  "2116":"Compra p/ industrialização ou produção rural originada de encomenda p/ recebimento futuro",
+  "2117":"Compra p/ comercialização originada de encomenda p/ recebimento futuro",
+  "2118":"Compra de mercadoria p/ comercialização pelo adquirente originário, entregue pelo vendedor remetente ao destinatário, em venda à ordem",
+  "2120":"Compra p/ industrialização, em venda à ordem, já recebida do vendedor remetente",
+  "2121":"Compra p/ comercialização, em venda à ordem, já recebida do vendedor remetente",
+  "2122":"Compra p/ industrialização em que a mercadoria foi remetida pelo fornecedor ao industrializador sem transitar pelo estabelecimento adquirente",
+  "2124":"Industrialização efetuada por outra empresa",
+  "2125":"Industrialização efetuada por outra empresa quando a mercadoria remetida p/ utilização no processo de industrialização não transitou pelo estabelecimento adquirente da mercadoria",
+  "2126":"Compra p/ utilização na prestação de serviço sujeita ao ICMS",
+  "2128":"Compra p/ utilização na prestação de serviço sujeita ao ISSQN",
+  "2151":"Transferência p/ industrialização ou produção rural",
+  "2152":"Transferência p/ comercialização",
+  "2153":"Transferência de energia elétrica p/ distribuição",
+  "2154":"Transferência p/ utilização na prestação de serviço",
+  "2201":"Devolução de venda de produção do estabelecimento",
+  "2202":"Devolução de venda de mercadoria adquirida ou recebida de terceiros",
+  "2203":"Devolução de venda de produção do estabelecimento destinada à ZFM ou ALC",
+  "2204":"Devolução de venda de mercadoria adquirida ou recebida de terceiros, destinada à ZFM ou ALC",
+  "2205":"Anulação de valor relativo à prestação de serviço de comunicação",
+  "2206":"Anulação de valor relativo à prestação de serviço de transporte",
+  "2207":"Anulação de valor relativo à venda de energia elétrica",
+  "2208":"Devolução de produção do estabelecimento, remetida em transferência.",
+  "2209":"Devolução de mercadoria adquirida ou recebida de terceiros e remetida em transferência",
+  "2212":"Devolução de venda no mercado interno de mercadoria industrializada e insumo importado sob o Regime Aduaneiro Especial de Entreposto Industrial (Recof-Sped)",
+  "2251":"Compra de energia elétrica p/ distribuição ou comercialização",
+  "2252":"Compra de energia elétrica por estabelecimento industrial",
+  "2253":"Compra de energia elétrica por estabelecimento comercial",
+  "2254":"Compra de energia elétrica por estabelecimento prestador de serviço de transporte",
+  "2255":"Compra de energia elétrica por estabelecimento prestador de serviço de comunicação",
+  "2256":"Compra de energia elétrica por estabelecimento de produtor rural",
+  "2257":"Compra de energia elétrica p/ consumo por demanda contratada",
+  "2301":"Aquisição de serviço de comunicação p/ execução de serviço da mesma natureza",
+  "2302":"Aquisição de serviço de comunicação por estabelecimento industrial",
+  "2303":"Aquisição de serviço de comunicação por estabelecimento comercial",
+  "2304":"Aquisição de serviço de comunicação por estabelecimento de prestador de serviço de transporte",
+  "2305":"Aquisição de serviço de comunicação por estabelecimento de geradora ou de distribuidora de energia elétrica",
+  "2306":"Aquisição de serviço de comunicação por estabelecimento de produtor rural",
+  "2351":"Aquisição de serviço de transporte p/ execução de serviço da mesma natureza",
+  "2352":"Aquisição de serviço de transporte por estabelecimento industrial",
+  "2353":"Aquisição de serviço de transporte por estabelecimento comercial",
+  "2354":"Aquisição de serviço de transporte por estabelecimento de prestador de serviço de comunicação",
+  "2355":"Aquisição de serviço de transporte por estabelecimento de geradora ou de distribuidora de energia elétrica",
+  "2356":"Aquisição de serviço de transporte por estabelecimento de produtor rural",
+  "2401":"Compra p/ industrialização ou produção rural de mercadoria sujeita a ST",
+  "2403":"Compra p/ comercialização em operação com mercadoria sujeita a ST",
+  "2406":"Compra de bem p/ o ativo imobilizado cuja mercadoria está sujeita a ST",
+  "2407":"Compra de mercadoria p/ uso ou consumo cuja mercadoria está sujeita a ST",
+  "2408":"Transferência p/ industrialização ou produção rural de mercadoria sujeita a ST",
+  "2409":"Transferência p/ comercialização em operação com mercadoria sujeita a ST",
+  "2410":"Devolução de venda de produção do estabelecimento, quando o produto sujeito a ST",
+  "2411":"Devolução de venda de mercadoria adquirida ou recebida de terceiros em operação com mercadoria sujeita a ST",
+  "2414":"Retorno de produção do estabelecimento, remetida p/ venda fora do estabelecimento, quando o produto sujeito a ST",
+  "2415":"Retorno de mercadoria adquirida ou recebida de terceiros, remetida p/ venda fora do estabelecimento em operação com mercadoria sujeita a ST",
+  "2501":"Entrada de mercadoria recebida com fim específico de exportação",
+  "2503":"Entrada decorrente de devolução de produto industrializado pelo estabelecimento, remetido com fim específico de exportação",
+  "2504":"Entrada decorrente de devolução de mercadoria remetida com fim específico de exportação, adquirida ou recebida de terceiros",
+  "2505":"Entrada decorrente de devolução simbólica de mercadoria remetida p/ formação de lote de exportação, de produto industrializado ou produzido pelo próprio estabelecimento.",
+  "2506":"Entrada decorrente de devolução simbólica de mercadoria, adquirida ou recebida de terceiros, remetida p/ formação de lote de exportação.",
+  "2551":"Compra de bem p/ o ativo imobilizado",
+  "2552":"Transferência de bem do ativo imobilizado",
+  "2553":"Devolução de venda de bem do ativo imobilizado",
+  "2554":"Retorno de bem do ativo imobilizado remetido p/ uso fora do estabelecimento",
+  "2555":"Entrada de bem do ativo imobilizado de terceiro, remetido p/ uso no estabelecimento",
+  "2556":"Compra de material p/ uso ou consumo",
+  "2557":"Transferência de material p/ uso ou consumo",
+  "2603":"Ressarcimento de ICMS retido por substituição tributária",
+  "2651":"Compra de combustível ou lubrificante p/ industrialização subseqüente",
+  "2652":"Compra de combustível ou lubrificante p/ comercialização",
+  "2653":"Compra de combustível ou lubrificante por consumidor ou usuário final",
+  "2658":"Transferência de combustível ou lubrificante p/ industrialização",
+  "2659":"Transferência de combustível ou lubrificante p/ comercialização",
+  "2660":"Devolução de venda de combustível ou lubrificante destinados à industrialização subseqüente",
+  "2661":"Devolução de venda de combustível ou lubrificante destinados à comercialização",
+  "2662":"Devolução de venda de combustível ou lubrificante destinados a consumidor ou usuário final",
+  "2663":"Entrada de combustível ou lubrificante p/ armazenagem",
+  "2664":"Retorno de combustível ou lubrificante remetidos p/ armazenagem",
+  "2901":"Entrada p/ industrialização por encomenda",
+  "2902":"Retorno de mercadoria remetida p/ industrialização por encomenda",
+  "2903":"Entrada de mercadoria remetida p/ industrialização e não aplicada no referido processo",
+  "2904":"Retorno de remessa p/ venda fora do estabelecimento",
+  "2905":"Entrada de mercadoria recebida p/ depósito em depósito fechado ou armazém geral",
+  "2906":"Retorno de mercadoria remetida p/ depósito fechado ou armazém geral",
+  "2907":"Retorno simbólico de mercadoria remetida p/ depósito fechado ou armazém geral",
+  "2908":"Entrada de bem por conta de contrato de comodato",
+  "2909":"Retorno de bem remetido por conta de contrato de comodato",
+  "2910":"Entrada de bonificação, doação ou brinde",
+  "2911":"Entrada de amostra grátis",
+  "2912":"Entrada de mercadoria ou bem recebido p/ demonstração",
+  "2913":"Retorno de mercadoria ou bem remetido p/ demonstração",
+  "2914":"Retorno de mercadoria ou bem remetido p/ exposição ou feira",
+  "2915":"Entrada de mercadoria ou bem recebido p/ conserto ou reparo",
+  "2916":"Retorno de mercadoria ou bem remetido p/ conserto ou reparo",
+  "2917":"Entrada de mercadoria recebida em consignação mercantil ou industrial",
+  "2918":"Devolução de mercadoria remetida em consignação mercantil ou industrial",
+  "2919":"Devolução simbólica de mercadoria vendida ou utilizada em processo industrial, remetida anteriormente em consignação mercantil ou industrial",
+  "2920":"Entrada de vasilhame ou sacaria",
+  "2921":"Retorno de vasilhame ou sacaria",
+  "2922":"Lançamento efetuado a título de simples faturamento decorrente de compra p/ recebimento futuro",
+  "2923":"Entrada de mercadoria recebida do vendedor remetente, em venda à ordem",
+  "2924":"Entrada p/ industrialização por conta e ordem do adquirente da mercadoria, quando esta não transitar pelo estabelecimento do adquirente",
+  "2925":"Retorno de mercadoria remetida p/ industrialização por conta e ordem do adquirente da mercadoria, quando esta não transitar pelo estabelecimento do adquirente",
+  "2931":"Lançamento efetuado pelo tomador do serviço de transporte, quando a responsabilidade de retenção do imposto for atribuída ao remetente ou alienante da mercadoria, pelo serviço de transporte realizado por transportador autônomo ou por transportador não-inscrito na UF onde se tenha iniciado o serviço",
+  "2932":"Aquisição de serviço de transporte iniciado em UF diversa daquela onde esteja inscrito o prestador",
+  "2933":"Aquisição de serviço tributado pelo Imposto Sobre Serviços de Qualquer Natureza",
+  "2934":"Entrada simbólica de mercadoria recebida p/ depósito fechado ou armazém geral",
+  "2949":"Outra entrada de mercadoria ou prestação de serviço não especificado",
+  // 3xxx - Entradas / aquisicoes do exterior
+  "3101":"Compra p/ industrialização ou produção rural",
+  "3102":"Compra p/ comercialização",
+  "3126":"Compra p/ utilização na prestação de serviço sujeita ao ICMS",
+  "3127":"Compra p/ industrialização sob o regime de drawback",
+  "3128":"Compra p/ utilização na prestação de serviço sujeita ao ISSQN",
+  "3129":"Compra para industrialização sob o Regime Aduaneiro Especial de Entreposto Industrial (Recof-Sped)",
+  "3201":"Devolução de venda de produção do estabelecimento",
+  "3202":"Devolução de venda de mercadoria adquirida ou recebida de terceiros",
+  "3205":"Anulação de valor relativo à prestação de serviço de comunicação",
+  "3206":"Anulação de valor relativo à prestação de serviço de transporte",
+  "3207":"Anulação de valor relativo à venda de energia elétrica",
+  "3211":"Devolução de venda de produção do estabelecimento sob o regime de drawback",
+  "3212":"Devolução de venda no mercado externo de mercadoria industrializada sob o Regime Aduaneiro Especial de Entreposto Industrial (Recof-Sped)",
+  "3251":"Compra de energia elétrica p/ distribuição ou comercialização",
+  "3301":"Aquisição de serviço de comunicação p/ execução de serviço da mesma natureza",
+  "3351":"Aquisição de serviço de transporte p/ execução de serviço da mesma natureza",
+  "3352":"Aquisição de serviço de transporte por estabelecimento industrial",
+  "3353":"Aquisição de serviço de transporte por estabelecimento comercial",
+  "3354":"Aquisição de serviço de transporte por estabelecimento de prestador de serviço de comunicação",
+  "3355":"Aquisição de serviço de transporte por estabelecimento de geradora ou de distribuidora de energia elétrica",
+  "3356":"Aquisição de serviço de transporte por estabelecimento de produtor rural",
+  "3503":"Devolução de mercadoria exportada que tenha sido recebida com fim específico de exportação",
+  "3551":"Compra de bem p/ o ativo imobilizado",
+  "3553":"Devolução de venda de bem do ativo imobilizado",
+  "3556":"Compra de material p/ uso ou consumo",
+  "3651":"Compra de combustível ou lubrificante p/ industrialização subseqüente",
+  "3652":"Compra de combustível ou lubrificante p/ comercialização",
+  "3653":"Compra de combustível ou lubrificante por consumidor ou usuário final",
+  "3930":"Lançamento efetuado a título de entrada de bem sob amparo de regime especial aduaneiro de admissão temporária",
+  "3949":"Outra entrada de mercadoria ou prestação de serviço não especificado",
+  // 5xxx - Saidas / prestacoes internas
+  "5101":"Venda de produção do estabelecimento",
+  "5102":"Venda de mercadoria adquirida ou recebida de terceiros",
+  "5103":"Venda de produção do estabelecimento efetuada fora do estabelecimento",
+  "5104":"Venda de mercadoria adquirida ou recebida de terceiros, efetuada fora do estabelecimento",
+  "5105":"Venda de produção do estabelecimento que não deva por ele transitar",
+  "5106":"Venda de mercadoria adquirida ou recebida de terceiros, que não deva por ele transitar",
+  "5109":"Venda de produção do estabelecimento destinada à ZFM ou ALC",
+  "5110":"Venda de mercadoria, adquirida ou recebida de terceiros, destinada à ZFM ou ALC",
+  "5111":"Venda de produção do estabelecimento remetida anteriormente em consignação industrial",
+  "5112":"Venda de mercadoria adquirida ou recebida de terceiros remetida anteriormente em consignação industrial",
+  "5113":"Venda de produção do estabelecimento remetida anteriormente em consignação mercantil",
+  "5114":"Venda de mercadoria adquirida ou recebida de terceiros remetida anteriormente em consignação mercantil",
+  "5115":"Venda de mercadoria adquirida ou recebida de terceiros, recebida anteriormente em consignação mercantil",
+  "5116":"Venda de produção do estabelecimento originada de encomenda p/ entrega futura",
+  "5117":"Venda de mercadoria adquirida ou recebida de terceiros, originada de encomenda p/ entrega futura",
+  "5118":"Venda de produção do estabelecimento entregue ao destinatário por conta e ordem do adquirente originário, em venda à ordem",
+  "5119":"Venda de mercadoria adquirida ou recebida de terceiros entregue ao destinatário por conta e ordem do adquirente originário, em venda à ordem",
+  "5120":"Venda de mercadoria adquirida ou recebida de terceiros entregue ao destinatário pelo vendedor remetente, em venda à ordem",
+  "5122":"Venda de produção do estabelecimento remetida p/ industrialização, por conta e ordem do adquirente, sem transitar pelo estabelecimento do adquirente",
+  "5123":"Venda de mercadoria adquirida ou recebida de terceiros remetida p/ industrialização, por conta e ordem do adquirente, sem transitar pelo estabelecimento do adquirente",
+  "5124":"Industrialização efetuada p/ outra empresa",
+  "5125":"Industrialização efetuada p/ outra empresa quando a mercadoria recebida p/ utilização no processo de industrialização não transitar pelo estabelecimento adquirente da mercadoria",
+  "5129":"Venda de insumo importado e de mercadoria industrializada sob o amparo do Regime Aduaneiro Especial de Entreposto Industrial (Recof-Sped)",
+  "5152":"Transferência de mercadoria adquirida ou recebida de terceiros",
   "5153":"Transferência de energia elétrica",
-  "5154":"Transferência p/ utilização na prestação de serviço",
-  "5155":"Transferência de produção do estabelecimento",
-  "5156":"Transferência de mercadoria adquirida p/ comércio",
-  "5201":"Devolução de compra p/ industrialização",
+  "5155":"Transferência de produção do estabelecimento, que não deva por ele transitar",
+  "5156":"Transferência de mercadoria adquirida ou recebida de terceiros, que não deva por ele transitar",
+  "5201":"Devolução de compra p/ industrialização ou produção rural",
   "5202":"Devolução de compra p/ comercialização",
-  "5203":"Devolução de compra de produto mineral",
-  "5204":"Devolução de compra p/ formação de lote exportação",
-  "5205":"Anulação de valor relativo a serviço de comunicação",
-  "5206":"Anulação de valor relativo a serviço de transporte",
-  "5207":"Anulação de valor relativo a energia elétrica",
-  "5208":"Devolução de compra — simples nacional",
-  "5209":"Devolução de compra — ST",
-  "5210":"Devolução de compra de energia elétrica",
-  "5251":"Venda de energia elétrica p/ distribuição",
-  "5252":"Venda de energia elétrica p/ estab. industrial",
-  "5253":"Venda de energia elétrica p/ estab. comercial",
-  "5254":"Venda de energia elétrica p/ estab. prestador de serviços de transporte",
-  "5255":"Venda de energia elétrica p/ estab. prestador de serviços de comunicação",
-  "5256":"Venda de energia elétrica p/ estab. de produtor rural",
-  "5257":"Venda de energia elétrica p/ uso e consumo",
-  "5258":"Venda de energia elétrica p/ consumidor final",
-  "5301":"Prest. de serviço de comunicação p/ execução de serviço da mesma natureza",
-  "5302":"Prest. de serviço de comunicação p/ estab. industrial",
-  "5303":"Prest. de serviço de comunicação p/ estab. comercial",
-  "5304":"Prest. de serviço de comunicação p/ estab. de produtor rural",
-  "5305":"Prest. de serviço de comunicação p/ estab. prestador de serviços de comunicação",
-  "5306":"Prest. de serviço de comunicação p/ estab. prestador de serviços de transporte",
-  "5307":"Prest. de serviço de comunicação p/ não contribuinte",
-  "5351":"Prest. de serviço de transporte p/ execução de serviço da mesma natureza",
-  "5352":"Prest. de serviço de transporte p/ estab. industrial",
-  "5353":"Prest. de serviço de transporte p/ estab. comercial",
-  "5354":"Prest. de serviço de transporte p/ estab. prestador de serviços de comunicação",
-  "5355":"Prest. de serviço de transporte p/ estab. de produtor rural",
-  "5356":"Prest. de serviço de transporte p/ estab. prestador de serviços de transporte",
-  "5357":"Prest. de serviço de transporte p/ não contribuinte",
-  "5360":"Prest. de serviço de transporte a contribuinte substituto",
-  "5401":"Venda de combustível — substituição tributária",
-  "5402":"Venda de combustível — sem ST (exceto para industrialização)",
-  "5403":"Venda de combustível — diferimento",
-  "5404":"Venda de combustível — contribuinte substituto",
-  "5405":"Venda de combustível — contribuinte substituído",
-  "5408":"Venda de combustível — ajuste de diferencial de alíquota",
-  "5409":"Venda de combustível — imune ou não tributada",
-  "5451":"Venda de animal",
-  "5501":"Remessa p/ industrialização por encomenda",
-  "5502":"Retorno de mercadoria remetida p/ industrialização",
-  "5503":"Retorno de mercadoria remetida p/ industrialização — parcial",
-  "5504":"Remessa p/ industrialização — mercadoria de terceiro",
-  "5505":"Retorno de mercadoria — terceiro — p/ industrialização",
+  "5205":"Anulação de valor relativo a aquisição de serviço de comunicação",
+  "5206":"Anulação de valor relativo a aquisição de serviço de transporte",
+  "5207":"Anulação de valor relativo à compra de energia elétrica",
+  "5208":"Devolução de mercadoria recebida em transferência p/ industrialização ou produção rural",
+  "5209":"Devolução de mercadoria recebida em transferência p/ comercialização",
+  "5210":"Devolução de compra p/ utilização na prestação de serviço",
+  "5251":"Venda de energia elétrica p/ distribuição ou comercialização",
+  "5252":"Venda de energia elétrica p/ estabelecimento industrial",
+  "5253":"Venda de energia elétrica p/ estabelecimento comercial",
+  "5254":"Venda de energia elétrica p/ estabelecimento prestador de serviço de transporte",
+  "5255":"Venda de energia elétrica p/ estabelecimento prestador de serviço de comunicação",
+  "5256":"Venda de energia elétrica p/ estabelecimento de produtor rural",
+  "5257":"Venda de energia elétrica p/ consumo por demanda contratada",
+  "5258":"Venda de energia elétrica a não contribuinte",
+  "5301":"Prestação de serviço de comunicação p/ execução de serviço da mesma natureza",
+  "5302":"Prestação de serviço de comunicação a estabelecimento industrial",
+  "5303":"Prestação de serviço de comunicação a estabelecimento comercial",
+  "5304":"Prestação de serviço de comunicação a estabelecimento de prestador de serviço de transporte",
+  "5305":"Prestação de serviço de comunicação a estabelecimento de geradora ou de distribuidora de energia elétrica",
+  "5306":"Prestação de serviço de comunicação a estabelecimento de produtor rural",
+  "5307":"Prestação de serviço de comunicação a não contribuinte",
+  "5351":"Prestação de serviço de transporte p/ execução de serviço da mesma natureza",
+  "5352":"Prestação de serviço de transporte a estabelecimento industrial",
+  "5353":"Prestação de serviço de transporte a estabelecimento comercial",
+  "5354":"Prestação de serviço de transporte a estabelecimento de prestador de serviço de comunicação",
+  "5355":"Prestação de serviço de transporte a estabelecimento de geradora ou de distribuidora de energia elétrica",
+  "5356":"Prestação de serviço de transporte a estabelecimento de produtor rural",
+  "5357":"Prestação de serviço de transporte a não contribuinte",
+  "5359":"Prestação de serviço de transporte a contribuinte ou a não-contribuinte, quando a mercadoria transportada esteja dispensada de emissão de Nota Fiscal",
+  "5360":"Prestação de serviço de transporte a contribuinte-substituto em relação ao serviço de transporte",
+  "5401":"Venda de produção do estabelecimento quando o produto esteja sujeito a ST",
+  "5402":"Venda de produção do estabelecimento de produto sujeito a ST, em operação entre contribuintes substitutos do mesmo produto",
+  "5403":"Venda de mercadoria, adquirida ou recebida de terceiros, sujeita a ST, na condição de contribuinte-substituto",
+  "5405":"Venda de mercadoria, adquirida ou recebida de terceiros, sujeita a ST, na condição de contribuinte-substituído",
+  "5408":"Transferência de produção do estabelecimento quando o produto sujeito a ST",
+  "5409":"Transferência de mercadoria adquirida ou recebida de terceiros em operação com mercadoria sujeita a ST",
+  "5410":"Devolução de compra p/ industrialização de mercadoria sujeita a ST",
+  "5411":"Devolução de compra p/ comercialização em operação com mercadoria sujeita a ST",
+  "5412":"Devolução de bem do ativo imobilizado, em operação com mercadoria sujeita a ST",
+  "5413":"Devolução de mercadoria destinada ao uso ou consumo, em operação com mercadoria sujeita a ST.",
+  "5414":"Remessa de produção do estabelecimento p/ venda fora do estabelecimento, quando o produto sujeito a ST",
+  "5415":"Remessa de mercadoria adquirida ou recebida de terceiros p/ venda fora do estabelecimento, em operação com mercadoria sujeita a ST",
+  "5451":"Remessa de animal e de insumo p/ estabelecimento produtor",
+  "5501":"Remessa de produção do estabelecimento, com fim específico de exportação",
+  "5502":"Remessa de mercadoria adquirida ou recebida de terceiros, com fim específico de exportação",
+  "5503":"Devolução de mercadoria recebida com fim específico de exportação",
+  "5504":"Remessa de mercadoria p/ formação de lote de exportação, de produto industrializado ou produzido pelo próprio estabelecimento.",
+  "5505":"Remessa de mercadoria, adquirida ou recebida de terceiros, p/ formação de lote de exportação.",
   "5551":"Venda de bem do ativo imobilizado",
   "5552":"Transferência de bem do ativo imobilizado",
-  "5553":"Devolução de compra de bem do ativo imobilizado",
-  "5554":"Remessa de bem do ativo imobilizado p/ uso fora do estab.",
-  "5555":"Remessa de bem do ativo imobilizado p/ conserto",
-  "5556":"Retorno de bem do ativo imobilizado recebido p/ conserto",
-  "5557":"Transferência de material de uso e consumo",
-  "5601":"Transferência de ativo imobilizado",
-  "5602":"Transferência de saldo devedor ICMS",
-  "5605":"Transferência de saldo credor ICMS",
-  "5651":"Venda de combustível — ST — produtor rural",
-  "5652":"Venda de combustível — ST — indústria e comércio",
+  "5553":"Devolução de compra de bem p/ o ativo imobilizado",
+  "5554":"Remessa de bem do ativo imobilizado p/ uso fora do estabelecimento",
+  "5555":"Devolução de bem do ativo imobilizado de terceiro, recebido p/ uso no estabelecimento",
+  "5556":"Devolução de compra de material de uso ou consumo",
+  "5557":"Transferência de material de uso ou consumo",
+  "5601":"Transferência de crédito de ICMS acumulado",
+  "5602":"Transferência de saldo credor do ICMS, p/ outro estabelecimento da mesma empresa, destinado à compensação de saldo devedor do ICMS",
+  "5603":"Ressarcimento de ICMS retido por substituição tributária",
+  "5605":"Transferência de saldo devedor do ICMS de outro estabelecimento da mesma empresa",
+  "5606":"Utilização de saldo credor do ICMS p/ extinção por compensação de débitos fiscais",
+  "5651":"Venda de combustível ou lubrificante de produção do estabelecimento destinados à industrialização subseqüente",
+  "5652":"Venda de combustível ou lubrificante, de produção do estabelecimento, destinados à comercialização",
+  "5653":"Venda de combustível ou lubrificante, de produção do estabelecimento, destinados a consumidor ou usuário final",
+  "5654":"Venda de combustível ou lubrificante, adquiridos ou recebidos de terceiros, destinados à industrialização subseqüente",
+  "5655":"Venda de combustível ou lubrificante, adquiridos ou recebidos de terceiros, destinados à comercialização",
+  "5656":"Venda de combustível ou lubrificante, adquiridos ou recebidos de terceiros, destinados a consumidor ou usuário final",
+  "5657":"Remessa de combustível ou lubrificante, adquiridos ou recebidos de terceiros, p/ venda fora do estabelecimento",
+  "5658":"Transferência de combustível ou lubrificante de produção do estabelecimento",
+  "5659":"Transferência de combustível ou lubrificante adquiridos ou recebidos de terceiros",
+  "5660":"Devolução de compra de combustível ou lubrificante adquiridos p/ industrialização subseqüente",
+  "5661":"Devolução de compra de combustível ou lubrificante adquiridos p/ comercialização",
+  "5662":"Devolução de compra de combustível ou lubrificante adquiridos por consumidor ou usuário final",
+  "5663":"Remessa p/ armazenagem de combustível ou lubrificante",
+  "5664":"Retorno de combustível ou lubrificante recebidos p/ armazenagem",
+  "5665":"Retorno simbólico de combustível ou lubrificante recebidos p/ armazenagem",
+  "5666":"Remessa, por conta e ordem de terceiros, de combustível ou lubrificante recebidos p/ armazenagem",
+  "5667":"Venda de combustível ou lubrificante a consumidor ou usuário final estabelecido em outra UF",
   "5901":"Remessa p/ industrialização por encomenda",
   "5902":"Retorno de mercadoria utilizada na industrialização por encomenda",
-  "5903":"Retorno de mercadoria recebida p/ industrialização sem aplicação",
-  "5904":"Remessa p/ venda fora do estab.",
-  "5905":"Remessa p/ depósito fechado ou armazém-geral",
-  "5906":"Retorno de mercadoria depositada em armazém-geral",
-  "5907":"Retorno de mercadoria mandada depositar em armazém-geral",
+  "5903":"Retorno de mercadoria recebida p/ industrialização e não aplicada no referido processo",
+  "5904":"Remessa p/ venda fora do estabelecimento",
+  "5905":"Remessa p/ depósito fechado ou armazém geral",
+  "5906":"Retorno de mercadoria depositada em depósito fechado ou armazém geral",
+  "5907":"Retorno simbólico de mercadoria depositada em depósito fechado ou armazém geral",
   "5908":"Remessa de bem por conta de contrato de comodato",
   "5909":"Retorno de bem recebido por conta de contrato de comodato",
-  "5910":"Remessa de produto p/ empréstimo entre estabs.",
-  "5911":"Retorno de produto recebido em empréstimo",
+  "5910":"Remessa em bonificação, doação ou brinde",
+  "5911":"Remessa de amostra grátis",
   "5912":"Remessa de mercadoria ou bem p/ demonstração",
   "5913":"Retorno de mercadoria ou bem recebido p/ demonstração",
   "5914":"Remessa de mercadoria ou bem p/ exposição ou feira",
-  "5915":"Remessa de mercadoria ou bem p/ consumidor final — saída eventual",
-  "5916":"Remessa em bonificação, doação ou brinde",
-  "5917":"Remessa de amostras grátis",
-  "5918":"Remessa de produto p/ conserto",
-  "5919":"Retorno de produto recebido p/ conserto",
+  "5915":"Remessa de mercadoria ou bem p/ conserto ou reparo",
+  "5916":"Retorno de mercadoria ou bem recebido p/ conserto ou reparo",
+  "5917":"Remessa de mercadoria em consignação mercantil ou industrial",
+  "5918":"Devolução de mercadoria recebida em consignação mercantil ou industrial",
+  "5919":"Devolução simbólica de mercadoria vendida ou utilizada em processo industrial, recebida anteriormente em consignação mercantil ou industrial",
   "5920":"Remessa de vasilhame ou sacaria",
   "5921":"Devolução de vasilhame ou sacaria",
-  "5922":"Lançamento efetuado a título de simples faturamento — sem trânsito da mercadoria",
-  "5923":"Remessa de mercadoria p/ industrialização — sem trânsito pela empresa",
-  "5924":"Remessa p/ industrialização p/ terceiros — sem trânsito pelo depositante",
-  "5925":"Retorno de mercadoria p/ industrialização — sem trânsito pela empresa",
-  "5926":"Lançamento efetuado p/ registrar a devolução de mercadoria — estabelecimento produtor rural",
-  "5927":"Lançamento efetuado p/ registrar venda de prod. rural sem trânsito",
-  "5928":"Lançamento efetuado p/ registrar saída de mercadoria depositada em armazém-geral — sem trânsito",
-  "5929":"Remessa de animal — criação",
-  "5930":"Lançamento efetuado a título de baixa de estoque",
-  "5931":"Lançamento efetuado p/ ajuste de valores",
-  "5932":"Transferência p/ armazém-geral ou depósito fechado do depositante",
-  "5933":"Transferência de mercadoria — sistema de emissão em contingência",
-  "5934":"Remessa simbólica de mercadoria depositada em armazém-geral — exportação",
-  "5935":"Remessa p/ entidade beneficente de assistência social",
-  "5936":"Remessa de material de embalagem recebido de terceiros",
-  "5937":"Remessa de material de embalagem recebido de terceiros — zona franca",
-  "5949":"Outra saída de mercadoria ou prestação de serviço não especificada",
-  // ── 6xxx — Saídas / Prestações interestaduais ─────────────────────────────
-  "6101":"Venda de produto industrializado (interestadual)",
-  "6102":"Venda de mercadoria adquirida p/ comercialização (interestadual)",
-  "6104":"Venda de mercadoria utilizada no processo produtivo (interestadual)",
-  "6107":"Venda de produto industrializado — ativo imobilizado (interestadual)",
-  "6108":"Venda de mercadoria adquirida — ST (interestadual)",
-  "6109":"Venda de produto industrializado — zona franca (interestadual)",
-  "6110":"Venda de produto industrializado — zona franca — transferência de crédito (interestadual)",
-  "6115":"Venda de insumo importado com suspensão do IPI (interestadual)",
-  "6116":"Venda de produto industrializado originada de encomenda (interestadual)",
-  "6117":"Venda de mercadoria adquirida originada de encomenda (interestadual)",
-  "6118":"Venda de produto de ativo imobilizado (interestadual)",
-  "6120":"Venda de produto industrializado p/ zona franca (interestadual)",
-  "6122":"Venda de produto — zona franca — recebido de terceiro (interestadual)",
-  "6123":"Venda de produto — zona franca — equiparado ao exportador (interestadual)",
-  "6124":"Industrialização efetuada p/ outras empresas (interestadual)",
-  "6125":"Industrialização efetuada p/ outras empresas — insumos de terceiros (interestadual)",
-  "6151":"Transferência p/ industrialização (interestadual)",
-  "6152":"Transferência p/ comercialização (interestadual)",
-  "6153":"Transferência de energia elétrica (interestadual)",
-  "6154":"Transferência p/ utilização na prestação de serviço (interestadual)",
-  "6201":"Devolução de compra p/ industrialização (interestadual)",
-  "6202":"Devolução de compra p/ comercialização (interestadual)",
-  "6205":"Anulação de prestação de serviço de comunicação (interestadual)",
-  "6206":"Anulação de prestação de serviço de transporte (interestadual)",
-  "6207":"Anulação de venda de energia elétrica (interestadual)",
-  "6208":"Devolução de compra — simples nacional (interestadual)",
-  "6209":"Devolução de compra — ST (interestadual)",
-  "6251":"Venda de energia elétrica p/ distribuição (interestadual)",
-  "6252":"Venda de energia elétrica p/ estab. industrial (interestadual)",
-  "6253":"Venda de energia elétrica p/ estab. comercial (interestadual)",
-  "6258":"Venda de energia elétrica p/ consumidor final (interestadual)",
-  "6301":"Prest. de serviço de comunicação p/ execução de serviço da mesma natureza (interestadual)",
-  "6302":"Prest. de serviço de comunicação p/ estab. industrial (interestadual)",
-  "6303":"Prest. de serviço de comunicação p/ estab. comercial (interestadual)",
-  "6351":"Prest. de serviço de transporte p/ execução de serviço da mesma natureza (interestadual)",
-  "6352":"Prest. de serviço de transporte p/ estab. industrial (interestadual)",
-  "6353":"Prest. de serviço de transporte p/ estab. comercial (interestadual)",
-  "6354":"Prest. de serviço de transporte p/ estab. prestador de serv. de comunicação (interestadual)",
-  "6356":"Prest. de serviço de transporte p/ estab. prestador de serv. de transporte (interestadual)",
-  "6357":"Prest. de serviço de transporte p/ não contribuinte (interestadual)",
-  "6401":"Venda de combustível — ST (interestadual)",
-  "6402":"Venda de combustível — sem ST (interestadual)",
-  "6403":"Venda de combustível — diferimento (interestadual)",
-  "6404":"Venda de combustível — contribuinte substituto (interestadual)",
-  "6405":"Venda de combustível — contribuinte substituído (interestadual)",
-  "6501":"Remessa p/ industrialização por encomenda (interestadual)",
-  "6502":"Retorno de mercadoria utilizada na industrialização por encomenda (interestadual)",
-  "6551":"Venda de bem do ativo imobilizado (interestadual)",
-  "6552":"Transferência de bem do ativo imobilizado (interestadual)",
-  "6553":"Devolução de compra de bem do ativo imobilizado (interestadual)",
-  "6556":"Remessa de bem do ativo imobilizado p/ uso fora do estab. (interestadual)",
-  "6557":"Transferência de material de uso e consumo (interestadual)",
-  "6603":"Ressarcimento de ICMS — ST",
-  "6651":"Venda de combustível — ST — produtor rural (interestadual)",
-  "6652":"Venda de combustível — ST — indústria e comércio (interestadual)",
-  "6901":"Remessa p/ industrialização por encomenda (interestadual)",
-  "6902":"Retorno de mercadoria — industrialização por encomenda — sem aplicação (interestadual)",
-  "6903":"Retorno de mercadoria — industrialização por encomenda — sem aplicação (interestadual)",
-  "6904":"Remessa p/ venda fora do estab. (interestadual)",
-  "6905":"Remessa p/ depósito fechado ou armazém-geral (interestadual)",
-  "6906":"Retorno de mercadoria depositada em armazém-geral (interestadual)",
-  "6907":"Retorno de mercadoria mandada depositar em armazém-geral (interestadual)",
-  "6908":"Remessa de bem por conta de contrato de comodato (interestadual)",
-  "6910":"Remessa de produto p/ empréstimo entre estabs. (interestadual)",
-  "6911":"Retorno de produto recebido em empréstimo (interestadual)",
-  "6912":"Remessa de mercadoria ou bem p/ demonstração (interestadual)",
-  "6913":"Retorno de mercadoria ou bem recebido p/ demonstração (interestadual)",
-  "6914":"Remessa de mercadoria ou bem p/ exposição ou feira (interestadual)",
-  "6915":"Remessa de mercadoria ou bem p/ consumidor final — saída eventual (interestadual)",
-  "6916":"Remessa em bonificação, doação ou brinde (interestadual)",
-  "6917":"Remessa de amostras grátis (interestadual)",
-  "6918":"Remessa de produto p/ conserto (interestadual)",
-  "6919":"Retorno de produto recebido p/ conserto (interestadual)",
-  "6920":"Remessa de vasilhame ou sacaria (interestadual)",
-  "6921":"Devolução de vasilhame ou sacaria (interestadual)",
-  "6922":"Lançamento — simples faturamento — sem trânsito da mercadoria (interestadual)",
-  "6923":"Remessa p/ industrialização — sem trânsito pela empresa (interestadual)",
-  "6949":"Outra saída de mercadoria ou prestação de serviço não especificada (interestadual)",
-  // ── 7xxx — Exportações ────────────────────────────────────────────────────
-  "7101":"Venda de produto industrializado — exportação",
-  "7102":"Venda de mercadoria adquirida p/ comercialização — exportação",
-  "7105":"Venda de produto industrializado p/ encomendante — exportação",
-  "7127":"Venda de produto industrializado — drawback — exportação",
-  "7129":"Venda de produto industrializado — admissão temporária — exportação",
-  "7201":"Devolução de compra — exportação",
-  "7202":"Devolução de compra p/ comercialização — exportação",
-  "7205":"Anulação de serviço de comunicação — exportação",
-  "7206":"Anulação de serviço de transporte — exportação",
-  "7207":"Anulação de venda de energia elétrica — exportação",
-  "7210":"Devolução de compra de energia elétrica — exportação",
-  "7211":"Venda de energia elétrica p/ consumidor final — exportação",
-  "7251":"Venda de bem do ativo imobilizado — exportação",
-  "7301":"Prest. de serviço de comunicação p/ execução de serviço da mesma natureza — exportação",
-  "7358":"Prest. de serviço de transporte — exportação",
-  "7501":"Exportação de mercadoria recebida com fim específico de exportação",
-  "7551":"Venda de bem do ativo imobilizado — exportação",
-  "7553":"Devolução de compra de bem do ativo imobilizado — exportação",
-  "7556":"Remessa de material de uso e consumo — exportação",
-  "7651":"Venda de combustível — exportação",
-  "7930":"Lançamento efetuado a título de baixa de estoque — exportação",
-  "7949":"Outra saída de mercadoria ou prestação de serviço não especificada — exportação",
+  "5922":"Lançamento efetuado a título de simples faturamento decorrente de venda p/ entrega futura",
+  "5923":"Remessa de mercadoria por conta e ordem de terceiros, em venda à ordem ou em operações com armazém geral ou depósito fechado.",
+  "5924":"Remessa p/ industrialização por conta e ordem do adquirente da mercadoria, quando esta não transitar pelo estabelecimento do adquirente",
+  "5925":"Retorno de mercadoria recebida p/ industrialização por conta e ordem do adquirente da mercadoria, quando aquela não transitar pelo estabelecimento do adquirente",
+  "5926":"Lançamento efetuado a título de reclassificação de mercadoria decorrente de formação de kit ou de sua desagregação",
+  "5927":"Lançamento efetuado a título de baixa de estoque decorrente de perda, roubo ou deterioração",
+  "5928":"Lançamento efetuado a título de baixa de estoque decorrente do encerramento da atividade da empresa",
+  "5929":"Lançamento efetuado em decorrência de emissão de documento fiscal relativo a operação ou prestação também registrada em equipamento Emissor de Cupom Fiscal - ECF",
+  "5931":"Lançamento efetuado em decorrência da responsabilidade de retenção do imposto por substituição tributária, atribuída ao remetente ou alienante da mercadoria, pelo serviço de transporte realizado por transportador autônomo ou por transportador não inscrito na UF onde iniciado o serviço",
+  "5932":"Prestação de serviço de transporte iniciada em UF diversa daquela onde inscrito o prestador",
+  "5933":"Prestação de serviço tributado pelo Imposto Sobre Serviços de Qualquer Natureza",
+  "5934":"Remessa simbólica de mercadoria depositada em armazém geral ou depósito fechado.",
+  "5949":"Outra saída de mercadoria ou prestação de serviço não especificado",
+  // 6xxx - Saidas / prestacoes interestaduais
+  "6101":"Venda de produção do estabelecimento",
+  "6102":"Venda de mercadoria adquirida ou recebida de terceiros",
+  "6103":"Venda de produção do estabelecimento, efetuada fora do estabelecimento",
+  "6104":"Venda de mercadoria adquirida ou recebida de terceiros, efetuada fora do estabelecimento",
+  "6105":"Venda de produção do estabelecimento que não deva por ele transitar",
+  "6106":"Venda de mercadoria adquirida ou recebida de terceiros, que não deva por ele transitar",
+  "6107":"Venda de produção do estabelecimento, destinada a não contribuinte",
+  "6108":"Venda de mercadoria adquirida ou recebida de terceiros, destinada a não contribuinte",
+  "6109":"Venda de produção do estabelecimento destinada à ZFM ou ALC",
+  "6110":"Venda de mercadoria, adquirida ou recebida de terceiros, destinada à ZFM ou ALC",
+  "6111":"Venda de produção do estabelecimento remetida anteriormente em consignação industrial",
+  "6112":"Venda de mercadoria adquirida ou recebida de Terceiros remetida anteriormente em consignação industrial",
+  "6113":"Venda de produção do estabelecimento remetida anteriormente em consignação mercantil",
+  "6114":"Venda de mercadoria adquirida ou recebida de terceiros remetida anteriormente em consignação mercantil",
+  "6115":"Venda de mercadoria adquirida ou recebida de terceiros, recebida anteriormente em consignação mercantil",
+  "6116":"Venda de produção do estabelecimento originada de encomenda p/ entrega futura",
+  "6117":"Venda de mercadoria adquirida ou recebida de terceiros, originada de encomenda p/ entrega futura",
+  "6118":"Venda de produção do estabelecimento entregue ao destinatário por conta e ordem do adquirente originário, em venda à ordem",
+  "6119":"Venda de mercadoria adquirida ou recebida de terceiros entregue ao destinatário por conta e ordem do adquirente originário, em venda à ordem",
+  "6120":"Venda de mercadoria adquirida ou recebida de terceiros entregue ao destinatário pelo vendedor remetente, em venda à ordem",
+  "6122":"Venda de produção do estabelecimento remetida p/ industrialização, por conta e ordem do adquirente, sem transitar pelo estabelecimento do adquirente",
+  "6123":"Venda de mercadoria adquirida ou recebida de terceiros remetida p/ industrialização, por conta e ordem do adquirente, sem transitar pelo estabelecimento do adquirente",
+  "6124":"Industrialização efetuada p/ outra empresa",
+  "6125":"Industrialização efetuada p/ outra empresa quando a mercadoria recebida p/ utilização no processo de industrialização não transitar pelo estabelecimento adquirente da mercadoria",
+  "6129":"Venda de insumo importado e de mercadoria industrializada sob o amparo do Regime Aduaneiro Especial de Entreposto Industrial (Recof-Sped)",
+  "6151":"Transferência de produção do estabelecimento",
+  "6152":"Transferência de mercadoria adquirida ou recebida de terceiros",
+  "6153":"Transferência de energia elétrica",
+  "6155":"Transferência de produção do estabelecimento, que não deva por ele transitar",
+  "6156":"Transferência de mercadoria adquirida ou recebida de terceiros, que não deva por ele transitar",
+  "6201":"Devolução de compra p/ industrialização ou produção rural",
+  "6202":"Devolução de compra p/ comercialização",
+  "6205":"Anulação de valor relativo a aquisição de serviço de comunicação",
+  "6206":"Anulação de valor relativo a aquisição de serviço de transporte",
+  "6207":"Anulação de valor relativo à compra de energia elétrica",
+  "6208":"Devolução de mercadoria recebida em transferência p/ industrialização ou produção rural",
+  "6209":"Devolução de mercadoria recebida em transferência p/ comercialização",
+  "6210":"Devolução de compra p/ utilização na prestação de serviço",
+  "6251":"Venda de energia elétrica p/ distribuição ou comercialização",
+  "6252":"Venda de energia elétrica p/ estabelecimento industrial",
+  "6253":"Venda de energia elétrica p/ estabelecimento comercial",
+  "6254":"Venda de energia elétrica p/ estabelecimento prestador de serviço de transporte",
+  "6255":"Venda de energia elétrica p/ estabelecimento prestador de serviço de comunicação",
+  "6256":"Venda de energia elétrica p/ estabelecimento de produtor rural",
+  "6257":"Venda de energia elétrica p/ consumo por demanda contratada",
+  "6258":"Venda de energia elétrica a não contribuinte",
+  "6301":"Prestação de serviço de comunicação p/ execução de serviço da mesma natureza",
+  "6302":"Prestação de serviço de comunicação a estabelecimento industrial",
+  "6303":"Prestação de serviço de comunicação a estabelecimento comercial",
+  "6304":"Prestação de serviço de comunicação a estabelecimento de prestador de serviço de transporte",
+  "6305":"Prestação de serviço de comunicação a estabelecimento de geradora ou de distribuidora de energia elétrica",
+  "6306":"Prestação de serviço de comunicação a estabelecimento de produtor rural",
+  "6307":"Prestação de serviço de comunicação a não contribuinte",
+  "6351":"Prestação de serviço de transporte p/ execução de serviço da mesma natureza",
+  "6352":"Prestação de serviço de transporte a estabelecimento industrial",
+  "6353":"Prestação de serviço de transporte a estabelecimento comercial",
+  "6354":"Prestação de serviço de transporte a estabelecimento de prestador de serviço de comunicação",
+  "6355":"Prestação de serviço de transporte a estabelecimento de geradora ou de distribuidora de energia elétrica",
+  "6356":"Prestação de serviço de transporte a estabelecimento de produtor rural",
+  "6357":"Prestação de serviço de transporte a não contribuinte",
+  "6359":"Prestação de serviço de transporte a contribuinte ou a não-contribuinte, quando a mercadoria transportada esteja dispensada de emissão de Nota Fiscal",
+  "6360":"Prestação de serviço de transporte a contribuinte substituto em relação ao serviço de transporte",
+  "6401":"Venda de produção do estabelecimento quando o produto sujeito a ST",
+  "6402":"Venda de produção do estabelecimento de produto sujeito a ST, em operação entre contribuintes substitutos do mesmo produto",
+  "6403":"Venda de mercadoria adquirida ou recebida de terceiros em operação com mercadoria sujeita a ST, na condição de contribuinte substituto",
+  "6404":"Venda de mercadoria sujeita a ST, cujo imposto já tenha sido retido anteriormente",
+  "6408":"Transferência de produção do estabelecimento quando o produto sujeito a ST",
+  "6409":"Transferência de mercadoria adquirida ou recebida de terceiros, sujeita a ST",
+  "6410":"Devolução de compra p/ industrialização ou ptrodução rural quando a mercadoria sujeita a ST",
+  "6411":"Devolução de compra p/ comercialização em operação com mercadoria sujeita a ST",
+  "6412":"Devolução de bem do ativo imobilizado, em operação com mercadoria sujeita a ST",
+  "6413":"Devolução de mercadoria destinada ao uso ou consumo, em operação com mercadoria sujeita a ST",
+  "6414":"Remessa de produção do estabelecimento p/ venda fora do estabelecimento, quando o produto sujeito a ST",
+  "6415":"Remessa de mercadoria adquirida ou recebida de terceiros p/ venda fora do estabelecimento, quando a referida ração com mercadoria sujeita a ST",
+  "6501":"Remessa de produção do estabelecimento, com fim específico de exportação",
+  "6502":"Remessa de mercadoria adquirida ou recebida de terceiros, com fim específico de exportação",
+  "6503":"Devolução de mercadoria recebida com fim específico de exportação",
+  "6504":"Remessa de mercadoria p/ formação de lote de exportação, de produto industrializado ou produzido pelo próprio estabelecimento.",
+  "6505":"Remessa de mercadoria, adquirida ou recebida de terceiros, p/ formação de lote de exportação.",
+  "6551":"Venda de bem do ativo imobilizado",
+  "6552":"Transferência de bem do ativo imobilizado",
+  "6553":"Devolução de compra de bem p/ o ativo imobilizado",
+  "6554":"Remessa de bem do ativo imobilizado p/ uso fora do estabelecimento",
+  "6555":"Devolução de bem do ativo imobilizado de terceiro, recebido p/ uso no estabelecimento",
+  "6556":"Devolução de compra de material de uso ou consumo",
+  "6557":"Transferência de material de uso ou consumo",
+  "6603":"Ressarcimento de ICMS retido por substituição tributária",
+  "6651":"Venda de combustível ou lubrificante, de produção do estabelecimento, destinados à industrialização subseqüente",
+  "6652":"Venda de combustível ou lubrificante, de produção do estabelecimento, destinados à comercialização",
+  "6653":"Venda de combustível ou lubrificante, de produção do estabelecimento, destinados a consumidor ou usuário final",
+  "6654":"Venda de combustível ou lubrificante, adquiridos ou recebidos de terceiros, destinados à industrialização subseqüente",
+  "6655":"Venda de combustível ou lubrificante, adquiridos ou recebidos de terceiros, destinados à comercialização",
+  "6656":"Venda de combustível ou lubrificante, adquiridos ou recebidos de terceiros, destinados a consumidor ou usuário final",
+  "6657":"Remessa de combustível ou lubrificante, adquiridos ou recebidos de terceiros, p/ venda fora do estabelecimento",
+  "6658":"Transferência de combustível ou lubrificante de produção do estabelecimento",
+  "6659":"Transferência de combustível ou lubrificante adquiridos ou recebidos de terceiros",
+  "6660":"Devolução de compra de combustível ou lubrificante adquiridos p/ industrialização subseqüente",
+  "6661":"Devolução de compra de combustível ou lubrificante adquiridos p/ comercialização",
+  "6662":"Devolução de compra de combustível ou lubrificante adquiridos por consumidor ou usuário final",
+  "6663":"Remessa p/ armazenagem de combustível ou lubrificante",
+  "6664":"Retorno de combustível ou lubrificante recebidos p/ armazenagem",
+  "6665":"Retorno simbólico de combustível ou lubrificante recebidos p/ armazenagem",
+  "6666":"Remessa, por conta e ordem de terceiros, de combustível ou lubrificante recebidos p/ armazenagem",
+  "6667":"Venda de combustível ou lubrificante a consumidor ou usuário final estabelecido em outra UF diferente da que ocorrer o consumo",
+  "6901":"Remessa p/ industrialização por encomenda",
+  "6902":"Retorno de mercadoria utilizada na industrialização por encomenda",
+  "6903":"Retorno de mercadoria recebida p/ industrialização e não aplicada no referido processo",
+  "6904":"Remessa p/ venda fora do estabelecimento",
+  "6905":"Remessa p/ depósito fechado ou armazém geral",
+  "6906":"Retorno de mercadoria depositada em depósito fechado ou armazém geral",
+  "6907":"Retorno simbólico de mercadoria depositada em depósito fechado ou armazém geral",
+  "6908":"Remessa de bem por conta de contrato de comodato",
+  "6909":"Retorno de bem recebido por conta de contrato de comodato",
+  "6910":"Remessa em bonificação, doação ou brinde",
+  "6911":"Remessa de amostra grátis",
+  "6912":"Remessa de mercadoria ou bem p/ demonstração",
+  "6913":"Retorno de mercadoria ou bem recebido p/ demonstração",
+  "6914":"Remessa de mercadoria ou bem p/ exposição ou feira",
+  "6915":"Remessa de mercadoria ou bem p/ conserto ou reparo",
+  "6916":"Retorno de mercadoria ou bem recebido p/ conserto ou reparo",
+  "6917":"Remessa de mercadoria em consignação mercantil ou industrial",
+  "6918":"Devolução de mercadoria recebida em consignação mercantil ou industrial",
+  "6919":"Devolução simbólica de mercadoria vendida ou utilizada em processo industrial, recebida anteriormente em consignação mercantil ou industrial",
+  "6920":"Remessa de vasilhame ou sacaria",
+  "6921":"Devolução de vasilhame ou sacaria",
+  "6922":"Lançamento efetuado a título de simples faturamento decorrente de venda p/ entrega futura",
+  "6923":"Remessa de mercadoria por conta e ordem de terceiros, em venda à ordem ou em operações com armazém geral ou depósito fechado",
+  "6924":"Remessa p/ industrialização por conta e ordem do adquirente da mercadoria, quando esta não transitar pelo estabelecimento do adquirente",
+  "6925":"Retorno de mercadoria recebida p/ industrialização por conta e ordem do adquirente da mercadoria, quando aquela não transitar pelo estabelecimento do adquirente",
+  "6929":"Lançamento efetuado em decorrência de emissão de documento fiscal relativo a operação ou prestação também registrada em equipamento Emissor de Cupom Fiscal - ECF",
+  "6931":"Lançamento efetuado em decorrência da responsabilidade de retenção do imposto por substituição tributária, atribuída ao remetente ou alienante da mercadoria, pelo serviço de transporte realizado por transportador autônomo ou por transportador não inscrito na UF onde iniciado o serviço",
+  "6932":"Prestação de serviço de transporte iniciada em UF diversa daquela onde inscrito o prestador",
+  "6933":"Prestação de serviço tributado pelo Imposto Sobre Serviços de Qualquer Natureza",
+  "6934":"Remessa simbólica de mercadoria depositada em armazém geral ou depósito fechado",
+  "6949":"Outra saída de mercadoria ou prestação de serviço não especificado",
+  // 7xxx - Exportacoes
+  "7101":"Venda de produção do estabelecimento",
+  "7102":"Venda de mercadoria adquirida ou recebida de terceiros",
+  "7105":"Venda de produção do estabelecimento, que não deva por ele transitar",
+  "7106":"Venda de mercadoria adquirida ou recebida de terceiros, que não deva por ele transitar",
+  "7127":"Venda de produção do estabelecimento sob o regime de drawback",
+  "7129":"Venda de produção do estabelecimento ao mercado externo de mercadoria industrializada sob o amparo do Regime Aduaneiro Especial de Entreposto Industrial (Recof-Sped)",
+  "7201":"Devolução de compra p/ industrialização ou produção rural",
+  "7202":"Devolução de compra p/ comercialização",
+  "7205":"Anulação de valor relativo à aquisição de serviço de comunicação",
+  "7206":"Anulação de valor relativo a aquisição de serviço de transporte",
+  "7207":"Anulação de valor relativo à compra de energia elétrica",
+  "7210":"Devolução de compra p/ utilização na prestação de serviço",
+  "7211":"Devolução de compras p/ industrialização sob o regime de drawback",
+  "7212":"Devolução de compras para industrialização sob o regime de Regime Aduaneiro Especial de Entreposto Industrial (Recof-Sped)",
+  "7251":"Venda de energia elétrica p/ o exterior",
+  "7301":"Prestação de serviço de comunicação p/ execução de serviço da mesma natureza",
+  "7358":"Prestação de serviço de transporte",
+  "7501":"Exportação de mercadorias recebidas com fim específico de exportação",
+  "7551":"Venda de bem do ativo imobilizado",
+  "7553":"Devolução de compra de bem p/ o ativo imobilizado",
+  "7556":"Devolução de compra de material de uso ou consumo",
+  "7651":"Venda de combustível ou lubrificante de produção do estabelecimento",
+  "7654":"Venda de combustível ou lubrificante adquiridos ou recebidos de terceiros",
+  "7667":"Venda de combustível ou lubrificante a consumidor ou usuário final",
+  "7930":"Lançamento efetuado a título de devolução de bem cuja entrada tenha ocorrido sob amparo de regime especial aduaneiro de admissão temporária",
+  "7949":"Outra saída de mercadoria ou prestação de serviço não especificado",
 };
 function descCFOP(cfop:string):string { return DESC_CFOP[cfop]||`CFOP ${cfop}`; }
 
@@ -1732,7 +1918,7 @@ export default function ValidadorPage() {
   type CfopMapeamentoItem = { nota: string; fornecedor: string; cfopForn: string; cfopSel: string; opcoes: { cfop: string; tipo: string; descricao: string }[]; produtos: string[] };
   const [modalCfopAberto,setModalCfopAberto]=useState(false);
   const [cfopMapeamento,setCfopMapeamento]=useState<CfopMapeamentoItem[]>([]);
-  const [tipoImportacao,setTipoImportacao]=useState<TipoImportacaoXml>("ambas");
+  const [tipoImportacao,setTipoImportacao]=useState<TipoImportacaoXml>("terceiro");
   const [modalImportAberto,setModalImportAberto]=useState(false);
   const [arquivosImportacao,setArquivosImportacao]=useState<File[]>([]);
   const [arrastandoImport,setArrastandoImport]=useState(false);
@@ -1741,7 +1927,6 @@ export default function ValidadorPage() {
   const [cfopSaidaNovo,setCfopSaidaNovo]=useState("");
   const [cfopEntradaNovo,setCfopEntradaNovo]=useState("");
   const [periodoInicio,setPeriodoInicio]=useState("");
-  const [periodoFim,setPeriodoFim]=useState("");
   const [carregandoPeriodo,setCarregandoPeriodo]=useState(false);
   const [limpezaInicio,setLimpezaInicio]=useState("");
   const [limpezaFim,setLimpezaFim]=useState("");
@@ -1800,23 +1985,16 @@ export default function ValidadorPage() {
   },[empresa]);
 
   useEffect(()=>{
-    queueMicrotask(()=>{
-      if(!empresa) { setCfopVinculos([]); setLimpezaInicio(""); setLimpezaFim(""); return; }
-      const raw = window.localStorage.getItem(`validador-cfop-vinculos-${empresa.id}`);
-      if(!raw) { setCfopVinculos([]); return; }
-      try {
-        const parsed = JSON.parse(raw) as CfopVinculo[];
-        setCfopVinculos(Array.isArray(parsed) ? parsed.filter(v=>v.cfopSaida&&v.cfopEntrada) : []);
-      } catch {
-        setCfopVinculos([]);
-      }
-    });
+    if(!empresa) { setCfopVinculos([]); setLimpezaInicio(""); setLimpezaFim(""); return; }
+    const raw = window.localStorage.getItem(`validador-cfop-vinculos-${empresa.id}`);
+    if(!raw) { setCfopVinculos([]); return; }
+    try {
+      const parsed = JSON.parse(raw) as CfopVinculo[];
+      setCfopVinculos(Array.isArray(parsed) ? parsed.filter(v=>v.cfopSaida&&v.cfopEntrada) : []);
+    } catch {
+      setCfopVinculos([]);
+    }
   },[empresa]);
-
-  useEffect(()=>{
-    if(!empresa) return;
-    window.localStorage.setItem(`validador-cfop-vinculos-${empresa.id}`, JSON.stringify(cfopVinculos));
-  },[empresa,cfopVinculos]);
 
   function mapearDocumentosDb(docsDb: DocumentoFiscalDb[]) {
     const mappedEntradas: LinhaEntrada[] = [];
@@ -1911,7 +2089,6 @@ export default function ValidadorPage() {
       setSessaoAtual({ sessaoId: sessao.id, empresaId: empresa!.id, empresaNome: empresa!.razao_social, competencia: sessao.competencia });
       const mesSessao = competenciaParaMonth(sessao.competencia);
       setPeriodoInicio(mesSessao);
-      setPeriodoFim(mesSessao);
       setErro("");
 
       if(novasLinhas.length > 0 || novasSaidas.length > 0){
@@ -2024,22 +2201,15 @@ export default function ValidadorPage() {
     }
   }
 
-  function cfopEntradaConfigurado(cfopSaida: string) {
-    const cfop = cfopSaida.replace(/\D/g,"").slice(0,4);
-    return cfopVinculos.find(v=>v.cfopSaida===cfop)?.cfopEntrada ?? "";
-  }
-
-  function sugerirCfopEntradaEmpresa(cfopFornecedor: string, natureza: AnaliseSugestao["tipo"]) {
-    return cfopEntradaConfigurado(cfopFornecedor) || sugerirCfopEntrada(cfopFornecedor, natureza, ehIndustrial);
-  }
-
   function salvarVinculosCfop(novos: CfopVinculo[]) {
     setCfopVinculos(prev=>{
       const mapa = new Map(prev.map(v=>[v.cfopSaida, v.cfopEntrada]));
       for(const v of novos) {
         if(v.cfopSaida && v.cfopEntrada) mapa.set(v.cfopSaida, v.cfopEntrada);
       }
-      return Array.from(mapa.entries()).map(([cfopSaida, cfopEntrada])=>({cfopSaida, cfopEntrada})).sort((a,b)=>a.cfopSaida.localeCompare(b.cfopSaida));
+      const nova = Array.from(mapa.entries()).map(([cfopSaida, cfopEntrada])=>({cfopSaida, cfopEntrada})).sort((a,b)=>a.cfopSaida.localeCompare(b.cfopSaida));
+      if(empresa) window.localStorage.setItem(`validador-cfop-vinculos-${empresa.id}`, JSON.stringify(nova));
+      return nova;
     });
   }
 
@@ -2050,6 +2220,22 @@ export default function ValidadorPage() {
       setErro("Informe CFOP de saída e CFOP de entrada com 4 dígitos.");
       return;
     }
+    if(!["5","6","7"].includes(cfopSaida[0])) {
+      setErro("CFOP de saída deve começar com 5, 6 ou 7.");
+      return;
+    }
+    if(!["1","2","3"].includes(cfopEntrada[0])) {
+      setErro("CFOP de entrada deve começar com 1, 2 ou 3.");
+      return;
+    }
+    if(!(cfopSaida in DESC_CFOP)) {
+      setErro(`CFOP de saída ${cfopSaida} não existe na tabela oficial de CFOPs.`);
+      return;
+    }
+    if(!(cfopEntrada in DESC_CFOP)) {
+      setErro(`CFOP de entrada ${cfopEntrada} não existe na tabela oficial de CFOPs.`);
+      return;
+    }
     salvarVinculosCfop([{ cfopSaida, cfopEntrada }]);
     setCfopSaidaNovo("");
     setCfopEntradaNovo("");
@@ -2057,7 +2243,6 @@ export default function ValidadorPage() {
   }
 
   async function processarXmls(files: FileList | File[], forceTipo: TipoImportacaoXml) {
-    // ── PASSO 1: ler textos e separar cancelamentos ──────────────────────────
     const extraidos = await extrairXmlsDeArquivos(files);
     const txts: {nome:string;txt:string}[] = extraidos.arquivos;
     if(extraidos.avisos.length > 0){
@@ -2077,18 +2262,13 @@ export default function ValidadorPage() {
       if(chCanc) chavesCanceladas.add(chCanc);
     }
 
-    // ── PASSO 1.5: pré-scan — coletar identificadores de devoluções (tpNF=0) ────
-    // O set armazena tanto nomes de fornecedores (match amplo, sempre disponível)
-    // quanto números de NF extraídos do refNFe (match preciso, quando disponível).
     const devolucaoRefs = new Set<string>();
-    if(forceTipo === "terceiro" || forceTipo === "ambas"){
+    if(forceTipo === "terceiro"){
       for(const {txt} of txts){
         if(detectarCancelamento(txt)) continue;
         const m = extrairMetadataXml(txt);
         if(m?.tipo_operacao === "entrada"){
-          // Fallback: fornecedor da nota de devolução é o mesmo da nota de venda
           if(m.emitente_nome) devolucaoRefs.add(m.emitente_nome);
-          // Match preciso via chave referenciada no refNFe (quando disponível)
           if(m.ref_nfe && m.ref_nfe.length === 44){
             const num = String(parseInt(m.ref_nfe.slice(25, 34), 10));
             if(num && num !== "NaN") devolucaoRefs.add(num);
@@ -2097,7 +2277,6 @@ export default function ValidadorPage() {
       }
     }
 
-    // ── PASSO 2: processar NF-e normais com validação de CNPJ ───────────────
     const ne: LinhaEntrada[]=[], ns: LinhaSaida[]=[];
     let qtdCanc = 0;
     const rejeitadosCnpj: string[] = [];
@@ -2107,35 +2286,23 @@ export default function ValidadorPage() {
     for(const {nome, txt} of txts){
       if(detectarCancelamento(txt)) continue;
 
-      // ── Validação de CNPJ + aviso de nota de entrada importada como terceiro ─
       const meta = extrairMetadataXml(txt);
       const cfopsXml = extrairCfopsXml(txt);
       const ehDevolucaoVenda = meta?.tipo_operacao === "entrada" && cfopsXml.some(cfopEhDevolucaoVendaSimples);
-      let tipoArquivo: Exclude<TipoImportacaoXml, "ambas"> = forceTipo === "ambas" ? "terceiro" : forceTipo;
       if(meta){
         if(empresaCnpj){
           const emitCnpj = (meta.emitente_cnpj ?? "").replace(/\D/g,"");
           const destCnpj = (meta.destinatario_cnpj ?? "").replace(/\D/g,"");
-          if(forceTipo === "ambas"){
-            if(emitCnpj === empresaCnpj) tipoArquivo = "proprio";
-            else if(destCnpj === empresaCnpj) tipoArquivo = "terceiro";
-            else {
-              rejeitadosCnpj.push(`${nome}: emitente/destinatário não corresponde à empresa em análise`);
-              continue;
-            }
-          }
           if(forceTipo === "terceiro" && destCnpj && destCnpj !== empresaCnpj){
-            rejeitadosCnpj.push(`${nome}: destinatário ${destCnpj} ≠ empresa em análise`);
+            rejeitadosCnpj.push(`${nome}: destinatario ${destCnpj} != empresa em analise`);
             continue;
           }
           if(forceTipo === "proprio" && emitCnpj && emitCnpj !== empresaCnpj && !ehDevolucaoVenda){
-            rejeitadosCnpj.push(`${nome}: emitente ${emitCnpj} ≠ empresa em análise`);
+            rejeitadosCnpj.push(`${nome}: emitente ${emitCnpj} != empresa em analise`);
             continue;
           }
         }
-        // Nota de entrada do fornecedor (tpNF=0): NÃO importar como entrada da empresa.
-        // Tentar vincular ao NF de saída própria referenciada (devolução).
-        if(tipoArquivo === "terceiro" && meta.tipo_operacao === "entrada"){
+        if(forceTipo === "terceiro" && meta.tipo_operacao === "entrada"){
           const forn = meta.emitente_nome || fcnpj(meta.emitente_cnpj || "");
           const nf = meta.numero_nf || "s/n";
           const refChave = meta.ref_nfe;
@@ -2145,25 +2312,24 @@ export default function ValidadorPage() {
             const vinculada = saidas.find(s => s.numero_nota === nfRefNum)
               || ns.find(s => s.numero_nota === nfRefNum);
             if(vinculada){
-              msg = `NF ${nf} — ${forn}: nota de entrada do fornecedor (devolução). Vinculada à sua NF de saída nº ${nfRefNum}.`;
+              msg = `NF ${nf} - ${forn}: nota de entrada do fornecedor (devolucao). Vinculada a sua NF de saida no ${nfRefNum}.`;
             } else {
-              msg = `NF ${nf} — ${forn}: nota de entrada do fornecedor (possível devolução). Referencia NF nº ${nfRefNum} — importe os XMLs próprios para confirmar o vínculo.`;
+              msg = `NF ${nf} - ${forn}: nota de entrada do fornecedor (possivel devolucao). Referencia NF no ${nfRefNum} - importe os XMLs proprios para confirmar o vinculo.`;
             }
           } else {
-            msg = `NF ${nf} — ${forn}: nota de entrada do fornecedor. Não importada — verifique se é uma devolução ou se o arquivo está correto.`;
+            msg = `NF ${nf} - ${forn}: nota de entrada do fornecedor. Nao importada - verifique se e uma devolucao ou se o arquivo esta correto.`;
           }
           avisosDevolucao.push(msg);
-          continue; // não importar esta nota
+          continue;
         }
       }
 
-      // forceEntrada=true faz o parseXml tratar tudo como entrada (para terceiros)
-      const {itensEntrada,itensSaida,chaveNFe}=parseXml(txt, perfil, tipoArquivo === "terceiro");
+      const {itensEntrada,itensSaida,chaveNFe}=parseXml(txt, perfil, forceTipo === "terceiro");
       const ehCancelada = !!chaveNFe && chavesCanceladas.has(chaveNFe);
       if(ehCancelada) qtdCanc++;
 
       if(ehCancelada){
-        if(tipoArquivo === "terceiro"){
+        if(forceTipo === "terceiro"){
           ne.push(...itensEntrada.map(i=>({
             ...i,
             chave_nfe: chaveNFe,
@@ -2172,7 +2338,7 @@ export default function ValidadorPage() {
             base_icms:0, aliquota_icms:0, valor_icms:0,
             tipo_nfe:"terceiro" as TipoNFe,
             status:"ALERTA" as StatusValidacao,
-            avisos:["⚠ NOTA CANCELADA — evento de cancelamento localizado na pasta."],
+            avisos:["NOTA CANCELADA - evento de cancelamento localizado na pasta."],
             cancelada:true,
             classificacao:"nao_recebido" as ClassificacaoManual,
           })));
@@ -2184,22 +2350,21 @@ export default function ValidadorPage() {
             valor_despesas:0, valor_ipi_item:0,
             base_icms:0, valor_icms:0, valor_st:0, valor_ipi:0,
             valor_pis:0, valor_cofins:0, valor_ibs:0, valor_cbs:0,
-            alertas_saida:["⚠ NOTA CANCELADA — evento de cancelamento localizado na pasta."],
+            alertas_saida:["NOTA CANCELADA - evento de cancelamento localizado na pasta."],
             status:"ALERTA" as StatusValidacao,
             cancelada:true,
           })));
         }
       } else {
-        if(tipoArquivo === "terceiro"){
-          // itensEntrada agora contém TODOS os itens (forceEntrada=true no parseXml)
-          const AVISO_DEV = "⚠ Há uma nota de entrada do fornecedor referenciando esta NF. Verifique se a operação realmente aconteceu ou se foi cancelada/devolvida.";
+        if(forceTipo === "terceiro"){
+          const AVISO_DEV = "Ha uma nota de entrada do fornecedor referenciando esta NF. Verifique se a operacao realmente aconteceu ou se foi cancelada/devolvida.";
           ne.push(...itensEntrada.map(item => {
             const temDev = devolucaoRefs.has(item.numero_nota) || devolucaoRefs.has(item.fornecedor);
             return {
               ...item,
               chave_nfe: chaveNFe,
               tipo_nfe:"terceiro" as TipoNFe,
-              cfop_entrada_sugerido: sugerirCfopEntradaEmpresa(item.cfop, item.sugestao.tipo),
+              cfop_entrada_sugerido: sugerirCfopEntrada(item.cfop, item.sugestao.tipo, ehIndustrial),
               ...(temDev ? {
                 status: "ALERTA" as StatusValidacao,
                 avisos: [...item.avisos.filter(a => a !== "Sem inconsistências."), AVISO_DEV],
@@ -2207,7 +2372,6 @@ export default function ValidadorPage() {
             };
           }));
         } else {
-          // Emissão própria: itens de saída vão para a aba Saídas
           ns.push(...itensSaida.map(i => ({ ...i, chave_nfe: chaveNFe })));
           ne.push(...itensEntrada
             .filter(i => cfopEhDevolucaoVendaSimples(i.cfop))
@@ -2222,30 +2386,28 @@ export default function ValidadorPage() {
     }
 
     if(rejeitadosCnpj.length > 0){
-      setErro(`${rejeitadosCnpj.length} arquivo(s) rejeitado(s) — CNPJ não corresponde à empresa em análise:\n${rejeitadosCnpj.join("\n")}`);
+      setErro(`${rejeitadosCnpj.length} arquivo(s) rejeitado(s) - CNPJ nao corresponde a empresa em analise:\n${rejeitadosCnpj.join("\n")}`);
     }
     if(avisosDevolucao.length > 0){
       setInfoCanc(prev=>{
-        const msg=`⚠ ${avisosDevolucao.length} nota(s) de entrada do fornecedor não importada(s):\n${avisosDevolucao.join("\n")}`;
+        const msg=`${avisosDevolucao.length} nota(s) de entrada do fornecedor não importada(s):\n${avisosDevolucao.join("\n")}`;
         return prev?`${prev}\n${msg}`:msg;
       });
     }
 
-    // ── PASSO 3: coletar metadados e verificar CFOPs sem mapeamento ─────────
     const metadados = txts
       .filter(({txt}) => !detectarCancelamento(txt))
       .map(({txt}) => extrairMetadataXml(txt))
       .filter((m): m is XmlMetadata => m !== null);
 
     if(!ne.length&&!ns.length){
-      setErro("Nenhum item encontrado nos XMLs. Verifique se são NF-e válidas.");
+      setErro("Nenhum item encontrado nos XMLs. Verifique se sao NF-e validas.");
       return;
     }
 
     setErro("");
     if(qtdCanc>0) setInfoCanc(`${qtdCanc} nota(s) cancelada(s) detectada(s) e marcada(s) com valores zerados.`);
 
-    // Detectar terceiros com CFOP sem equivalente — agrupar por (nota, cfopForn) para mostrar contexto no modal
     const semMapa = new Map<string, CfopMapeamentoItem>();
     for(const item of ne){
       if(item.tipo_nfe==="terceiro" && (item.cfop_entrada_sugerido??"") === ""){
@@ -2262,7 +2424,6 @@ export default function ValidadorPage() {
     }
 
     if(semMapa.size > 0){
-      // Salvar dados pendentes e abrir modal de seleção de CFOP
       pendingNe.current = ne;
       pendingNs.current = ns;
       pendingQtdCanc.current = qtdCanc;
@@ -2277,11 +2438,10 @@ export default function ValidadorPage() {
 
   function finalizarImportacao(ne: LinhaEntrada[], ns: LinhaSaida[], metadados: XmlMetadata[], devRefs: Set<string> = new Set()) {
     if(ne.length>0){
-      const AVISO_DEV = "⚠ Há uma nota de entrada do fornecedor referenciando esta NF. Verifique se a operação realmente aconteceu ou se foi cancelada/devolvida.";
+      const AVISO_DEV = "Ha uma nota de entrada do fornecedor referenciando esta NF. Verifique se a operacao realmente aconteceu ou se foi cancelada/devolvida.";
       setLinhas(prev=>{
         const numXml=new Set(ne.map(n=>n.numero_nota));
         const fil=prev.filter(l=>!(l.fonte==="c190"&&numXml.has(l.numero_nota)));
-        // Aplicar aviso de devolução em notas já importadas que foram referenciadas
         const filAtual = devRefs.size > 0
           ? fil.map(l => (devRefs.has(l.numero_nota) || devRefs.has(l.fornecedor)) && !l.avisos.includes(AVISO_DEV)
               ? {...l, status:"ALERTA" as StatusValidacao, avisos:[...l.avisos.filter(a=>a!=="Sem inconsistências."), AVISO_DEV]}
@@ -2319,9 +2479,7 @@ export default function ValidadorPage() {
   }
 
   function onConfirmarCfopModal() {
-    // Aplicar CFOPs selecionados aos itens pendentes
     const mapa = new Map(cfopMapeamento.map(m=>[`${m.nota}__${m.cfopForn}`, m.cfopSel]));
-    salvarVinculosCfop(cfopMapeamento.map(m=>({ cfopSaida: m.cfopForn, cfopEntrada: m.cfopSel })));
     const neAtualizado = pendingNe.current.map(item=>{
       if(item.tipo_nfe==="terceiro" && (item.cfop_entrada_sugerido??"") === ""){
         return {...item, cfop_entrada_sugerido: mapa.get(`${item.numero_nota}__${item.cfop}`) ?? item.cfop_entrada_sugerido};
@@ -2366,14 +2524,13 @@ export default function ValidadorPage() {
     setImportandoXml(true);
     try {
       await processarXmls(arquivosImportacao, tipoImportacao);
-      setModalImportAberto(false);
       setArquivosImportacao([]);
       setArrastandoImport(false);
+      setModalImportAberto(false);
     } finally {
       setImportandoXml(false);
     }
   }
-
   function itensEntradaDoXml(x: XmlPendente) {
     return linhas.filter(l => {
       if (l.fonte !== "xml" && l.fonte !== "xml_proprio") return false;
@@ -2523,17 +2680,24 @@ export default function ValidadorPage() {
     setSessaoAtual(dados);
     const mesSessao = competenciaParaMonth(dados.competencia);
     setPeriodoInicio(mesSessao);
-    setPeriodoFim(mesSessao);
     setErroSalvar("");
     setSalvouComSucesso(false);
+    let salvouOk = false;
     try {
       await salvarXmlsDaSessao(dados, xmlsPendentes);
+      salvouOk = true;
       setSalvouComSucesso(true);
+      if(empresa) fetch(`/api/sessoes?empresa_id=${empresa.id}`).then(r=>r.json()).then((lista: SessaoSalva[])=>{ if(Array.isArray(lista)) setSessoesSalvas(lista); }).catch(()=>{});
     } catch {
-      setErroSalvar("XMLs nÃ£o foram salvos no banco. Os dados estÃ£o disponÃ­veis localmente.");
+      setErroSalvar("XMLs não foram salvos no banco. Os dados estão disponíveis localmente.");
     }
     setXmlsPendentes([]);
     setModalAberto(false);
+    // Recarrega do banco para sincronizar filtro de período com o que foi salvo
+    if(salvouOk) {
+      setCarregandoPeriodo(true);
+      try { await selecionarPeriodo(mesSessao); } finally { setCarregandoPeriodo(false); }
+    }
   }
 
   async function onConfirmarSessaoXmlLote(dados: DadosSessaoLote) {
@@ -2557,25 +2721,31 @@ export default function ValidadorPage() {
         setSessaoAtual({ sessaoId: ultima.sessaoId, empresaId: dados.empresaId, empresaNome: dados.empresaNome, competencia: ultima.competencia });
         const mesSessao = competenciaParaMonth(ultima.competencia);
         setPeriodoInicio(mesSessao);
-        setPeriodoFim(mesSessao);
       }
       setSalvouComSucesso(true);
       setInfoCanc(prev => {
-        const msg = `${totalSalvo} XML(s) salvo(s) em ${dados.sessoes.length} competÃªncia(s).`;
+        const msg = `${totalSalvo} XML(s) salvo(s) em ${dados.sessoes.length} competência(s).`;
         return prev ? `${prev}\n${msg}` : msg;
       });
+      if(empresa) fetch(`/api/sessoes?empresa_id=${empresa.id}`).then(r=>r.json()).then((lista: SessaoSalva[])=>{ if(Array.isArray(lista)) setSessoesSalvas(lista); }).catch(()=>{});
     } catch {
-      setErroSalvar("Nem todos os XMLs foram salvos no banco. Confira as competÃªncias e tente novamente.");
+      setErroSalvar("Nem todos os XMLs foram salvos no banco. Confira as competências e tente novamente.");
     }
     setXmlsPendentes([]);
     setModalAberto(false);
+    // Recarrega a última competência do banco para sincronizar filtro de período
+    const ultimaLote = dados.sessoes[dados.sessoes.length - 1];
+    if(ultimaLote) {
+      const mesSessao = competenciaParaMonth(ultimaLote.competencia);
+      setCarregandoPeriodo(true);
+      try { await selecionarPeriodo(mesSessao); } finally { setCarregandoPeriodo(false); }
+    }
   }
 
   async function onConfirmarSessaoXml(dados: DadosSessao) {
     setSessaoAtual(dados);
     const mesSessao = competenciaParaMonth(dados.competencia);
     setPeriodoInicio(mesSessao);
-    setPeriodoFim(mesSessao);
     setErroSalvar("");
     setSalvouComSucesso(false);
     try {
@@ -2740,70 +2910,98 @@ export default function ValidadorPage() {
 
   async function selecionarPeriodo(month: string) {
     const competencia = monthParaCompetencia(month);
-    if(!competencia) return;
+    if(!competencia || !empresa) return;
+
+    function aplicarDados(ents: LinhaEntrada[], sais: LinhaSaida[], sessaoId: string) {
+      setLinhas(ents);
+      setSaidas(sais);
+      setCompetenciaXml(competencia);
+      setSessaoAtual({ sessaoId, empresaId: empresa!.id, empresaNome: empresa!.razao_social, competencia });
+      setErro("");
+      setInfoCanc(`${competencia} — ${ents.length} it. entrada / ${sais.length} it. saída`);
+      const mesSessao = competenciaParaMonth(competencia);
+      setPeriodoInicio(mesSessao);
+    }
+
+    // 1) fa_documentos_fiscais — fonte principal (itens estruturados)
+    try {
+      const resDb = await fetch(
+        `/api/documentos-fiscais?empresa_id=${empresa.id}&competencia=${encodeURIComponent(competencia)}&incluir_itens=true`
+      );
+      if(resDb.ok) {
+        const docsDb: DocumentoFiscalDb[] = await resDb.json();
+        const { mappedEntradas, mappedSaidas } = mapearDocumentosDb(docsDb);
+        if(mappedEntradas.length > 0 || mappedSaidas.length > 0) {
+          const sessao = sessoesSalvas.find(s=>s.competencia===competencia);
+          aplicarDados(mappedEntradas, mappedSaidas, sessao?.id ?? `periodo-${month}`);
+          return;
+        }
+      }
+    } catch { /* tenta próxima fonte */ }
+
+    // 2) fa_arquivos_xml — parsed_data (bypassa sessoesSalvas, funciona imediatamente após import)
+    try {
+      const resXml = await fetch(
+        `/api/arquivos-xml?empresa_id=${empresa.id}&competencia=${encodeURIComponent(competencia)}&incluir_dados=true`
+      );
+      if(resXml.ok) {
+        type XmlReg = { chave_nfe?: string|null; id: string; sessao_id?: string|null; data_emissao?: string|null; parsed_data: { itens_entrada?: LinhaEntrada[]; itens_saida?: LinhaSaida[] } | null };
+        const registros: XmlReg[] = await resXml.json();
+        if(Array.isArray(registros) && registros.length > 0) {
+          // Filtra por competência via data_emissao (proteção contra fallback do route que retorna todos)
+          const registrosDaComp = registros.filter(r => {
+            if(!r.data_emissao) return true;
+            return competenciaDaDataIso(r.data_emissao) === competencia;
+          });
+          const seenChaves = new Set<string>();
+          const novasLinhas: LinhaEntrada[] = [];
+          const novasSaidas: LinhaSaida[] = [];
+          for(const reg of registrosDaComp){
+            const key = reg.chave_nfe || reg.id;
+            if(seenChaves.has(key)) continue;
+            seenChaves.add(key);
+            if(!reg.parsed_data) continue;
+            if(Array.isArray(reg.parsed_data.itens_entrada)) novasLinhas.push(...reg.parsed_data.itens_entrada);
+            if(Array.isArray(reg.parsed_data.itens_saida)) novasSaidas.push(...reg.parsed_data.itens_saida);
+          }
+          if(novasLinhas.length > 0 || novasSaidas.length > 0) {
+            const sessao = sessoesSalvas.find(s=>s.competencia===competencia);
+            const primeiroSessaoId = registrosDaComp.find(r=>r.sessao_id)?.sessao_id ?? `periodo-${month}`;
+            aplicarDados(novasLinhas, novasSaidas, sessao?.id ?? primeiroSessaoId);
+            return;
+          }
+        }
+      }
+    } catch { /* tenta próxima fonte */ }
+
+    // 3) carregarSessaoAnterior — via sessoesSalvas (caso parsed_data exista mas competencia seja null)
     const sessao = sessoesSalvas.find(s=>s.competencia===competencia);
     if(sessao) {
       await carregarSessaoAnterior(sessao);
       return;
     }
-    setInfoCanc(`Periodo ${competencia} ainda nao possui importacao para esta empresa.`);
+
+    setInfoCanc(`Período ${competencia} ainda não possui importação para esta empresa.`);
   }
 
-  async function selecionarPeriodos(inicioMonth: string, fimMonth: string) {
-    if(!empresa || !inicioMonth) return;
-    const inicioOrdenado = fimMonth && fimMonth < inicioMonth ? fimMonth : inicioMonth;
-    const fimOrdenado = fimMonth && fimMonth < inicioMonth ? inicioMonth : (fimMonth || inicioMonth);
-    const competencias = competenciasEntreMeses(inicioOrdenado, fimOrdenado);
-    if(!competencias.length) return;
-
-    setPeriodoInicio(inicioOrdenado);
-    setPeriodoFim(fimOrdenado);
+  async function selecionarPeriodoUnico(month: string) {
+    setPeriodoInicio(month);
+    if(!month) return;
     setCarregandoPeriodo(true);
     try {
-      if(competencias.length === 1) {
-        await selecionarPeriodo(inicioOrdenado);
-        return;
-      }
-
-      const entradas: LinhaEntrada[] = [];
-      const saidasPeriodo: LinhaSaida[] = [];
-      for(const competencia of competencias) {
-        const resDb = await fetch(
-          `/api/documentos-fiscais?empresa_id=${empresa.id}&competencia=${encodeURIComponent(competencia)}&incluir_itens=true`
-        );
-        if(!resDb.ok) continue;
-        const docsDb: DocumentoFiscalDb[] = await resDb.json();
-        const { mappedEntradas, mappedSaidas } = mapearDocumentosDb(docsDb);
-        entradas.push(...mappedEntradas);
-        saidasPeriodo.push(...mappedSaidas);
-      }
-
-      const compLabel = `${competencias[0]} a ${competencias[competencias.length - 1]}`;
-      setLinhas(entradas);
-      setSaidas(saidasPeriodo);
-      setCompetenciaXml(compLabel);
-      setSessaoAtual({ sessaoId: `periodos-${inicioOrdenado}-${fimOrdenado}`, empresaId: empresa.id, empresaNome: empresa.razao_social, competencia: compLabel });
-      setErro("");
-      setInfoCanc(
-        entradas.length || saidasPeriodo.length
-          ? `Periodos ${compLabel} carregados - ${entradas.length} it. entrada / ${saidasPeriodo.length} it. saida`
-          : `Nenhum documento encontrado nos periodos ${compLabel}.`
-      );
-    } catch {
-      setErro("Nao foi possivel carregar os periodos selecionados.");
+      await selecionarPeriodo(month);
     } finally {
       setCarregandoPeriodo(false);
     }
   }
-
   async function limparConfiguradoDb(){
     if(!empresa||!limpezaInicio||!limpezaFim) return;
     const tipos = Object.entries(limpezaTipos).filter(([,ativo])=>ativo).map(([tipo])=>tipo);
     if(tipos.length===0){ setErro("Selecione ao menos um tipo de dado para excluir."); return; }
     const competencias = competenciasEntreMeses(limpezaInicio, limpezaFim);
-    if(competencias.length===0){ setErro("Informe um intervalo de periodos valido."); return; }
+    if(competencias.length===0){ setErro("Informe um intervalo de períodos válido."); return; }
     const labels: Record<string,string> = { xml_entrada:"NF-e de entrada", xml_saida:"NF-e de saída", sped_fiscal:"SPED Fiscal", sped_contrib:"SPED Contribuições" };
-    const msg=`Isso apagará ${tipos.map(t=>labels[t]).join(", ")} de ${competencias[0]} ate ${competencias[competencias.length-1]}. Esta acao nao pode ser desfeita. Continuar?`;
+    const msg=`Isso apagará ${tipos.map(t=>labels[t]).join(", ")} de ${competencias[0]} até ${competencias[competencias.length-1]}. Esta ação não pode ser desfeita. Continuar?`;
     if(!window.confirm(msg)) return;
     setLimpandoDb(true);
     try{
@@ -2813,13 +3011,13 @@ export default function ValidadorPage() {
           headers:{ "Content-Type":"application/json" },
           body: JSON.stringify({ tipos }),
         });
-        if(!res.ok) throw new Error("Falha ao limpar periodo.");
+        if(!res.ok) throw new Error("Falha ao limpar período.");
       }
       if(sessaoAtual?.competencia && competencias.includes(sessaoAtual.competencia)) {
         setSessaoAtual(null);
         limpar();
       }
-      setInfoCanc(`${competencias.length} periodo(s) limpo(s) conforme selecao.`);
+      setInfoCanc(`${competencias.length} período(s) limpo(s) conforme seleção.`);
       setErro("");
       fetch(`/api/sessoes?empresa_id=${empresa.id}`)
         .then(r=>r.json())
@@ -3087,18 +3285,32 @@ export default function ValidadorPage() {
                       {item.produtos.slice(0,3).join(" · ")}{item.produtos.length>3?" ...":""}
                     </div>
                   )}
-                  {/* Dropdown seleção CFOP entrada */}
+                  {/* Seleção CFOP entrada: input livre + dropdown de sugestões */}
                   <div style={{marginTop:4}}>
                     <div style={{fontSize:11,color:"var(--af-muted)",marginBottom:4}}>→ CFOP de entrada:</div>
-                    <select
-                      value={item.cfopSel}
-                      onChange={e=>{const v=e.target.value;setCfopMapeamento(prev=>prev.map((m,i)=>i===idx?{...m,cfopSel:v}:m));}}
-                      style={{width:"100%",boxSizing:"border-box" as const,background:D?"#0a1020":"#fff",border:D?"1px solid rgba(39,199,216,0.25)":"1px solid #cbd5e1",borderRadius:6,color:D?"var(--af-text)":"#0f172a",fontSize:12,padding:"6px 8px",outline:"none"}}
-                    >
-                      {item.opcoes.map(o=>(
-                        <option key={o.cfop} value={o.cfop}>{o.cfop} — {o.tipo} · {o.descricao.slice(0,50)}{o.descricao.length>50?"…":""}</option>
-                      ))}
-                    </select>
+                    <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                      <input
+                        type="text"
+                        value={item.cfopSel}
+                        onChange={e=>{const v=e.target.value.replace(/\D/g,"").slice(0,4);setCfopMapeamento(prev=>prev.map((m,i)=>i===idx?{...m,cfopSel:v}:m));}}
+                        placeholder="ex: 1102"
+                        maxLength={4}
+                        style={{width:72,flexShrink:0,background:D?"#0a1020":"#fff",border:D?"1px solid rgba(39,199,216,0.35)":"1px solid #cbd5e1",borderRadius:6,color:D?"var(--af-text)":"#0f172a",fontSize:13,fontWeight:700,padding:"6px 8px",outline:"none",fontFamily:"monospace"}}
+                      />
+                      {item.opcoes.length>0&&(
+                        <select
+                          value={item.opcoes.some(o=>o.cfop===item.cfopSel)?item.cfopSel:""}
+                          onChange={e=>{const v=e.target.value;if(v) setCfopMapeamento(prev=>prev.map((m,i)=>i===idx?{...m,cfopSel:v}:m));}}
+                          style={{flex:1,boxSizing:"border-box" as const,background:D?"#0a1020":"#fff",border:D?"1px solid rgba(39,199,216,0.25)":"1px solid #cbd5e1",borderRadius:6,color:D?"var(--af-text)":"#0f172a",fontSize:12,padding:"6px 8px",outline:"none"}}
+                        >
+                          <option value="">— sugestões —</option>
+                          {item.opcoes.map(o=>(
+                            <option key={o.cfop} value={o.cfop}>{o.cfop} — {o.tipo} · {o.descricao.slice(0,40)}{o.descricao.length>40?"…":""}</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                    <div style={{fontSize:10,color:"var(--af-muted)",marginTop:3}}>Digite qualquer CFOP de entrada ou selecione uma sugestão</div>
                   </div>
                 </div>
               ))}
@@ -3113,22 +3325,21 @@ export default function ValidadorPage() {
 
       {modalImportAberto && (
         <div style={{position:"fixed",inset:0,zIndex:950,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,0.58)",padding:20}}>
-          <div style={{width:"min(720px,100%)",maxHeight:"86vh",overflow:"hidden",display:"flex",flexDirection:"column" as const,background:T.cardBg,border:T.cardBrd,borderRadius:12,boxShadow:"0 24px 64px rgba(0,0,0,0.38)"}}>
+          <div style={{width:"min(720px,100%)",maxHeight:"90vh",overflow:"hidden",display:"flex",flexDirection:"column" as const,background:T.cardBg,border:T.cardBrd,borderRadius:12,boxShadow:"0 24px 64px rgba(0,0,0,0.38)"}}>
             <div style={{padding:"20px 22px",borderBottom:"1px solid var(--af-border)",display:"flex",alignItems:"center",gap:10}}>
               <Upload size={18} style={{color:"var(--af-primary)"}}/>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:16,fontWeight:800,color:T.pageClr}}>Importar NF-e</div>
-                <div style={{fontSize:12,color:T.accentDim,marginTop:2}}>Selecione o tipo de XML e adicione arquivos XML ou ZIP.</div>
+                <div style={{fontSize:12,color:T.accentDim,marginTop:2}}>Escolha entrada ou saida e adicione XMLs ou ZIPs.</div>
               </div>
               <button type="button" onClick={()=>{setModalImportAberto(false);setArquivosImportacao([]);setArrastandoImport(false);}} style={{background:"transparent",border:"none",color:T.accentDim,cursor:"pointer",padding:4}}><X size={18}/></button>
             </div>
 
-            <div style={{padding:22,overflowY:"auto" as const}}>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
+            <div style={{padding:22,overflowY:"auto" as const,flex:1}}>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10,marginBottom:16}}>
                 {([
-                  ["ambas","Entrada e saida", "Detecta pelo CNPJ da empresa"],
-                  ["terceiro","Entrada", "XMLs recebidos de fornecedores"],
-                  ["proprio","Saida", "XMLs emitidos pela empresa"],
+                  ["terceiro","Entrada / Terceiros", "XMLs recebidos de fornecedores"],
+                  ["proprio","Saida / Proprios", "XMLs emitidos pela propria empresa"],
                 ] as const).map(([tipo,label,desc])=>(
                   <button key={tipo} type="button" onClick={()=>setTipoImportacao(tipo)} style={{textAlign:"left" as const,borderRadius:10,border:tipoImportacao===tipo?"1px solid var(--af-primary)":"1px solid var(--af-border)",background:tipoImportacao===tipo?"var(--af-primary-soft)":T.bGbg,padding:"12px 14px",cursor:"pointer",color:T.pageClr}}>
                     <div style={{fontSize:13,fontWeight:800,marginBottom:3}}>{label}</div>
@@ -3141,7 +3352,7 @@ export default function ValidadorPage() {
                 onDragOver={e=>{e.preventDefault();setArrastandoImport(true);}}
                 onDragLeave={()=>setArrastandoImport(false)}
                 onDrop={e=>{e.preventDefault();setArrastandoImport(false);adicionarArquivosImportacao(Array.from(e.dataTransfer.files));}}
-                style={{display:"flex",flexDirection:"column" as const,alignItems:"center",justifyContent:"center",gap:8,minHeight:170,borderRadius:12,border:arrastandoImport?"1px solid var(--af-primary)":"1px dashed var(--af-border)",background:arrastandoImport?"var(--af-primary-soft)":D?"rgba(255,255,255,0.035)":"var(--af-surface-2)",cursor:"pointer",textAlign:"center" as const,padding:24}}
+                style={{display:"flex",flexDirection:"column" as const,alignItems:"center",justifyContent:"center",gap:8,minHeight:140,borderRadius:12,border:arrastandoImport?"1px solid var(--af-primary)":"1px dashed var(--af-border)",background:arrastandoImport?"var(--af-primary-soft)":D?"rgba(255,255,255,0.035)":"var(--af-surface-2)",cursor:"pointer",textAlign:"center" as const,padding:20}}
               >
                 <Upload size={28} style={{color:"var(--af-primary)"}}/>
                 <div style={{fontSize:14,fontWeight:800,color:T.pageClr}}>Arraste os arquivos aqui</div>
@@ -3150,9 +3361,9 @@ export default function ValidadorPage() {
               </label>
 
               {arquivosImportacao.length>0 && (
-                <div style={{marginTop:16,border:"1px solid var(--af-border)",borderRadius:10,overflow:"hidden"}}>
+                <div style={{marginTop:12,border:"1px solid var(--af-border)",borderRadius:10,overflow:"hidden"}}>
                   <div style={{padding:"9px 12px",fontSize:11,fontWeight:800,color:T.accentDim,textTransform:"uppercase" as const,letterSpacing:"0.06em",background:D?"rgba(255,255,255,0.03)":"var(--af-surface-2)"}}>{arquivosImportacao.length} arquivo(s) selecionado(s)</div>
-                  <div style={{maxHeight:180,overflowY:"auto" as const}}>
+                  <div style={{maxHeight:160,overflowY:"auto" as const}}>
                     {arquivosImportacao.map((file,idx)=>(
                       <div key={`${file.name}-${file.size}-${file.lastModified}`} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderTop:"1px solid var(--af-border)"}}>
                         <FileText size={14} style={{color:"var(--af-primary)",flexShrink:0}}/>
@@ -3173,7 +3384,6 @@ export default function ValidadorPage() {
           </div>
         </div>
       )}
-
       <ModalSessao
         aberto={modalAberto}
         cnpjEmpresa={cnpjEmpresaXml || undefined}
@@ -3195,12 +3405,12 @@ export default function ValidadorPage() {
         type="button"
         onClick={()=>setModulo(modulo==="configuracoes"?"entradas":"configuracoes")}
         style={{position:"absolute",right:0,top:2,width:38,height:38,display:"inline-flex",alignItems:"center",justifyContent:"center",borderRadius:10,background:modulo==="configuracoes"?"var(--af-primary-soft)":T.bGbg,border:modulo==="configuracoes"?"1px solid rgba(39,199,216,0.42)":T.bGbrd,color:modulo==="configuracoes"?T.accent:T.bGclr,cursor:"pointer"}}
-        title="Configuracoes"
+        title="Configurações"
       >
         <Settings size={16}/>
       </button>
 
-      {/* Barra de acoes */}
+      {/* Barra de ações */}
       <div style={{display:"flex",flexWrap:"wrap" as const,alignItems:"center",gap:8,marginBottom:20,borderBottom:"1px solid var(--af-border)",paddingBottom:16}}>
         {empresa && (
           <div style={{display:"inline-flex",alignItems:"center",gap:8,flexWrap:"wrap" as const}}>
@@ -3208,23 +3418,13 @@ export default function ValidadorPage() {
             <input
               type="month"
               value={periodoInicio}
-              onChange={e=>selecionarPeriodos(e.target.value, periodoFim)}
+              onChange={e=>selecionarPeriodoUnico(e.target.value)}
               disabled={carregandoPeriodo}
               style={{...S.inp,width:174,padding:"9px 12px",opacity:carregandoPeriodo?0.65:1}}
-              title="Periodo inicial"
-            />
-            <span style={{fontSize:12,color:T.accentDim,fontWeight:700}}>ate</span>
-            <input
-              type="month"
-              value={periodoFim}
-              onChange={e=>selecionarPeriodos(periodoInicio || e.target.value, e.target.value)}
-              disabled={carregandoPeriodo || !periodoInicio}
-              style={{...S.inp,width:174,padding:"9px 12px",opacity:carregandoPeriodo?0.65:1}}
-              title="Periodo final"
+              title="Periodo"
             />
           </div>
         )}
-
         <div style={{flex:1}}/>
 
         <button type="button" onClick={()=>setModalImportAberto(true)} disabled={!empresa} style={{...S.bP,opacity:empresa?1:0.45,cursor:empresa?"pointer":"not-allowed"}} title={empresa?"Importar XMLs de NF-e":"Selecione uma empresa antes de importar"}>
@@ -3232,7 +3432,7 @@ export default function ValidadorPage() {
         </button>
         {sessaoAtual?.competencia && !sessaoAtual.competencia.includes(" a ") && (
           <button type="button" onClick={()=>router.push(`/simples_nacional?aba=apuracao_sistema&competencia=${encodeURIComponent(sessaoAtual.competencia)}`)} style={S.bG}>
-            <ArrowUpRight size={14}/>Apuracao do Simples
+            <ArrowUpRight size={14}/>Apuração do Simples
           </button>
         )}
         <button type="button" onClick={()=>exportExcel(nf,saidas,null)} disabled={vazio} style={{...S.bG,opacity:vazio?0.35:1,cursor:vazio?"not-allowed":"pointer"}}><Download size={14}/>Exportar Excel</button>
@@ -3271,7 +3471,7 @@ export default function ValidadorPage() {
       )}
 
       <div style={{display:"flex",gap:8,marginBottom:16}}>
-        {([["entradas","Entradas",ArrowDownLeft],["saidas","Saidas",ArrowUpRight],["cfop","Resumo CFOP",Tag]] as const).map(([m,lb,Icon])=>(
+        {([["entradas","Entradas",ArrowDownLeft],["saidas","Saídas",ArrowUpRight],["cfop","Resumo CFOP",Tag]] as const).map(([m,lb,Icon])=>(
           <button key={m} type="button" onClick={()=>setModulo(m)} style={{display:"flex",alignItems:"center",gap:7,padding:"10px 22px",borderRadius:12,fontSize:13,fontWeight:700,border:"none",cursor:"pointer",background:modulo===m?D?"var(--af-primary-soft)":"var(--af-primary-soft)":D?"rgba(255,255,255,0.04)":"var(--af-primary-soft)",color:modulo===m?T.accent:T.accentDim,borderBottom:modulo===m?"2px solid var(--af-primary)":"2px solid transparent"}}>
             <Icon size={14}/>{lb} {m==="entradas"?`(${linhas.length} itens)`:m==="saidas"?`(${saidas.length} itens)`:``}
           </button>
@@ -3600,43 +3800,64 @@ export default function ValidadorPage() {
       {modulo==="configuracoes"&&<>
         <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(320px,0.8fr)",gap:16}}>
           <div style={{...S.card,padding:"18px 22px"}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14,color:T.accent,fontWeight:800,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase" as const}}><Settings size={14}/>Vinculacao CFOP por empresa</div>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14,color:T.accent,fontWeight:800,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase" as const}}><Settings size={14}/>Vinculação CFOP por empresa</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr auto",gap:10,alignItems:"end",marginBottom:14}}>
-              <div><div style={{fontSize:11,color:T.accentDim,marginBottom:5}}>CFOP da nota de saida</div><input value={cfopSaidaNovo} onChange={e=>setCfopSaidaNovo(e.target.value.replace(/\D/g,"").slice(0,4))} placeholder="5102" style={S.inp}/></div>
-              <div><div style={{fontSize:11,color:T.accentDim,marginBottom:5}}>CFOP de entrada</div><input value={cfopEntradaNovo} onChange={e=>setCfopEntradaNovo(e.target.value.replace(/\D/g,"").slice(0,4))} placeholder="1102" style={S.inp}/></div>
+              <div><div style={{fontSize:11,color:T.accentDim,marginBottom:5}}>CFOP da nota de saída (5, 6 ou 7xxx)</div><input value={cfopSaidaNovo} onChange={e=>setCfopSaidaNovo(e.target.value.replace(/\D/g,"").slice(0,4))} placeholder="5102" style={S.inp}/></div>
+              <div><div style={{fontSize:11,color:T.accentDim,marginBottom:5}}>CFOP de entrada (1, 2 ou 3xxx)</div><input value={cfopEntradaNovo} onChange={e=>setCfopEntradaNovo(e.target.value.replace(/\D/g,"").slice(0,4))} placeholder="1102" style={S.inp}/></div>
               <button type="button" onClick={adicionarVinculoCfop} style={{...S.bP,height:38}}><Plus size={14}/>Adicionar</button>
             </div>
-            <div style={{overflowX:"auto" as const,border:"1px solid var(--af-border)",borderRadius:10}}>
-              <table style={{width:"100%",borderCollapse:"collapse" as const,fontSize:12}}>
-                <thead><tr>{["CFOP saida","Descricao saida","CFOP entrada","Descricao entrada",""] .map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
-                <tbody>
-                  {!cfopVinculos.length?<tr><td colSpan={5} style={{padding:"28px",textAlign:"center",color:T.accentDim}}>Nenhum vinculo cadastrado para esta empresa.</td></tr>
-                  :cfopVinculos.map(v=>(
-                    <tr key={v.cfopSaida}>
-                      <td style={{...S.td,fontWeight:800,color:T.accent}}>{v.cfopSaida}</td>
-                      <td style={{...S.td,fontSize:11}}>{descCFOP(v.cfopSaida)}</td>
-                      <td style={{...S.td,fontWeight:800,color:"#34d399"}}>{v.cfopEntrada}</td>
-                      <td style={{...S.td,fontSize:11}}>{descCFOP(v.cfopEntrada)}</td>
-                      <td style={{...S.td,textAlign:"right" as const}}><button type="button" onClick={()=>setCfopVinculos(prev=>prev.filter(item=>item.cfopSaida!==v.cfopSaida))} style={{background:"transparent",border:"none",color:"var(--af-danger)",cursor:"pointer"}} title="Remover"><X size={15}/></button></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            {(()=>{
+              const customMap = new Map(cfopVinculos.map(v=>[v.cfopSaida,v.cfopEntrada]));
+              const todosV: {cfopSaida:string;cfopEntrada:string;fonte:'sistema'|'personalizado'}[] = [];
+              for(const [cs,mapa] of Object.entries(MAPA_CFOP)){
+                if(!customMap.has(cs)) todosV.push({cfopSaida:cs,cfopEntrada:mapa.revenda,fonte:'sistema'});
+              }
+              for(const v of cfopVinculos) todosV.push({...v,fonte:'personalizado'});
+              todosV.sort((a,b)=>a.cfopSaida.localeCompare(b.cfopSaida));
+              return (
+                <div style={{overflowX:"auto" as const,border:"1px solid var(--af-border)",borderRadius:10}}>
+                  <table style={{width:"100%",borderCollapse:"collapse" as const,fontSize:12}}>
+                    <thead><tr>{["CFOP saída","Descrição saída","CFOP entrada","Descrição entrada","Fonte",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+                    <tbody>
+                      {!todosV.length?<tr><td colSpan={6} style={{padding:"28px",textAlign:"center",color:T.accentDim}}>Selecione uma empresa para ver os vínculos.</td></tr>
+                      :todosV.map(v=>(
+                        <tr key={v.cfopSaida} style={{borderTop:S.td.borderTop}}>
+                          <td style={{...S.td,fontWeight:800,color:T.accent}}>{v.cfopSaida}</td>
+                          <td style={{...S.td,fontSize:11}}>{descCFOP(v.cfopSaida)}</td>
+                          <td style={{...S.td,fontWeight:800,color:"#34d399"}}>{v.cfopEntrada}</td>
+                          <td style={{...S.td,fontSize:11}}>{descCFOP(v.cfopEntrada)}</td>
+                          <td style={{...S.td}}>
+                            <span style={{display:"inline-flex",alignItems:"center",borderRadius:5,padding:"2px 7px",fontSize:10,fontWeight:700,background:v.fonte==="personalizado"?"rgba(39,199,216,0.12)":"rgba(52,211,153,0.10)",color:v.fonte==="personalizado"?T.accent:"#34d399"}}>
+                              {v.fonte==="personalizado"?"Personalizado":"Sistema"}
+                            </span>
+                          </td>
+                          <td style={{...S.td,textAlign:"right" as const}}>
+                            {v.fonte==="personalizado"&&(
+                              <button type="button" onClick={()=>setCfopVinculos(prev=>{const nova=prev.filter(item=>item.cfopSaida!==v.cfopSaida);if(empresa)window.localStorage.setItem(`validador-cfop-vinculos-${empresa.id}`,JSON.stringify(nova));return nova;})} style={{background:"transparent",border:"none",color:"var(--af-danger)",cursor:"pointer"}} title="Remover personalização"><X size={15}/></button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {empresa&&<div style={{padding:"8px 14px",fontSize:10,color:T.accentDim,borderTop:"1px solid var(--af-border)"}}>Vínculos &quot;Sistema&quot; são padrões do sistema (variam por tipo de produto). Use &quot;+Adicionar&quot; para personalizar qualquer CFOP desta empresa.</div>}
+                </div>
+              );
+            })()}
           </div>
 
           <div style={{...S.card,padding:"18px 22px"}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14,color:"var(--af-danger)",fontWeight:800,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase" as const}}><Trash2 size={14}/>Exclusao em massa</div>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14,color:"var(--af-danger)",fontWeight:800,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase" as const}}><Trash2 size={14}/>Exclusão em massa</div>
             <div style={{display:"flex",flexDirection:"column" as const,gap:10}}>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-                <div><div style={{fontSize:11,color:T.accentDim,marginBottom:5}}>Periodo inicial</div><input type="month" value={limpezaInicio} onChange={e=>setLimpezaInicio(e.target.value)} style={S.inp}/></div>
-                <div><div style={{fontSize:11,color:T.accentDim,marginBottom:5}}>Periodo final</div><input type="month" value={limpezaFim} onChange={e=>setLimpezaFim(e.target.value)} style={S.inp}/></div>
+                <div><div style={{fontSize:11,color:T.accentDim,marginBottom:5}}>Período inicial</div><input type="month" value={limpezaInicio} onChange={e=>setLimpezaInicio(e.target.value)} style={S.inp}/></div>
+                <div><div style={{fontSize:11,color:T.accentDim,marginBottom:5}}>Período final</div><input type="month" value={limpezaFim} onChange={e=>setLimpezaFim(e.target.value)} style={S.inp}/></div>
               </div>
               {([
                 ["xml_entrada","NF-e de entrada"],
-                ["xml_saida","NF-e de saida"],
+                ["xml_saida","NF-e de saída"],
                 ["sped_fiscal","SPED Fiscal"],
-                ["sped_contrib","SPED Contribuicoes"],
+                ["sped_contrib","SPED Contribuições"],
               ] as const).map(([tipo,label])=>(
                 <label key={tipo} style={{display:"flex",alignItems:"center",gap:8,fontSize:13,color:T.pageClr,cursor:"pointer"}}>
                   <input type="checkbox" checked={limpezaTipos[tipo]} onChange={e=>setLimpezaTipos(prev=>({...prev,[tipo]:e.target.checked}))} style={{accentColor:"var(--af-danger)"}}/>
@@ -3644,7 +3865,7 @@ export default function ValidadorPage() {
                 </label>
               ))}
               <button type="button" onClick={limparConfiguradoDb} disabled={!empresa||!limpezaInicio||!limpezaFim||limpandoDb} style={{...S.bD,justifyContent:"center",opacity:(!empresa||!limpezaInicio||!limpezaFim||limpandoDb)?0.55:1,cursor:limpandoDb?"wait":"pointer"}}>
-                <Trash2 size={14}/>{limpandoDb?"Limpando...":"Excluir selecao"}
+                <Trash2 size={14}/>{limpandoDb?"Limpando...":"Excluir seleção"}
               </button>
             </div>
           </div>
