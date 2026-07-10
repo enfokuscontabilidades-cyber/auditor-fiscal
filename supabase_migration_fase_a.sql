@@ -83,8 +83,7 @@ create table if not exists public.fa_documentos_fiscais (
 );
 
 create unique index if not exists idx_fa_docs_chave_empresa
-  on public.fa_documentos_fiscais(empresa_id, chave_acesso)
-  where chave_acesso is not null;
+  on public.fa_documentos_fiscais(empresa_id, chave_acesso);
 
 create index if not exists idx_fa_docs_org          on public.fa_documentos_fiscais(org_id);
 create index if not exists idx_fa_docs_empresa      on public.fa_documentos_fiscais(empresa_id);

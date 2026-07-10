@@ -13,6 +13,7 @@ import { useEmpresaAtiva } from "@/lib/hooks/useEmpresaAtiva";
 import PageHeader from "@/components/ui/PageHeader";
 import PaginationControls, { getPageItems } from "@/components/ui/PaginationControls";
 import { extrairXmlsDeArquivos } from "@/lib/fiscal/xmlArchive";
+import { parseNfseAbrasf } from "@/lib/nfse/parseNfseAbrasf";
 import { useNotifications } from "@/components/notifications/NotificationProvider";
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -39,7 +40,7 @@ type DadosEmpresa = {
 
 type TipoNFe = "terceiro" | "proprio" | null;
 type ImportacaoXmlReport = {
-  tipo: TipoImportacaoXml;
+  tipo: TipoImportacaoNfe;
   arquivos: number;
   entradas: number;
   saidas: number;
@@ -47,6 +48,15 @@ type ImportacaoXmlReport = {
   avisos: string[];
   rejeitados: string[];
   devolucoes: string[];
+};
+type ImportacaoNfseReport = {
+  arquivos: number;
+  documentos: number;
+  importadas: number;
+  canceladas: number;
+  periodos: string[];
+  avisos: string[];
+  rejeitados: string[];
 };
 
 type LinhaEntrada = {
@@ -105,6 +115,27 @@ type NotaSaida = {
   tem_cbenef: boolean; alertas: string[];
 };
 
+type LinhaNfse = {
+  id: string;
+  chave: string;
+  numero: string;
+  data: string;
+  competencia?: string;
+  clienteNome: string;
+  clienteDocumento: string;
+  servico: string;
+  municipioCodigo: string;
+  cfop: "5933" | "6933";
+  valorServicos: number;
+  valorDeducoes: number;
+  valorIss: number;
+  valorLiquido: number;
+  itemListaServico: string;
+  codigoTributacaoMunicipio: string;
+  codigoVerificacao: string;
+  status: "ok" | "cancelada" | string;
+};
+
 type Filtros = {
   somenteAlertas: boolean; cfop: string; ncm: string; busca: string; classificacao: string;
 };
@@ -132,9 +163,16 @@ type XmlPendente = {
   valorTotal: number;
 };
 
-type TipoImportacaoXml = "terceiro" | "proprio";
+type TipoImportacaoXml = "terceiro" | "proprio" | "nfse";
+type TipoImportacaoNfe = Exclude<TipoImportacaoXml, "nfse">;
 type CfopVinculo = { cfopSaida: string; cfopEntrada: string };
 type LimpezaTipo = "xml_entrada" | "xml_saida" | "sped_fiscal" | "sped_contrib";
+type PreviewImportacaoXml = {
+  arquivosXml: number;
+  documentos: number;
+  periodos: string[];
+  avisos: string[];
+};
 
 // ══════════════════════════════════════════════════════════════════════════════
 // TABELA CBenef — Goiás (IN 1518/2022-GSE)
@@ -284,6 +322,12 @@ function fcnpj(v: string) {
   const l=ntx(v).replace(/\D/g,"");
   if (l.length!==14) return v;
   return `${l.slice(0,2)}.${l.slice(2,5)}.${l.slice(5,8)}/${l.slice(8,12)}-${l.slice(12,14)}`;
+}
+function cnpjDigitos(v: string | null | undefined) {
+  return ntx(v).replace(/\D/g,"");
+}
+function cnpjValido14(v: string | null | undefined) {
+  return cnpjDigitos(v).length === 14;
 }
 function ncm2(ncm: string, lst: string[]) {
   const l=ntx(ncm).replace(/\D/g,"");
@@ -1777,6 +1821,28 @@ function criarRelatorioImportacaoXml(report: ImportacaoXmlReport) {
   };
 }
 
+function criarRelatorioImportacaoNfse(report: ImportacaoNfseReport) {
+  const wb = XLSX.utils.book_new();
+  const resumo = [
+    ["Tipo", "Servico / NFS-e"],
+    ["Arquivos XML encontrados", report.arquivos],
+    ["NFS-e detectadas", report.documentos],
+    ["NFS-e importadas", report.importadas],
+    ["NFS-e canceladas", report.canceladas],
+    ["Periodos", report.periodos.join(", ") || "-"],
+    ["Avisos", report.avisos.length],
+    ["Rejeicoes", report.rejeitados.length],
+    ["Gerado em", new Date().toLocaleString("pt-BR")],
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(resumo), "Resumo");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(report.avisos.map((mensagem, idx) => ({ Item: idx + 1, Aviso: mensagem }))), "Avisos");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(report.rejeitados.map((mensagem, idx) => ({ Item: idx + 1, Rejeicao: mensagem }))), "Rejeitados");
+  return {
+    blob: workbookToXlsxBlob(wb),
+    filename: `Relatorio_Importacao_XML_nfse_${Date.now()}.xlsx`,
+  };
+}
+
 function exportExcel(notas: NotaEntrada[], saidas: LinhaSaida[], emp: DadosEmpresa|null) {
   const wb=XLSX.utils.book_new();
   const CC="FF0D3340",CB="FFFFFFFF",CA="FFFFF3CD",CO="FFD4EDDA";
@@ -1906,7 +1972,17 @@ type EmpresaSelecionada = { id: string; razao_social: string; cnpj: string; cnae
 type DocumentoFiscalDb = {
   id: string; numero?: string; emitente_nome?: string; emitente_cnpj?: string;
   destinatario_nome?: string; destinatario_cnpj?: string; data_emissao?: string;
-  tipo_movimento?: string;
+  data_competencia?: string; tipo_movimento?: string; tipo_documento?: string;
+  chave_acesso?: string; valor_total?: number; valor_servicos?: number; valor_desconto?: number; valor_icms?: number;
+  status?: string; parsed_data?: {
+    tipo?: string;
+    metadados?: {
+      numero?: string; codigo_verificacao?: string; data_emissao?: string; competencia?: string;
+      prestador_cnpj?: string; tomador_cnpj?: string; tomador_nome?: string; municipio_codigo?: string;
+      discriminacao?: string; item_lista_servico?: string; codigo_tributacao_municipio?: string;
+      valor_servicos?: number; valor_deducoes?: number; valor_iss?: number; valor_liquido?: number; cancelada?: boolean;
+    };
+  } | null;
   fa_documentos_itens?: Array<{
     id: string; codigo_produto?: string; descricao?: string; ncm?: string; cfop?: string;
     quantidade: number; valor_unitario: number; valor_total: number;
@@ -1922,19 +1998,23 @@ export default function ValidadorPage() {
   const { addNotification, runTask } = useNotifications();
   const [linhas,setLinhas]=useState<LinhaEntrada[]>([]);
   const [saidas,setSaidas]=useState<LinhaSaida[]>([]);
+  const [nfses,setNfses]=useState<LinhaNfse[]>([]);
   const [erro,setErro]=useState("");
   const [perfil,setPerfil]=useState<PerfilEmpresa>("geral");
   const [expandidas,setExpandidas]=useState<Set<string>>(new Set());
   const [expandidasS,setExpandidasS]=useState<Set<string>>(new Set());
   const [expandidasI,setExpandidasI]=useState<Set<string>>(new Set());
+  const [expandidasNfse,setExpandidasNfse]=useState<Set<string>>(new Set());
   const [filtros,setFiltros]=useState<Filtros>({somenteAlertas:false,cfop:"",ncm:"",busca:"",classificacao:""});
-  const [modulo,setModulo]=useState<"entradas"|"saidas"|"cfop"|"configuracoes">("entradas");
+  const [modulo,setModulo]=useState<"entradas"|"saidas"|"nfse"|"cfop"|"configuracoes">("entradas");
   const [abaE,setAbaE]=useState<"notas"|"itens">("notas");
   const [buscaS,setBuscaS]=useState("");
+  const [buscaNfse,setBuscaNfse]=useState("");
   const [soAlerS,setSoAlerS]=useState(false);
   const [paginaNotasEntrada,setPaginaNotasEntrada]=useState(1);
   const [paginaItensEntrada,setPaginaItensEntrada]=useState(1);
   const [paginaNotasSaida,setPaginaNotasSaida]=useState(1);
+  const [paginaNfse,setPaginaNfse]=useState(1);
   const [linhasPorPagina,setLinhasPorPagina]=useState(50);
   const [infoCanc,setInfoCanc]=useState("");
   const [ehIndustrial,setEhIndustrial]=useState(false);
@@ -1966,6 +2046,7 @@ export default function ValidadorPage() {
   const [modalImportAberto,setModalImportAberto]=useState(false);
   const [arquivosImportacao,setArquivosImportacao]=useState<File[]>([]);
   const [arrastandoImport,setArrastandoImport]=useState(false);
+  const [previewImportacao,setPreviewImportacao]=useState<PreviewImportacaoXml | null>(null);
   const [importandoXml,setImportandoXml]=useState(false);
   const [cfopVinculos,setCfopVinculos]=useState<CfopVinculo[]>([]);
   const [cfopSaidaNovo,setCfopSaidaNovo]=useState("");
@@ -2001,6 +2082,48 @@ export default function ValidadorPage() {
     window.addEventListener("af-theme-change", onThemeChange as EventListener);
     return ()=>window.removeEventListener("af-theme-change", onThemeChange as EventListener);
   },[]);
+
+  useEffect(()=>{
+    let ativo = true;
+    if(!modalImportAberto || arquivosImportacao.length===0){
+      setPreviewImportacao(null);
+      return;
+    }
+    setPreviewImportacao(null);
+    (async()=>{
+      const extraidos = await extrairXmlsDeArquivos(arquivosImportacao);
+      if(!ativo) return;
+      const periodos = new Set<string>();
+      const avisos = [...extraidos.avisos];
+      let documentos = 0;
+      for(const arquivo of extraidos.arquivos){
+        if(tipoImportacao === "nfse"){
+          const nfses = parseNfseAbrasf(arquivo.txt, "", arquivo.nome);
+          documentos += nfses.length;
+          for(const nfse of nfses){
+            if(nfse.metadados.competencia) periodos.add(nfse.metadados.competencia);
+          }
+          if(nfses.length===0) avisos.push(`${arquivo.nome}: NFS-e nao reconhecida.`);
+        }else{
+          const meta = extrairMetadataXml(arquivo.txt);
+          if(meta){
+            documentos += 1;
+            const comp = competenciaDaDataIso(meta.data_emissao);
+            if(comp) periodos.add(comp);
+          }
+        }
+      }
+      setPreviewImportacao({
+        arquivosXml: extraidos.arquivos.length,
+        documentos,
+        periodos: Array.from(periodos).sort((a,b)=>a.localeCompare(b)),
+        avisos: avisos.slice(0, 6),
+      });
+    })().catch(()=>{
+      if(ativo) setPreviewImportacao({ arquivosXml: 0, documentos: 0, periodos: [], avisos: ["Nao foi possivel ler a previa dos arquivos."] });
+    });
+    return ()=>{ ativo = false; };
+  },[arquivosImportacao,modalImportAberto,tipoImportacao]);
 
   // Carrega lista de empresas ao montar (para o seletor inline)
   useEffect(()=>{
@@ -2041,11 +2164,87 @@ export default function ValidadorPage() {
     }
   },[empresa]);
 
+  function cfopServicoNfse(municipioCodigo: string | undefined): "5933" | "6933" {
+    return municipioCodigo?.startsWith("52") ? "5933" : "6933";
+  }
+
+  function nfseParseResultParaLinha(nfse: ReturnType<typeof parseNfseAbrasf>[number]): LinhaNfse {
+    const meta = nfse.metadados;
+    const chave = nfse.documento.chave_acesso ?? `NFSE:${meta.prestador_cnpj}:${meta.numero}:${meta.codigo_verificacao}`;
+    return {
+      id: chave,
+      chave,
+      numero: meta.numero || nfse.documento.numero || "-",
+      data: meta.data_emissao ?? nfse.documento.data_emissao ?? "",
+      competencia: meta.competencia,
+      clienteNome: meta.tomador_nome || nfse.documento.destinatario_nome || "-",
+      clienteDocumento: meta.tomador_cnpj || nfse.documento.destinatario_cnpj || "",
+      servico: meta.discriminacao || nfse.itens[0]?.descricao || "-",
+      municipioCodigo: meta.municipio_codigo || "",
+      cfop: cfopServicoNfse(meta.municipio_codigo),
+      valorServicos: meta.cancelada ? 0 : (meta.valor_servicos || nfse.documento.valor_servicos || 0),
+      valorDeducoes: meta.cancelada ? 0 : (meta.valor_deducoes || nfse.documento.valor_desconto || 0),
+      valorIss: meta.cancelada ? 0 : (meta.valor_iss || 0),
+      valorLiquido: meta.cancelada ? 0 : (meta.valor_liquido || nfse.documento.valor_total || meta.valor_servicos || 0),
+      itemListaServico: meta.item_lista_servico || "",
+      codigoTributacaoMunicipio: meta.codigo_tributacao_municipio || "",
+      codigoVerificacao: meta.codigo_verificacao || "",
+      status: meta.cancelada ? "cancelada" : "ok",
+    };
+  }
+
+  function documentoDbParaNfse(doc: DocumentoFiscalDb): LinhaNfse {
+    const meta = doc.parsed_data?.metadados;
+    const item = doc.fa_documentos_itens?.[0];
+    const chave = doc.chave_acesso ?? doc.id;
+    const municipioCodigo = meta?.municipio_codigo ?? "";
+    return {
+      id: doc.id,
+      chave,
+      numero: meta?.numero ?? doc.numero ?? "-",
+      data: meta?.data_emissao ?? doc.data_emissao ?? "",
+      competencia: meta?.competencia ?? doc.data_competencia,
+      clienteNome: meta?.tomador_nome ?? doc.destinatario_nome ?? doc.destinatario_cnpj ?? "-",
+      clienteDocumento: meta?.tomador_cnpj ?? doc.destinatario_cnpj ?? "",
+      servico: meta?.discriminacao ?? item?.descricao ?? "-",
+      municipioCodigo,
+      cfop: cfopServicoNfse(municipioCodigo),
+      valorServicos: (meta?.cancelada || doc.status === "cancelada") ? 0 : Number(meta?.valor_servicos ?? doc.valor_servicos ?? item?.valor_total ?? 0),
+      valorDeducoes: (meta?.cancelada || doc.status === "cancelada") ? 0 : Number(meta?.valor_deducoes ?? doc.valor_desconto ?? item?.valor_desconto ?? 0),
+      valorIss: (meta?.cancelada || doc.status === "cancelada") ? 0 : Number(meta?.valor_iss ?? doc.valor_icms ?? 0),
+      valorLiquido: (meta?.cancelada || doc.status === "cancelada") ? 0 : Number(meta?.valor_liquido ?? doc.valor_total ?? doc.valor_servicos ?? item?.valor_total ?? 0),
+      itemListaServico: meta?.item_lista_servico ?? item?.codigo_produto ?? "",
+      codigoTributacaoMunicipio: meta?.codigo_tributacao_municipio ?? "",
+      codigoVerificacao: meta?.codigo_verificacao ?? "",
+      status: meta?.cancelada || doc.status === "cancelada" ? "cancelada" : "ok",
+    };
+  }
+
+  async function marcarNfseCancelada(nfse: LinhaNfse) {
+    if(!empresa) return;
+    const res = await fetch('/api/documentos-fiscais/importar-nfe', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ empresa_id: empresa.id, chave_acesso: nfse.chave }),
+    });
+    if(!res.ok) { setErro('Falha ao marcar NFS-e como cancelada.'); return; }
+    setNfses(prev => prev.map(n =>
+      n.id === nfse.id
+        ? { ...n, status: 'cancelada' as const, valorServicos: 0, valorIss: 0, valorLiquido: 0, valorDeducoes: 0 }
+        : n
+    ));
+  }
+
   function mapearDocumentosDb(docsDb: DocumentoFiscalDb[]) {
     const mappedEntradas: LinhaEntrada[] = [];
     const mappedSaidas: LinhaSaida[] = [];
+    const mappedNfses: LinhaNfse[] = [];
 
     for(const doc of docsDb){
+      if(doc.tipo_documento === "nfse"){
+        mappedNfses.push(documentoDbParaNfse(doc));
+        continue;
+      }
       const itens = doc.fa_documentos_itens ?? [];
       for(const item of itens){
         const cfopStr = item.cfop ?? "";
@@ -2105,7 +2304,7 @@ export default function ValidadorPage() {
       }
     }
 
-    return { mappedEntradas, mappedSaidas };
+    return { mappedEntradas, mappedSaidas, mappedNfses };
   }
 
   async function carregarSessaoAnterior(sessao: SessaoSalva) {
@@ -2290,7 +2489,7 @@ export default function ValidadorPage() {
   function notificarImportacaoXml(report: ImportacaoXmlReport) {
     const arquivo = criarRelatorioImportacaoXml(report);
     const problemas = report.avisos.length + report.rejeitados.length + report.devolucoes.length;
-    const tipoLabel = report.tipo === "terceiro" ? "entrada / terceiros" : "saida / proprios";
+    const tipoLabel = report.tipo === "terceiro" ? "entrada / terceiros" : report.tipo === "proprio" ? "saida / proprios" : "servicos prestados";
     addNotification({
       title: "Importacao XML finalizada",
       message: `${report.entradas} item(ns) de entrada, ${report.saidas} item(ns) de saida. ${problemas} aviso(s) no relatorio.`,
@@ -2305,7 +2504,7 @@ export default function ValidadorPage() {
     if(problemas > 0) setInfoCanc(`Importacao XML (${tipoLabel}) finalizada com ${problemas} aviso(s). Baixe o relatorio pelo sino de avisos.`);
   }
 
-  async function processarXmls(files: FileList | File[], forceTipo: TipoImportacaoXml) {
+  async function processarXmls(files: FileList | File[], forceTipo: TipoImportacaoNfe) {
     const extraidos = await extrairXmlsDeArquivos(files);
     const txts: {nome:string;txt:string}[] = extraidos.arquivos;
     if(extraidos.avisos.length > 0){
@@ -2344,7 +2543,12 @@ export default function ValidadorPage() {
     let qtdCanc = 0;
     const rejeitadosCnpj: string[] = [];
     const avisosDevolucao: string[] = [];
-    const empresaCnpj = empresa?.cnpj?.replace(/\D/g,"") ?? "";
+    if (empresa?.cnpj && !cnpjValido14(empresa.cnpj)) {
+      setErro("CNPJ da empresa ativa invalido. Corrija o cadastro com exatamente 14 digitos numericos antes de importar XMLs.");
+      return { entradas: [], saidas: [], canceladosIgnorados: 0, rejeitados: 0, avisos: ["CNPJ da empresa ativa invalido."] };
+    }
+
+    const empresaCnpj = cnpjDigitos(empresa?.cnpj);
 
     for(const {nome, txt} of txts){
       if(detectarCancelamento(txt)) continue;
@@ -2354,8 +2558,8 @@ export default function ValidadorPage() {
       const ehDevolucaoVenda = meta?.tipo_operacao === "entrada" && cfopsXml.some(cfopEhDevolucaoVendaSimples);
       if(meta){
         if(empresaCnpj){
-          const emitCnpj = (meta.emitente_cnpj ?? "").replace(/\D/g,"");
-          const destCnpj = (meta.destinatario_cnpj ?? "").replace(/\D/g,"");
+          const emitCnpj = cnpjDigitos(meta.emitente_cnpj);
+          const destCnpj = cnpjDigitos(meta.destinatario_cnpj);
           if(forceTipo === "terceiro" && destCnpj && destCnpj !== empresaCnpj){
             rejeitadosCnpj.push(`${nome}: destinatario ${destCnpj} != empresa em analise`);
             continue;
@@ -2550,7 +2754,7 @@ export default function ValidadorPage() {
     if(metadados.length > 0){
       const primeira = metadados[0];
       setCompetenciaXml(competenciaDaDataIso(primeira.data_emissao) ?? "");
-      const cnpjDest = empresa?.cnpj?.replace(/\D/g,"")
+      const cnpjDest = cnpjDigitos(empresa?.cnpj)
         || metadados.find(m => m.tipo_operacao === "entrada")?.destinatario_cnpj
         || metadados[0].destinatario_cnpj;
       void cnpjDest;
@@ -2599,6 +2803,100 @@ export default function ValidadorPage() {
     adicionarArquivosImportacao(Array.from(files));
   }
 
+  async function processarNfseImportacao(files: FileList | File[]) {
+    if(!empresa)return;
+    const extraidos = await extrairXmlsDeArquivos(files);
+    const cnpj = cnpjDigitos(empresa.cnpj);
+    if(!cnpjValido14(cnpj)){
+      setErro("CNPJ da empresa ativa invalido. Corrija o cadastro com exatamente 14 digitos numericos antes de importar NFS-e.");
+      return;
+    }
+    const documentos: unknown[] = [];
+    const itens: Record<string, unknown[]> = {};
+    const novasNfses: LinhaNfse[] = [];
+    const avisos: string[] = [...extraidos.avisos];
+    const rejeitados: string[] = [];
+    const periodos = new Set<string>();
+    let detectadas = 0;
+    let canceladas = 0;
+    for(const file of extraidos.arquivos){
+      const todasNfse = parseNfseAbrasf(file.txt, "", file.nome);
+      const parsed = todasNfse.filter(nfse => nfse.metadados.prestador_cnpj === cnpj);
+      if(todasNfse.length===0){
+        rejeitados.push(`${file.nome}: XML de NFS-e nao reconhecido ou sem dados do prestador.`);
+        continue;
+      }
+      detectadas += todasNfse.length;
+      if(parsed.length===0){
+        const prestadores = Array.from(new Set(todasNfse.map(nfse=>nfse.metadados.prestador_cnpj).filter(Boolean))).join(", ");
+        rejeitados.push(`${file.nome}: prestador ${prestadores || "nao identificado"} diferente da empresa ativa ${cnpj}.`);
+        continue;
+      }
+      for(const nfse of parsed){
+        const competencia = nfse.metadados.competencia;
+        if(competencia) periodos.add(competencia);
+        if(nfse.metadados.cancelada) canceladas += 1;
+        documentos.push({ ...nfse.documento, data_competencia: competencia });
+        itens[nfse.documento.chave_acesso ?? nfse.metadados.numero] = nfse.itens;
+        novasNfses.push(nfseParseResultParaLinha(nfse));
+      }
+    }
+    const report: ImportacaoNfseReport = {
+      arquivos: extraidos.arquivos.length,
+      documentos: detectadas,
+      importadas: documentos.length,
+      canceladas,
+      periodos: Array.from(periodos).sort((a,b)=>a.localeCompare(b)),
+      avisos,
+      rejeitados,
+    };
+    const arquivo = criarRelatorioImportacaoNfse(report);
+    if(documentos.length===0){
+      addNotification({
+        title: "Importacao NFS-e finalizada",
+        message: `0 NFS-e importada(s). ${avisos.length + rejeitados.length} aviso(s) no relatorio.`,
+        status: "error",
+        action: {
+          type: "download",
+          filename: arquivo.filename,
+          mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          blob: arquivo.blob,
+        },
+      });
+      setErro("Nenhuma NFS-e foi importada. Baixe o relatorio pelo sino de avisos para ver os detalhes.");
+      return;
+    }
+    const res = await fetch("/api/documentos-fiscais/importar",{
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ empresa_id: empresa.id, documentos, itens }),
+    });
+    if(!res.ok) {
+      let msg = "Falha ao salvar NFS-e.";
+      try { const body = await res.json(); if(body?.error) msg = body.error; else if(Array.isArray(body?.erros) && body.erros.length) msg = `Falha ao salvar NFS-e: ${body.erros[0]}`; } catch { /* ignora */ }
+      throw new Error(msg);
+    }
+    addNotification({
+      title: "Importacao NFS-e finalizada",
+      message: `${documentos.length} NFS-e importada(s). ${avisos.length + rejeitados.length} aviso(s) no relatorio.`,
+      status: "success",
+      action: {
+        type: "download",
+        filename: arquivo.filename,
+        mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        blob: arquivo.blob,
+      },
+    });
+    const mesMaisRecente = report.periodos[report.periodos.length - 1];
+    setModulo("nfse");
+    setPaginaNfse(1);
+    setErro("");
+    if(mesMaisRecente) {
+      await selecionarPeriodo(competenciaParaMonth(mesMaisRecente));
+    }
+    setInfoCanc(`${documentos.length} NFS-e importada(s) para a base fiscal central. Baixe o relatorio pelo sino de avisos.`);
+  }
+
   function adicionarArquivosImportacao(files: File[]) {
     if(files.length===0) return;
     setArquivosImportacao(prev=>{
@@ -2617,8 +2915,17 @@ export default function ValidadorPage() {
     if(arquivosImportacao.length===0 || !empresa) return;
     setImportandoXml(true);
     try {
-      await processarXmls(arquivosImportacao, tipoImportacao);
+      if(tipoImportacao === "nfse") await processarNfseImportacao(arquivosImportacao);
+      else await processarXmls(arquivosImportacao, tipoImportacao);
       setArquivosImportacao([]);
+      setPreviewImportacao(null);
+      setArrastandoImport(false);
+      setModalImportAberto(false);
+    } catch(err) {
+      console.error("Erro ao importar arquivos:", err);
+      setErro(err instanceof Error ? err.message : "Erro desconhecido ao importar arquivos.");
+      setArquivosImportacao([]);
+      setPreviewImportacao(null);
       setArrastandoImport(false);
       setModalImportAberto(false);
     } finally {
@@ -2988,7 +3295,7 @@ export default function ValidadorPage() {
   function setClass(id:string,cl:ClassificacaoManual){setLinhas(p=>p.map(l=>l.id===id?{...l,classificacao:cl,classificacaoManual:true}:l));}
   function setClassNota(chave:string,cl:ClassificacaoManual){const[n,...rf]=chave.split("__");const forn=rf.join("__");setLinhas(p=>p.map(l=>l.numero_nota===n&&l.fornecedor===forn?{...l,classificacao:cl,classificacaoManual:true}:l));}
   function setCfopEntrada(id:string,cfop:string){setLinhas(p=>p.map(l=>l.id===id?{...l,cfop_entrada_sugerido:cfop}:l));}
-  function limpar(){setLinhas([]);setSaidas([]);setErro("");setInfoCanc("");setPerfil("geral");setExpandidas(new Set());setExpandidasS(new Set());setFiltros({somenteAlertas:false,cfop:"",ncm:"",busca:"",classificacao:""});if(refXmlTerceiros.current)refXmlTerceiros.current.value="";if(refXmlProprio.current)refXmlProprio.current.value="";if(refXmlUnificado.current)refXmlUnificado.current.value="";setSalvouComSucesso(false);}
+  function limpar(){setLinhas([]);setSaidas([]);setNfses([]);setErro("");setInfoCanc("");setPerfil("geral");setExpandidas(new Set());setExpandidasS(new Set());setExpandidasNfse(new Set());setFiltros({somenteAlertas:false,cfop:"",ncm:"",busca:"",classificacao:""});if(refXmlTerceiros.current)refXmlTerceiros.current.value="";if(refXmlProprio.current)refXmlProprio.current.value="";if(refXmlUnificado.current)refXmlUnificado.current.value="";setSalvouComSucesso(false);}
   async function limparCompetenciaDb(){
     if(!sessaoAtual||!empresa) return;
     const msg=`Isso apagará todos os XMLs e documentos fiscais de ${sessaoAtual.competencia} do banco de dados. Esta ação não pode ser desfeita. Continuar?`;
@@ -3006,9 +3313,10 @@ export default function ValidadorPage() {
     const competencia = monthParaCompetencia(month);
     if(!competencia || !empresa) return;
 
-    function aplicarDados(ents: LinhaEntrada[], sais: LinhaSaida[], sessaoId: string) {
+    function aplicarDados(ents: LinhaEntrada[], sais: LinhaSaida[], servs: LinhaNfse[], sessaoId: string) {
       setLinhas(ents);
       setSaidas(sais);
+      setNfses(servs);
       setCompetenciaXml(competencia);
       setSessaoAtual({ sessaoId, empresaId: empresa!.id, empresaNome: empresa!.razao_social, competencia });
       setErro("");
@@ -3024,10 +3332,10 @@ export default function ValidadorPage() {
       );
       if(resDb.ok) {
         const docsDb: DocumentoFiscalDb[] = await resDb.json();
-        const { mappedEntradas, mappedSaidas } = mapearDocumentosDb(docsDb);
-        if(mappedEntradas.length > 0 || mappedSaidas.length > 0) {
+        const { mappedEntradas, mappedSaidas, mappedNfses } = mapearDocumentosDb(docsDb);
+        if(mappedEntradas.length > 0 || mappedSaidas.length > 0 || mappedNfses.length > 0) {
           const sessao = sessoesSalvas.find(s=>s.competencia===competencia);
-          aplicarDados(mappedEntradas, mappedSaidas, sessao?.id ?? `periodo-${month}`);
+          aplicarDados(mappedEntradas, mappedSaidas, mappedNfses, sessao?.id ?? `periodo-${month}`);
           return;
         }
       }
@@ -3061,7 +3369,7 @@ export default function ValidadorPage() {
           if(novasLinhas.length > 0 || novasSaidas.length > 0) {
             const sessao = sessoesSalvas.find(s=>s.competencia===competencia);
             const primeiroSessaoId = registrosDaComp.find(r=>r.sessao_id)?.sessao_id ?? `periodo-${month}`;
-            aplicarDados(novasLinhas, novasSaidas, sessao?.id ?? primeiroSessaoId);
+            aplicarDados(novasLinhas, novasSaidas, [], sessao?.id ?? primeiroSessaoId);
             return;
           }
         }
@@ -3144,6 +3452,7 @@ export default function ValidadorPage() {
   function toggleE(c:string){setExpandidas(p=>{const n=new Set(p);n.has(c)?n.delete(c):n.add(c);return n;});}
   function toggleS(c:string){setExpandidasS(p=>{const n=new Set(p);n.has(c)?n.delete(c):n.add(c);return n;});}
   function toggleI(id:string){setExpandidasI(p=>{const n=new Set(p);n.has(id)?n.delete(id):n.add(id);return n;});}
+  function toggleNfse(id:string){setExpandidasNfse(p=>{const n=new Set(p);n.has(id)?n.delete(id):n.add(id);return n;});}
 
   // Filtro especial: "nao_classificado" = classificacao === null
   const lf=useMemo(()=>linhas.filter(l=>{
@@ -3195,11 +3504,17 @@ export default function ValidadorPage() {
       const g=m.get(s.cfop)!;
       g.qtd_itens++; g.valor_contabil+=s.valor_contabil; g.base_icms+=s.base_icms; g.valor_icms+=s.valor_icms;
     }
+    for(const n of nfses){
+      if(!m.has(n.cfop)) m.set(n.cfop,{cfop:n.cfop,descricao:descCFOP(n.cfop),qtd_notas:0,qtd_itens:0,valor_contabil:0,base_icms:0,valor_icms:0});
+      const g=m.get(n.cfop)!;
+      g.qtd_itens++; g.valor_contabil+=n.valorLiquido || n.valorServicos; g.base_icms+=0; g.valor_icms+=0;
+    }
     const notasPorCfop=new Map<string,Set<string>>();
     for(const s of saidas){if(!notasPorCfop.has(s.cfop))notasPorCfop.set(s.cfop,new Set());notasPorCfop.get(s.cfop)!.add(s.numero_nota);}
+    for(const n of nfses){if(!notasPorCfop.has(n.cfop))notasPorCfop.set(n.cfop,new Set());notasPorCfop.get(n.cfop)!.add(n.numero);}
     for(const [cfop,g] of m.entries()) g.qtd_notas=notasPorCfop.get(cfop)?.size||0;
     return Array.from(m.values()).sort((a,b)=>a.cfop.localeCompare(b.cfop));
-  },[saidas]);
+  },[saidas,nfses]);
   // Total fiscal das saídas: mesma base do resumo por CFOP e dos relatórios.
   const totalSaidasContabil=useMemo(()=>resumoCfopSaidas.reduce((a,i)=>a+i.valor_contabil,0),[resumoCfopSaidas]);
 
@@ -3211,6 +3526,13 @@ export default function ValidadorPage() {
   const saidasFiltradas=useMemo(()=>saidas.filter(i=>{if(soAlerS&&i.status!=="ALERTA")return false;if(buscaS){const t=`${i.numero_nota} ${i.destinatario} ${i.descricao} ${i.ncm} ${i.cfop} ${i.cbenef}`.toLowerCase();if(!t.includes(buscaS.toLowerCase()))return false;}return true;}),[saidas,soAlerS,buscaS]);
   const notasSaida=useMemo(()=>agruparSaidas(saidasFiltradas),[saidasFiltradas]);
   const notasSaidaPagina=getPageItems(notasSaida,paginaNotasSaida,linhasPorPagina);
+  const nfsesFiltradas=useMemo(()=>nfses.filter(n=>{
+    if(!buscaNfse) return true;
+    const t=`${n.numero} ${n.clienteNome} ${n.clienteDocumento} ${n.servico} ${n.cfop} ${n.codigoVerificacao}`.toLowerCase();
+    return t.includes(buscaNfse.toLowerCase());
+  }),[nfses,buscaNfse]);
+  const nfsesPagina=getPageItems(nfsesFiltradas,paginaNfse,linhasPorPagina);
+  const totalNfseValor=useMemo(()=>nfses.reduce((a,n)=>n.status==="cancelada"?a:a+(n.valorLiquido || n.valorServicos),0),[nfses]);
 
   // ── TOKENS DE TEMA ────────────────────────────────────────────────────────
   const T = D ? {
@@ -3321,7 +3643,7 @@ export default function ValidadorPage() {
     return <span style={{display:"inline-flex",alignItems:"center",gap:4,borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:700,background:ok?"rgba(34,197,94,0.10)":"rgba(251,191,36,0.10)",border:ok?"1px solid rgba(34,197,94,0.25)":"1px solid rgba(251,191,36,0.25)",color:ok?"#86efac":"var(--af-warning)",whiteSpace:"nowrap" as const}}>{ok?<CheckCircle2 size={10}/>:<AlertTriangle size={10}/>}{st}</span>;
   }
 
-  const vazio=linhas.length===0&&saidas.length===0;
+  const vazio=linhas.length===0&&saidas.length===0&&nfses.length===0;
 
   // Tooltip de composição do valor contábil
   function ComposicaoValor({item}:{item:{valor_produto:number;valor_desconto:number;valor_frete:number;valor_despesas:number;valor_ipi_item:number;valor_contabil:number}}) {
@@ -3367,7 +3689,7 @@ export default function ValidadorPage() {
   })();
 
   // CNPJ e nome da empresa analisada: prefere empresa já selecionada
-  const cnpjEmpresaXml = empresa?.cnpj?.replace(/\D/g,"") || xmlsPendentes.find(x => x.tipoOperacao === "entrada")?.destinatarioCnpj || "";
+  const cnpjEmpresaXml = cnpjDigitos(empresa?.cnpj) || xmlsPendentes.find(x => x.tipoOperacao === "entrada")?.destinatarioCnpj || "";
   const nomeEmpresaXml = empresa?.razao_social || xmlsPendentes.find(x => x.tipoOperacao === "entrada")?.destinatarioNome || "";
   return (
     <main style={S.page}><div style={S.inner}>
@@ -3442,17 +3764,18 @@ export default function ValidadorPage() {
             <div style={{padding:"20px 22px",borderBottom:"1px solid var(--af-border)",display:"flex",alignItems:"center",gap:10}}>
               <Upload size={18} style={{color:"var(--af-primary)"}}/>
               <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:16,fontWeight:800,color:T.pageClr}}>Importar NF-e</div>
-                <div style={{fontSize:12,color:T.accentDim,marginTop:2}}>Escolha entrada ou saida e adicione XMLs ou ZIPs.</div>
+                <div style={{fontSize:16,fontWeight:800,color:T.pageClr}}>Importar NF-e / NFS-e</div>
+                <div style={{fontSize:12,color:T.accentDim,marginTop:2}}>Escolha entrada ou saida para NF-e, ou importe NFS-e ABRASF de servicos prestados.</div>
               </div>
               <button type="button" onClick={()=>{setModalImportAberto(false);setArquivosImportacao([]);setArrastandoImport(false);}} style={{background:"transparent",border:"none",color:T.accentDim,cursor:"pointer",padding:4}}><X size={18}/></button>
             </div>
 
             <div style={{padding:22,overflowY:"auto" as const,flex:1}}>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10,marginBottom:16}}>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
                 {([
                   ["terceiro","Entrada / Terceiros", "XMLs recebidos de fornecedores"],
                   ["proprio","Saida / Proprios", "XMLs emitidos pela propria empresa"],
+                  ["nfse","Servico / NFS-e", "XMLs ABRASF de servicos prestados"],
                 ] as const).map(([tipo,label,desc])=>(
                   <button key={tipo} type="button" onClick={()=>setTipoImportacao(tipo)} style={{textAlign:"left" as const,borderRadius:10,border:tipoImportacao===tipo?"1px solid var(--af-primary)":"1px solid var(--af-border)",background:tipoImportacao===tipo?"var(--af-primary-soft)":T.bGbg,padding:"12px 14px",cursor:"pointer",color:T.pageClr}}>
                     <div style={{fontSize:13,fontWeight:800,marginBottom:3}}>{label}</div>
@@ -3472,6 +3795,25 @@ export default function ValidadorPage() {
                 <div style={{fontSize:12,color:T.accentDim}}>ou clique para selecionar XMLs e ZIPs</div>
                 <input ref={refXmlUnificado} type="file" accept=".xml,.zip,.rar" multiple style={{display:"none"}} onChange={onXmlUnificado} disabled={!empresa}/>
               </label>
+
+              {arquivosImportacao.length>0 && (
+                <div style={{marginTop:12,border:"1px solid var(--af-border)",borderRadius:10,background:D?"rgba(255,255,255,0.03)":"rgba(10,102,116,0.04)",padding:"10px 12px"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,fontWeight:800,color:T.pageClr}}>
+                    <Info size={14} style={{color:"var(--af-primary)"}}/>
+                    Previa da importacao
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginTop:9}}>
+                    <div style={{fontSize:11,color:T.accentDim}}>XMLs<br/><span style={{fontSize:15,fontWeight:800,color:T.pageClr}}>{previewImportacao?.arquivosXml ?? "..."}</span></div>
+                    <div style={{fontSize:11,color:T.accentDim}}>Documentos<br/><span style={{fontSize:15,fontWeight:800,color:T.pageClr}}>{previewImportacao?.documentos ?? "..."}</span></div>
+                    <div style={{fontSize:11,color:T.accentDim}}>Periodos<br/><span style={{fontSize:12,fontWeight:800,color:T.pageClr}}>{previewImportacao?.periodos.length ? previewImportacao.periodos.join(", ") : "..."}</span></div>
+                  </div>
+                  {previewImportacao?.avisos.length ? (
+                    <div style={{marginTop:8,fontSize:11,color:"var(--af-warning)",lineHeight:1.45}}>
+                      {previewImportacao.avisos.map(aviso=><div key={aviso}>{aviso}</div>)}
+                    </div>
+                  ) : null}
+                </div>
+              )}
 
               {arquivosImportacao.length>0 && (
                 <div style={{marginTop:12,border:"1px solid var(--af-border)",borderRadius:10,overflow:"hidden"}}>
@@ -3510,8 +3852,8 @@ export default function ValidadorPage() {
 
       {/* ── CABEÇALHO ─────────────────────────────────────────────────────────── */}
       <PageHeader
-        title="Validador de Entradas e Saídas"
-        subtitle="Importe XMLs de NF-e para análise de entradas, saídas, CFOP, NCM e benefícios fiscais (CBenef GO)."
+        title="Validador NF-e / NFS-e"
+        subtitle="Importe XMLs de NF-e e NFS-e ABRASF para analise fiscal, CFOP, NCM, beneficios e apuracao do Simples."
       />
 
       <button
@@ -3540,8 +3882,8 @@ export default function ValidadorPage() {
         )}
         <div style={{flex:1}}/>
 
-        <button type="button" onClick={()=>setModalImportAberto(true)} disabled={!empresa} style={{...S.bP,opacity:empresa?1:0.45,cursor:empresa?"pointer":"not-allowed"}} title={empresa?"Importar XMLs de NF-e":"Selecione uma empresa antes de importar"}>
-          <Upload size={14}/>Importar NF-e
+        <button type="button" onClick={()=>setModalImportAberto(true)} disabled={!empresa} style={{...S.bP,opacity:empresa?1:0.45,cursor:empresa?"pointer":"not-allowed"}} title={empresa?"Importar XMLs de NF-e ou NFS-e":"Selecione uma empresa antes de importar"}>
+          <Upload size={14}/>Importar NF-e / NFS-e
         </button>
         {sessaoAtual?.competencia && !sessaoAtual.competencia.includes(" a ") && (
           <button type="button" onClick={()=>router.push(`/simples_nacional?aba=apuracao_sistema&competencia=${encodeURIComponent(sessaoAtual.competencia)}`)} style={S.bG}>
@@ -3604,10 +3946,10 @@ export default function ValidadorPage() {
         </div>
       )}
 
-      <div style={{display:"flex",gap:8,marginBottom:16}}>
-        {([["entradas","Entradas",ArrowDownLeft],["saidas","Saídas",ArrowUpRight],["cfop","Resumo CFOP",Tag]] as const).map(([m,lb,Icon])=>(
+      <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap" as const}}>
+        {([["entradas","Entradas",ArrowDownLeft],["saidas","Saídas",ArrowUpRight],["cfop","Resumo CFOP",Tag],["nfse","NFS-e",FileText]] as const).map(([m,lb,Icon])=>(
           <button key={m} type="button" onClick={()=>setModulo(m)} style={{display:"flex",alignItems:"center",gap:7,padding:"10px 22px",borderRadius:12,fontSize:13,fontWeight:700,border:"none",cursor:"pointer",background:modulo===m?D?"var(--af-primary-soft)":"var(--af-primary-soft)":D?"rgba(255,255,255,0.04)":"var(--af-primary-soft)",color:modulo===m?T.accent:T.accentDim,borderBottom:modulo===m?"2px solid var(--af-primary)":"2px solid transparent"}}>
-            <Icon size={14}/>{lb} {m==="entradas"?`(${linhas.length} itens)`:m==="saidas"?`(${saidas.length} itens)`:``}
+            <Icon size={14}/>{lb} {m==="entradas"?`(${linhas.length} itens)`:m==="saidas"?`(${saidas.length} itens)`:m==="nfse"?`(${nfses.length})`:``}
           </button>
         ))}
       </div>
@@ -3769,6 +4111,70 @@ export default function ValidadorPage() {
       </>}
 
       {/* ═══════════════════ SAÍDAS ═══════════════════ */}
+      {modulo==="nfse"&&<>
+        <div style={{...S.card,padding:"18px 24px",marginBottom:14}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12,color:T.accent,fontWeight:700,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase" as const}}><Filter size={13}/>Filtros — NFS-e</div>
+          <div style={{display:"grid",gridTemplateColumns:"2fr auto auto",gap:10,alignItems:"center"}}>
+            <div style={{position:"relative" as const}}><Search size={12} style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",color:"var(--af-primary)",opacity:0.5}}/><input value={buscaNfse} onChange={e=>setBuscaNfse(e.target.value)} placeholder="Nota, cliente, documento ou serviço..." style={{...S.inp,paddingLeft:30}}/></div>
+            <div style={{fontSize:12,color:T.accentDim}}>Total: <strong style={{color:T.pageClr}}>{nfsesFiltradas.length}</strong></div>
+            <div style={{fontSize:12,color:T.accentDim}}>Valor: <strong style={{color:T.pageClr}}>{fmoe(totalNfseValor)}</strong></div>
+          </div>
+        </div>
+
+        <div style={{...S.card,overflow:"hidden"}}>
+          <div style={{overflowX:"auto" as const}}>
+            <table style={{width:"100%",borderCollapse:"collapse" as const,fontSize:12}}>
+              <thead><tr><th style={{...S.th,width:32}}></th>{["NFS-e","Data","Cliente","Documento","Serviço","CFOP","Valor Serviços","ISS","Líquido","Status"].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+              <tbody>
+                {!nfsesFiltradas.length?<tr><td colSpan={11} style={{padding:"60px 20px",textAlign:"center",color:D?"var(--af-muted)":"rgba(10,102,116,0.4)",fontSize:14}}>{nfses.length===0?"Importe XMLs de NFS-e para visualizar os serviços prestados.":"Nenhuma NFS-e corresponde aos filtros."}</td></tr>
+                :nfsesPagina.map(nfse=>{const exp=expandidasNfse.has(nfse.id);return(
+                  <React.Fragment key={nfse.id}>
+                    <tr style={{background:nfse.status==="cancelada"?D?"rgba(167,139,250,0.04)":"rgba(167,139,250,0.08)":"transparent",opacity:nfse.status==="cancelada"?0.7:1}}>
+                      <td style={{...S.td,textAlign:"center" as const,cursor:"pointer"}} onClick={()=>toggleNfse(nfse.id)}>{exp?<ChevronDown size={14} color="var(--af-primary)"/>:<ChevronRight size={14} color="var(--af-muted)"/>}</td>
+                      <td style={{...S.td,fontWeight:800,color:T.pageClr}}>{nfse.numero}</td>
+                      <td style={{...S.td,color:T.accentDim,whiteSpace:"nowrap" as const}}>{nfse.data}</td>
+                      <td style={{...S.td,maxWidth:220,overflow:"hidden" as const,textOverflow:"ellipsis",whiteSpace:"nowrap" as const,color:T.pageClr}}>{nfse.clienteNome}</td>
+                      <td style={{...S.td,color:T.accentDim}}>{nfse.clienteDocumento ? fcnpj(nfse.clienteDocumento) : "—"}</td>
+                      <td style={{...S.td,maxWidth:280,overflow:"hidden" as const,textOverflow:"ellipsis",whiteSpace:"nowrap" as const,color:T.pageClr}}>{nfse.servico}</td>
+                      <td style={{...S.td,color:T.accent,fontWeight:800}}>{nfse.cfop}</td>
+                      <td style={S.td}>{fmoe(nfse.status==="cancelada"?0:nfse.valorServicos)}</td>
+                      <td style={S.td}>{fmoe(nfse.status==="cancelada"?0:nfse.valorIss)}</td>
+                      <td style={{...S.td,fontWeight:800,color:T.pageClr}}>{fmoe(nfse.status==="cancelada"?0:(nfse.valorLiquido||nfse.valorServicos))}</td>
+                      <td style={S.td}><Tg st={nfse.status==="cancelada"?"ALERTA":"OK"} cancelada={nfse.status==="cancelada"}/></td>
+                    </tr>
+                    {exp&&<tr style={{background:D?"rgba(5,18,28,0.6)":"rgba(240,249,251,0.8)"}}>
+                      <td colSpan={11} style={{padding:"0 12px 12px 44px"}}>
+                        <div style={{borderRadius:10,background:D?"rgba(39,199,216,0.03)":"rgba(10,102,116,0.04)",border:D?"1px solid rgba(127,221,228,0.09)":"1px solid rgba(10,102,116,0.12)",padding:"12px 14px",marginTop:6}}>
+                          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:"8px 20px",fontSize:11}}>
+                            <div><span style={{color:T.accentDim,display:"block",marginBottom:2}}>Competência</span><span style={{color:T.pageClr,fontWeight:700}}>{nfse.competencia || "—"}</span></div>
+                            <div><span style={{color:T.accentDim,display:"block",marginBottom:2}}>Código Verificação</span><span style={{color:T.pageClr,fontWeight:700}}>{nfse.codigoVerificacao || "—"}</span></div>
+                            <div><span style={{color:T.accentDim,display:"block",marginBottom:2}}>Município</span><span style={{color:T.pageClr,fontWeight:700}}>{nfse.municipioCodigo || "—"}</span></div>
+                            <div><span style={{color:T.accentDim,display:"block",marginBottom:2}}>Item Serviço</span><span style={{color:T.pageClr,fontWeight:700}}>{nfse.itemListaServico || "—"}</span></div>
+                            <div><span style={{color:T.accentDim,display:"block",marginBottom:2}}>Tributação Município</span><span style={{color:T.pageClr,fontWeight:700}}>{nfse.codigoTributacaoMunicipio || "—"}</span></div>
+                            <div><span style={{color:T.accentDim,display:"block",marginBottom:2}}>Deduções</span><span style={{color:T.pageClr,fontWeight:700}}>{fmoe(nfse.valorDeducoes)}</span></div>
+                          </div>
+                          <div style={{marginTop:10,fontSize:12,lineHeight:1.5,color:T.pageClr}}>{nfse.servico}</div>
+                          {nfse.status!=="cancelada"&&<div style={{marginTop:10,display:"flex",justifyContent:"flex-end"}}>
+                            <button type="button" onClick={()=>marcarNfseCancelada(nfse)} style={{padding:"5px 14px",borderRadius:8,fontSize:11,fontWeight:700,border:"1px solid rgba(167,139,250,0.4)",background:"rgba(167,139,250,0.08)",color:"rgba(167,139,250,0.85)",cursor:"pointer"}}>Marcar como cancelada</button>
+                          </div>}
+                        </div>
+                      </td>
+                    </tr>}
+                  </React.Fragment>
+                );})}
+              </tbody>
+            </table>
+          </div>
+          <PaginationControls
+            total={nfsesFiltradas.length}
+            page={paginaNfse}
+            pageSize={linhasPorPagina}
+            onPageChange={setPaginaNfse}
+            onPageSizeChange={tamanho=>{setLinhasPorPagina(tamanho);setPaginaNotasEntrada(1);setPaginaItensEntrada(1);setPaginaNotasSaida(1);setPaginaNfse(1);}}
+          />
+        </div>
+      </>}
+
       {modulo==="saidas"&&<>
         <div style={{...S.card,padding:"18px 24px",marginBottom:14}}>
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12,color:T.accent,fontWeight:700,fontSize:12,letterSpacing:"0.06em",textTransform:"uppercase" as const}}><Filter size={13}/>Filtros — Saídas</div>

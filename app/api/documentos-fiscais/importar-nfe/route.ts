@@ -47,10 +47,20 @@ export async function POST(request: Request) {
     return respostaForbidden('empresa_id')
   }
 
+  // Deduplica por chave_acesso para evitar "ON CONFLICT DO UPDATE command cannot affect
+  // row a second time" quando o batch contém a mesma nota mais de uma vez
+  const docsPorChave = new Map<string, Omit<DocumentoFiscalInput, 'empresa_id'>>()
+  for (let i = 0; i < documentos.length; i++) {
+    const doc = documentos[i]
+    const chave = doc.chave_acesso ?? doc.numero ?? `__idx_${i}`
+    docsPorChave.set(chave, doc)
+  }
+  const documentosDedupados = Array.from(docsPorChave.values())
+
   const erros: string[] = []
   const docsSalvos: DocRetornado[] = []
 
-  for (const lote of chunk(documentos, DOC_BATCH)) {
+  for (const lote of chunk(documentosDedupados, DOC_BATCH)) {
     const docsComTenant = lote.map(doc => ({ ...doc, org_id: orgId, empresa_id }))
     const { data, error } = await supabase
       .from('fa_documentos_fiscais')
@@ -91,8 +101,8 @@ export async function POST(request: Request) {
     documento_id: string
   }> = []
 
-  for (let idx = 0; idx < documentos.length; idx++) {
-    const doc = documentos[idx]
+  for (let idx = 0; idx < documentosDedupados.length; idx++) {
+    const doc = documentosDedupados[idx]
     const chave = doc.chave_acesso ?? doc.numero ?? String(idx)
     const documentoId = (doc.chave_acesso ? idsPorChave.get(doc.chave_acesso) : undefined)
       ?? (doc.numero ? idsPorNumero.get(doc.numero) : undefined)
@@ -124,7 +134,7 @@ export async function POST(request: Request) {
   }
 
   const competencias = Array.from(
-    new Set(documentos.map(doc => doc.data_competencia).filter(Boolean)),
+    new Set(documentosDedupados.map(doc => doc.data_competencia).filter(Boolean)),
   ) as string[]
   for (const competencia of competencias) {
     const { error } = await supabase.rpc('refresh_relatorios_mensais', {
