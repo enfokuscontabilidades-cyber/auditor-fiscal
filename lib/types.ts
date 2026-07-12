@@ -367,6 +367,16 @@ export interface DocumentoFiscalItem {
   valor_bc_cofins: number
   aliquota_cofins: number
   valor_cofins: number
+  cst_ibs_cbs?: string
+  cclass_trib?: string
+  valor_bc_ibs_cbs?: number
+  aliquota_ibs_uf?: number
+  valor_ibs_uf?: number
+  aliquota_ibs_mun?: number
+  valor_ibs_mun?: number
+  valor_ibs?: number
+  aliquota_cbs?: number
+  valor_cbs?: number
   valor_ipi: number
   classificacao: ClassificacaoItem
   natureza_receita_simples: NaturezaReceitaSimples
@@ -394,6 +404,44 @@ export interface SnReceitaMensal {
   competencia: string
   receita_bruta_mes: number
   origem: 'pgdas' | 'xml' | 'manual' | 'importacao_excel'
+  created_at: string
+  updated_at: string
+}
+
+export type SnModoServico = 'anexo_fixo' | 'fator_r'
+
+export interface SnConfigServicosEmpresa {
+  id: string
+  org_id: string
+  empresa_id: string
+  modo_servico: SnModoServico
+  anexo_fixo?: 'III' | 'IV' | 'V'
+  atividade_descricao?: string
+  observacoes?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface SnConfigServicoAtividade {
+  id: string
+  org_id: string
+  empresa_id: string
+  codigo_servico: string
+  descricao_servico?: string
+  modo_tributacao: 'anexo_fixo' | 'fator_r'
+  anexo_fixo?: 'III' | 'IV' | 'V'
+  observacoes?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface SnFolhaMensal {
+  id: string
+  org_id: string
+  empresa_id: string
+  competencia: string
+  valor_folha: number
+  origem: 'manual' | 'importacao_excel'
   created_at: string
   updated_at: string
 }

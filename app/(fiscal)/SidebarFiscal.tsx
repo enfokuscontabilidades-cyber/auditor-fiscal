@@ -13,6 +13,7 @@ import {
   FileText,
   Receipt,
   FilePen,
+  Scale,
 } from 'lucide-react'
 
 type OrgInfo = { id: string; nome: string; plano: string }
@@ -21,11 +22,12 @@ const LINKS = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/empresas', label: 'Empresas', icon: Building2 },
   { href: '/auditor_fiscal', label: 'Auditor SPED', icon: FileSearch },
-  { href: '/validador_entradas', label: 'Validador NF-e', icon: FileText },
-  { href: '/inconsistencias', label: 'Relatórios', icon: BarChart3 },
-  { href: '/simples_nacional', label: 'Simples Nacional', icon: Receipt },
   { href: '/editor_sped', label: 'Editor SPED', icon: FilePen },
-  { href: '/planejamento', label: 'Planejamento', icon: Calculator },
+  { href: '/validador_entradas', label: 'Validador NF-e', icon: FileText },
+  { href: '/simples_nacional', label: 'Simples Nacional', icon: Receipt },
+  { href: '/inconsistencias', label: 'Relatórios', icon: BarChart3 },
+  { href: '/reforma_tributaria', label: 'Reforma Tributária', icon: Scale },
+  { href: '/planejamento', label: 'Planejamento Tributário', icon: Calculator },
   { href: '/obrigacoes', label: 'Obrigações', icon: ClipboardList },
 ]
 
@@ -91,7 +93,6 @@ export default function SidebarFiscal() {
           )
         })}
       </div>
-
     </nav>
   )
 }

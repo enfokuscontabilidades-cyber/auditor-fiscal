@@ -19,12 +19,17 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     return NextResponse.json({ error: 'Razão social é obrigatória' }, { status: 400 })
   }
 
+  const cnpjLimpo = cnpj ? cnpj.replace(/\D/g, '') : null
+  if (!cnpjLimpo || cnpjLimpo.length !== 14) {
+    return NextResponse.json({ error: 'CNPJ invalido: informe exatamente 14 digitos numericos' }, { status: 400 })
+  }
+
   const { data, error } = await supabase
     .from('empresas')
     .update({
       razao_social:       razao_social.trim(),
       nome_fantasia:      nome_fantasia?.trim() || null,
-      cnpj:               cnpj ? cnpj.replace(/\D/g, '') : null,
+      cnpj:               cnpjLimpo,
       regime:             regime || null,
       cnae_principal:     cnae_principal?.trim() || null,
       inscricao_estadual: inscricao_estadual?.trim() || null,

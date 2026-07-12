@@ -28,6 +28,24 @@ export default function ConfiguracoesPage() {
   const [sucesso, setSucesso] = useState('')
   const [carregando, setCarregando] = useState(false)
 
+  const cardStyle: CSSProperties = {
+    background: 'var(--af-surface)',
+    border: '1px solid var(--af-border)',
+    borderRadius: 12,
+    padding: '24px 28px',
+    marginBottom: 28,
+  }
+
+  const inputStyle: CSSProperties = {
+    background: 'var(--af-surface-2)',
+    border: '1px solid var(--af-border)',
+    borderRadius: 8,
+    padding: '9px 12px',
+    color: 'var(--af-text)',
+    fontSize: 13,
+    outline: 'none',
+  }
+
   useEffect(() => {
     fetch('/api/organizacoes').then(r => r.json()).then(d => setOrg(d))
     fetch('/api/membros').then(r => r.json()).then(d => { if (Array.isArray(d)) setMembros(d) })
@@ -88,8 +106,8 @@ export default function ConfiguracoesPage() {
     width: 44,
     height: 24,
     borderRadius: 999,
-    border: `1px solid ${ativo ? 'rgba(39,199,216,0.45)' : 'rgba(71,85,105,0.7)'}`,
-    background: ativo ? 'rgba(39,199,216,0.22)' : 'rgba(30,41,59,0.85)',
+    border: `1px solid ${ativo ? 'rgba(39,199,216,0.45)' : 'var(--af-border)'}`,
+    background: ativo ? 'rgba(39,199,216,0.22)' : 'var(--af-surface-2)',
     padding: 2,
     cursor: 'pointer',
     display: 'flex',
@@ -124,14 +142,14 @@ export default function ConfiguracoesPage() {
         alignItems: 'center',
         gap: 14,
         padding: '14px 0',
-        borderTop: '1px solid rgba(51,65,85,0.45)',
+        borderTop: '1px solid var(--af-border)',
       }}>
-        <div style={{ color: checked ? 'rgba(39,199,216,0.95)' : 'rgba(148,163,184,0.7)', flexShrink: 0 }}>
+        <div style={{ color: checked ? 'var(--af-primary)' : 'var(--af-muted)', flexShrink: 0 }}>
           {icon}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#f1f5f9' }}>{title}</div>
-          <div style={{ fontSize: 12, color: 'rgba(148,163,184,0.72)', marginTop: 3, lineHeight: 1.4 }}>{description}</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--af-text)' }}>{title}</div>
+          <div style={{ fontSize: 12, color: 'var(--af-muted)', marginTop: 3, lineHeight: 1.4 }}>{description}</div>
         </div>
         <button type="button" onClick={onChange} style={toggleStyle(checked)} aria-pressed={checked}>
           <span style={toggleKnob} />
@@ -150,17 +168,11 @@ export default function ConfiguracoesPage() {
         Gerencie o escritório e os usuários com acesso ao sistema.
       </p>
 
-      <section style={{
-        background: 'rgba(15,23,42,0.8)',
-        border: '1px solid rgba(51,65,85,0.6)',
-        borderRadius: 12,
-        padding: '24px 28px',
-        marginBottom: 28,
-      }}>
+      <section style={cardStyle}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginBottom: 6 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <BellRing size={18} style={{ color: 'rgba(39,199,216,0.8)' }} />
-            <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0, color: '#f1f5f9' }}>Notificacoes</h2>
+            <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0, color: 'var(--af-text)' }}>Notificacoes</h2>
           </div>
           <button
             type="button"
@@ -208,26 +220,20 @@ export default function ConfiguracoesPage() {
       </section>
 
       {/* Organização */}
-      <section style={{
-        background: 'rgba(15,23,42,0.8)',
-        border: '1px solid rgba(51,65,85,0.6)',
-        borderRadius: 12,
-        padding: '24px 28px',
-        marginBottom: 28,
-      }}>
+      <section style={cardStyle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
           <Building2 size={18} style={{ color: 'rgba(39,199,216,0.8)' }} />
-          <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0, color: '#f1f5f9' }}>Escritório</h2>
+          <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0, color: 'var(--af-text)' }}>Escritório</h2>
         </div>
 
         {org ? (
           <div style={{ display: 'grid', gap: 12 }}>
             <div>
-              <span style={{ fontSize: 11, color: 'rgba(148,163,184,0.6)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Nome</span>
-              <div style={{ fontSize: 16, fontWeight: 600, color: '#f1f5f9', marginTop: 4 }}>{org.nome}</div>
+              <span style={{ fontSize: 11, color: 'var(--af-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Nome</span>
+              <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--af-text)', marginTop: 4 }}>{org.nome}</div>
             </div>
             <div>
-              <span style={{ fontSize: 11, color: 'rgba(148,163,184,0.6)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Plano</span>
+              <span style={{ fontSize: 11, color: 'var(--af-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Plano</span>
               <div style={{ marginTop: 4 }}>
                 <span style={{
                   display: 'inline-block',
@@ -245,20 +251,15 @@ export default function ConfiguracoesPage() {
             </div>
           </div>
         ) : (
-          <div style={{ color: 'rgba(148,163,184,0.5)', fontSize: 13 }}>Carregando...</div>
+          <div style={{ color: 'var(--af-muted)', fontSize: 13 }}>Carregando...</div>
         )}
       </section>
 
       {/* Membros */}
-      <section style={{
-        background: 'rgba(15,23,42,0.8)',
-        border: '1px solid rgba(51,65,85,0.6)',
-        borderRadius: 12,
-        padding: '24px 28px',
-      }}>
+      <section style={{ ...cardStyle, marginBottom: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
           <Users size={18} style={{ color: 'rgba(39,199,216,0.8)' }} />
-          <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0, color: '#f1f5f9' }}>
+          <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0, color: 'var(--af-text)' }}>
             Usuários ({membros.length})
           </h2>
         </div>
@@ -273,13 +274,7 @@ export default function ConfiguracoesPage() {
             required
             style={{
               flex: 1,
-              background: 'rgba(30,41,59,0.8)',
-              border: '1px solid rgba(71,85,105,0.6)',
-              borderRadius: 8,
-              padding: '9px 12px',
-              color: '#f1f5f9',
-              fontSize: 13,
-              outline: 'none',
+              ...inputStyle,
             }}
           />
           <button
@@ -306,13 +301,13 @@ export default function ConfiguracoesPage() {
         {erro && (
           <div style={{
             background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)',
-            borderRadius: 8, padding: '9px 14px', color: '#fca5a5', fontSize: 13, marginBottom: 16,
+            borderRadius: 8, padding: '9px 14px', color: '#b91c1c', fontSize: 13, marginBottom: 16,
           }}>{erro}</div>
         )}
         {sucesso && (
           <div style={{
             background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)',
-            borderRadius: 8, padding: '9px 14px', color: '#86efac', fontSize: 13, marginBottom: 16,
+            borderRadius: 8, padding: '9px 14px', color: '#15803d', fontSize: 13, marginBottom: 16,
           }}>{sucesso}</div>
         )}
 
@@ -321,8 +316,8 @@ export default function ConfiguracoesPage() {
           {membros.map(m => (
             <div key={m.id} style={{
               display: 'flex', alignItems: 'center', gap: 12,
-              background: 'rgba(30,41,59,0.5)',
-              border: '1px solid rgba(51,65,85,0.4)',
+              background: 'var(--af-surface-2)',
+              border: '1px solid var(--af-border)',
               borderRadius: 8,
               padding: '11px 14px',
             }}>
@@ -337,8 +332,8 @@ export default function ConfiguracoesPage() {
                 {(m.email ?? '?')[0].toUpperCase()}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, color: '#f1f5f9', fontWeight: 500 }}>{m.email ?? m.user_id}</div>
-                <div style={{ fontSize: 11, color: 'rgba(148,163,184,0.5)', marginTop: 2 }}>
+                <div style={{ fontSize: 13, color: 'var(--af-text)', fontWeight: 500 }}>{m.email ?? m.user_id}</div>
+                <div style={{ fontSize: 11, color: 'var(--af-muted)', marginTop: 2 }}>
                   {new Date(m.created_at).toLocaleDateString('pt-BR')}
                 </div>
               </div>
@@ -370,7 +365,7 @@ export default function ConfiguracoesPage() {
             </div>
           ))}
           {membros.length === 0 && (
-            <div style={{ color: 'rgba(148,163,184,0.4)', fontSize: 13, textAlign: 'center', padding: '20px 0' }}>
+            <div style={{ color: 'var(--af-muted)', fontSize: 13, textAlign: 'center', padding: '20px 0' }}>
               Nenhum membro cadastrado.
             </div>
           )}

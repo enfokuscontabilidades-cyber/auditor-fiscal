@@ -216,7 +216,7 @@ function parseInfNfse(inf: Element, xmlTxt: string, nomeArquivo?: string): NfseP
     discriminacao: firstText(servico ?? inf, ['Discriminacao', 'DescricaoServico', 'Descricao', 'xDescServ', 'xTribMun', 'xTribNac']),
     item_lista_servico: firstText(servico, ['ItemListaServico', 'CodigoItemListaServico', 'cTribNac']),
     codigo_tributacao_municipio: firstText(servico, ['CodigoTributacaoMunicipio', 'cTribMun']),
-    valor_servicos: numberXml(firstText(valores, ['ValorServicos', 'ValorServico', 'ValorTotalServicos', 'vServ', 'vLiq', 'vBC'])),
+    valor_servicos: numberXml(firstText(valores, ['ValorServicos', 'ValorServico', 'ValorTotalServicos', 'vServ', 'vBC'])),
     valor_deducoes: numberXml(firstText(valores, ['ValorDeducoes', 'ValorDeducao'])),
     valor_iss: numberXml(firstText(valores, ['ValorIss', 'ValorISS', 'vISSQN'])),
     iss_retido: firstText(valores, ['IssRetido', 'ISSRetido']) === '1' || /^true$/i.test(firstText(valores, ['IssRetido', 'ISSRetido'])),
@@ -227,7 +227,9 @@ function parseInfNfse(inf: Element, xmlTxt: string, nomeArquivo?: string): NfseP
   if (!metadados.numero || !metadados.prestador_cnpj) return null
 
   const chave = chaveNfse(metadados)
-  const valorTotal = metadados.valor_liquido || metadados.valor_servicos
+  // valor_total = valor bruto (gross) da NFS-e; quando ISS é retido pelo tomador,
+  // a receita bruta para faturamento e Simples Nacional é o valor_servicos (gross).
+  const valorTotal = metadados.valor_servicos || metadados.valor_liquido
   const documento: Omit<DocumentoFiscalInput, 'empresa_id'> = {
     tipo_documento: 'nfse',
     origem: 'xml_nfse',
@@ -308,7 +310,7 @@ function parseRawNfse(xmlTxt: string, nomeArquivo?: string): NfseParseResult | n
     discriminacao: rawTag(xmlTxt, ['Discriminacao', 'DescricaoServico', 'Descricao', 'xDescServ', 'xTribMun', 'xTribNac']),
     item_lista_servico: rawTag(xmlTxt, ['ItemListaServico', 'CodigoItemListaServico', 'cTribNac']),
     codigo_tributacao_municipio: rawTag(xmlTxt, ['CodigoTributacaoMunicipio', 'cTribMun']),
-    valor_servicos: numberXml(rawTag(xmlTxt, ['ValorServicos', 'ValorServico', 'ValorTotalServicos', 'vServ', 'vLiq', 'vBC'])),
+    valor_servicos: numberXml(rawTag(xmlTxt, ['ValorServicos', 'ValorServico', 'ValorTotalServicos', 'vServ', 'vBC'])),
     valor_deducoes: numberXml(rawTag(xmlTxt, ['ValorDeducoes', 'ValorDeducao'])),
     valor_iss: numberXml(rawTag(xmlTxt, ['ValorIss', 'ValorISS', 'vISSQN'])),
     iss_retido: rawTag(xmlTxt, ['IssRetido', 'ISSRetido']) === '1' || /^true$/i.test(rawTag(xmlTxt, ['IssRetido', 'ISSRetido'])),
@@ -331,7 +333,9 @@ function parseRawNfse(xmlTxt: string, nomeArquivo?: string): NfseParseResult | n
 
 function parseInfNfseFromMetadata(metadados: NfseAbrasfMetadata, xmlTxt: string, nomeArquivo?: string): NfseParseResult {
   const chave = chaveNfse(metadados)
-  const valorTotal = metadados.valor_liquido || metadados.valor_servicos
+  // valor_total = valor bruto (gross) da NFS-e; quando ISS é retido pelo tomador,
+  // a receita bruta para faturamento e Simples Nacional é o valor_servicos (gross).
+  const valorTotal = metadados.valor_servicos || metadados.valor_liquido
   const documento: Omit<DocumentoFiscalInput, 'empresa_id'> = {
     tipo_documento: 'nfse',
     origem: 'xml_nfse',

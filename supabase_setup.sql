@@ -88,7 +88,7 @@ create table if not exists public.empresas (
   org_id         uuid references public.organizacoes(id) on delete cascade not null,
   razao_social   text not null,
   nome_fantasia  text,
-  cnpj           text,
+  cnpj           text check (cnpj is null or cnpj ~ '^[0-9]{14}$'),
   cpf            text,
   regime         text check (regime in (
                    'Simples Nacional','Lucro Presumido','Lucro Real','MEI','CPF'

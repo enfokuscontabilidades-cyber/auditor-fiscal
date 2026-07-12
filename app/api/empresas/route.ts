@@ -34,6 +34,9 @@ export async function POST(request: Request) {
   }
 
   const cnpjLimpo = cnpj ? cnpj.replace(/\D/g, '') : null
+  if (!cnpjLimpo || cnpjLimpo.length !== 14) {
+    return NextResponse.json({ error: 'CNPJ invalido: informe exatamente 14 digitos numericos' }, { status: 400 })
+  }
 
   const { data, error } = await supabase
     .from('empresas')

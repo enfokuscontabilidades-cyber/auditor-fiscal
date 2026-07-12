@@ -311,6 +311,14 @@ export function parseNfeParaDocumento(
 
         const pisNode = getPisCofinsNode(imp || null, 'PIS')
         const cofNode = getPisCofinsNode(imp || null, 'COFINS')
+        const ibsCbsGrp = imp?.getElementsByTagName('IBSCBS')[0] || null
+        const gIbsCbs = ibsCbsGrp?.getElementsByTagName('gIBSCBS')[0] || null
+        const gIbsUf = gIbsCbs?.getElementsByTagName('gIBSUF')[0] || null
+        const gIbsMun = gIbsCbs?.getElementsByTagName('gIBSMun')[0] || null
+        const gCbs = gIbsCbs?.getElementsByTagName('gCBS')[0] || null
+        const valorIbsUf = nnum(gtxt(gIbsUf, 'vIBSUF'))
+        const valorIbsMun = nnum(gtxt(gIbsMun, 'vIBSMun'))
+        const valorIbs = nnum(gtxt(gIbsCbs, 'vIBS')) || valorIbsUf + valorIbsMun
 
         const itemClass = classificarCfop(
           cfop,
@@ -348,6 +356,16 @@ export function parseNfeParaDocumento(
           valor_bc_cofins: nnum(gtxt(cofNode, 'vBC')),
           aliquota_cofins: nnum(gtxt(cofNode, 'pCOFINS')),
           valor_cofins: nnum(gtxt(cofNode, 'vCOFINS') || gtxt(cofNode, 'vCOFINSAliq') || gtxt(cofNode, 'vCOFINSQtde')),
+          cst_ibs_cbs: gtxt(ibsCbsGrp, 'CST') || undefined,
+          cclass_trib: gtxt(ibsCbsGrp, 'cClassTrib') || undefined,
+          valor_bc_ibs_cbs: nnum(gtxt(gIbsCbs, 'vBC')),
+          aliquota_ibs_uf: nnum(gtxt(gIbsUf, 'pIBSUF')),
+          valor_ibs_uf: valorIbsUf,
+          aliquota_ibs_mun: nnum(gtxt(gIbsMun, 'pIBSMun')),
+          valor_ibs_mun: valorIbsMun,
+          valor_ibs: valorIbs,
+          aliquota_cbs: nnum(gtxt(gCbs, 'pCBS')),
+          valor_cbs: nnum(gtxt(gCbs, 'vCBS')),
           valor_ipi: nnum(gtxt(det.getElementsByTagName('IPI')[0] || null, 'vIPI')),
           classificacao: 'outros',
           natureza_receita_simples: itemClass.natureza_receita_simples,

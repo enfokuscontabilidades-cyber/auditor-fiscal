@@ -45,15 +45,23 @@ export interface ResultadoApuracao {
   competencia: string
   rbt12_utilizado: number
   origem_rbt12: OrigemRbt12
-  receita_vendas_bruta: number        // soma das saídas de faturamento
+  receita_vendas_bruta: number        // soma das saídas de faturamento (valor bruto das NFS-e)
   receita_devolucoes: number          // soma das devoluções de venda
   receita_liquida: number             // bruta - devoluções
   receita_st: number                  // segregada; não entra na base
   receita_exportacao: number          // separado para informação
   por_anexo: Record<string, ResultadoDas>
-  valor_das_total: number
+  valor_das_total: number             // DAS bruto (antes de deduzir ISS retido)
+  total_iss_retido: number            // ISS retido na fonte acumulado (NFS-e com iss_retido=true)
+  valor_das_a_pagar: number           // DAS líquido = valor_das_total - total_iss_retido
   alertas: string[]
   notas_devolucao: NotaDevolucao[]
+  fator_r?: {
+    modo_servico: 'anexo_fixo' | 'fator_r'
+    folha12?: number
+    percentual?: number
+    anexo_servico?: AnexoSimples
+  }
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -118,6 +126,13 @@ export function calcularDas(
   }
 }
 
+// Configuração por código de serviço (NFS-e) para apuração granular
+export interface ConfigServicoAtividade {
+  codigo_servico: string
+  modo_tributacao: 'anexo_fixo' | 'fator_r'
+  anexo_fixo?: 'III' | 'IV' | 'V'
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 // Função principal: apurar Simples Nacional a partir dos documentos
 // ──────────────────────────────────────────────────────────────────────────
@@ -129,12 +144,18 @@ export function apurarSimples(params: {
   cnpjEmpresa: string
   competencia: string
   ehIndustrial?: boolean
-  anexoServico?: AnexoSimples  // III, IV ou V — configurável por empresa
+  anexoServico?: AnexoSimples        // fallback por empresa (modo antigo)
+  fatorR?: ResultadoApuracao['fator_r']
+  configServicosAtividade?: ConfigServicoAtividade[]  // configuração por código de serviço
+  fatorRAnexo?: AnexoSimples          // resultado pré-calculado do Fator R (III ou V)
 }): ResultadoApuracao {
   const {
     documentos, itens, rbt12, origem_rbt12,
     cnpjEmpresa, competencia, ehIndustrial = false,
-    anexoServico = 'III',
+    anexoServico,
+    fatorR,
+    configServicosAtividade,
+    fatorRAnexo,
   } = params
 
   const alertas: string[] = []
@@ -144,6 +165,7 @@ export function apurarSimples(params: {
   let receita_devolucoes = 0
   let receita_st = 0
   let receita_exportacao = 0
+  let total_iss_retido = 0
 
   // Receitas por anexo (liquidas, já sem ST, exportação e devoluções)
   const receitas_por_anexo: Record<string, number> = {}
@@ -152,6 +174,14 @@ export function apurarSimples(params: {
   // ── Processar documentos ──────────────────────────────────────────────
   for (const doc of documentos) {
     if (doc.status === 'cancelada') continue
+
+    // Acumular ISS retido na fonte (NFS-e cujo tomador recolhe o ISS)
+    if (doc.tipo_documento === 'nfse' && doc.impacto_receita === 'soma_receita' && doc.parsed_data) {
+      const meta = (doc.parsed_data as { metadados?: { iss_retido?: boolean; valor_iss?: number } })?.metadados
+      if (meta?.iss_retido && (meta.valor_iss ?? 0) > 0) {
+        total_iss_retido += meta.valor_iss ?? 0
+      }
+    }
 
     const valorDoc = doc.valor_total ?? 0
 
@@ -184,7 +214,8 @@ export function apurarSimples(params: {
           if (item.impacto_receita !== 'soma_receita') continue
           valorReceitaDoc += vItem
           acumularReceita(item, vItem, ehIndustrial, anexoServico,
-            receitas_por_anexo, incrementarSt, incrementarExp)
+            receitas_por_anexo, incrementarSt, incrementarExp,
+            configServicosAtividade, fatorRAnexo)
         }
       } else if (!usarItensComoBase) {
         // Documento sem itens detalhados — usar classificação do documento
@@ -241,7 +272,11 @@ export function apurarSimples(params: {
     alertas.push('Devoluções excedem a receita de vendas — verificar documentos importados')
   }
   if (receitas_por_anexo['servico_pendente']) {
-    alertas.push('Receitas de serviço sem definição de Anexo (III, IV ou V) — configurar regime de serviço da empresa')
+    if (configServicosAtividade) {
+      alertas.push('Serviços sem configuração de anexo detectados — configure cada serviço na aba Configurações')
+    } else {
+      alertas.push('Receitas de serviço sem definição de Anexo (III, IV ou V) — configurar regime de serviço da empresa')
+    }
   }
 
   // ── Calcular DAS por anexo ────────────────────────────────────────────
@@ -258,6 +293,12 @@ export function apurarSimples(params: {
     }
   }
 
+  // ISS retido deduz o DAS (LC 123/2006, art. 21 §4°, V)
+  const valor_das_a_pagar = Math.max(0, valor_das_total - total_iss_retido)
+  if (total_iss_retido > 0) {
+    alertas.push(`ISS retido na fonte (${fmtBRL(total_iss_retido)}) deduzido do DAS conforme LC 123/2006 art. 21 §4°, V`)
+  }
+
   const receita_liquida = Math.max(0, receita_vendas_bruta - receita_devolucoes)
 
   return {
@@ -271,8 +312,11 @@ export function apurarSimples(params: {
     receita_exportacao,
     por_anexo,
     valor_das_total,
+    total_iss_retido,
+    valor_das_a_pagar,
     alertas,
     notas_devolucao,
+    fator_r: fatorR,
   }
 }
 
@@ -284,12 +328,16 @@ function acumularReceita(
   item: DocumentoFiscalItem,
   valor: number,
   ehIndustrial: boolean,
-  anexoServico: AnexoSimples,
+  anexoServico: AnexoSimples | undefined,
   receitas_por_anexo: Record<string, number>,
   incrSt: (v: number) => void,
   incrExp: (v: number) => void,
+  configServicosAtividade?: ConfigServicoAtividade[],
+  fatorRAnexo?: AnexoSimples,
 ) {
   const nat = item.natureza_receita_simples
+  const itemEhServico = item.classificacao === 'servico' ||
+    item.anexo_sugerido === 'III' || item.anexo_sugerido === 'IV' || item.anexo_sugerido === 'V'
 
   if (nat === 'st') {
     incrSt(valor)
@@ -304,9 +352,37 @@ function acumularReceita(
   }
   if (nat === 'nao_receita' || nat === 'devolucao') return
 
-  const anexo = item.anexo_sugerido ?? (item.impacto_receita === 'soma_receita' ? (ehIndustrial ? 'II' : 'I') : null)
+  // Configuração por código de serviço (NFS-e): toma prioridade sobre a config por empresa
+  if (itemEhServico && configServicosAtividade) {
+    const codigoServico = item.codigo_produto
+    const cfgServico = codigoServico
+      ? configServicosAtividade.find(c => c.codigo_servico === codigoServico)
+      : undefined
+
+    if (!cfgServico) {
+      // Código de serviço sem configuração → pendente
+      receitas_por_anexo['servico_pendente'] = (receitas_por_anexo['servico_pendente'] ?? 0) + valor
+      return
+    }
+
+    if (cfgServico.modo_tributacao === 'fator_r') {
+      const chave = fatorRAnexo ?? 'V'
+      receitas_por_anexo[chave] = (receitas_por_anexo[chave] ?? 0) + valor
+      return
+    }
+
+    const chave = cfgServico.anexo_fixo
+    if (!chave) {
+      receitas_por_anexo['servico_pendente'] = (receitas_por_anexo['servico_pendente'] ?? 0) + valor
+      return
+    }
+    receitas_por_anexo[chave] = (receitas_por_anexo[chave] ?? 0) + valor
+    return
+  }
+
+  // Fallback: lógica por empresa (modo antigo)
+  const anexo = item.anexo_sugerido ?? (item.impacto_receita === 'soma_receita' && !itemEhServico ? (ehIndustrial ? 'II' : 'I') : null)
   if (!anexo) {
-    // Serviço sem anexo definido ou CFOP pendente
     receitas_por_anexo['servico_pendente'] = (receitas_por_anexo['servico_pendente'] ?? 0) + valor
     return
   }
@@ -315,6 +391,11 @@ function acumularReceita(
     ? anexoServico   // usa o anexo configurado para serviços
     : anexo
 
+  if (!chave) {
+    receitas_por_anexo['servico_pendente'] = (receitas_por_anexo['servico_pendente'] ?? 0) + valor
+    return
+  }
+
   receitas_por_anexo[chave] = (receitas_por_anexo[chave] ?? 0) + valor
 }
 
@@ -322,9 +403,18 @@ function acumularReceitaDoc(
   doc: DocumentoFiscal,
   valor: number,
   ehIndustrial: boolean,
-  anexoServico: AnexoSimples,
+  anexoServico: AnexoSimples | undefined,
   receitas_por_anexo: Record<string, number>,
 ) {
+  if (doc.tipo_documento === 'nfse' || doc.valor_servicos > 0) {
+    if (!anexoServico) {
+      receitas_por_anexo['servico_pendente'] = (receitas_por_anexo['servico_pendente'] ?? 0) + valor
+      return
+    }
+    receitas_por_anexo[anexoServico] = (receitas_por_anexo[anexoServico] ?? 0) + valor
+    return
+  }
+
   // Sem itens detalhados — usar CNAE/tipo da empresa para sugerir anexo
   const anexo = ehIndustrial ? 'II' : 'I'
   receitas_por_anexo[anexo] = (receitas_por_anexo[anexo] ?? 0) + valor

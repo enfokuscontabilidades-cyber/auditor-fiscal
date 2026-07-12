@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
 // Páginas que não exigem verificação de sessão ativa
-const PAGINAS_PUBLICAS = ['/login', '/cadastro', '/aguardando-ativacao', '/configuracoes/novo-escritorio', '/landing']
+const PAGINAS_PUBLICAS = ['/login', '/cadastro', '/aguardando-ativacao', '/configuracoes/novo-escritorio', '/landing', '/diagnostico-reforma-tributaria']
 
 export function SessionGuard() {
   const pathname = usePathname()

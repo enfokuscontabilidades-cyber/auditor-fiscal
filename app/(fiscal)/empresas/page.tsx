@@ -212,6 +212,13 @@ export default function EmpresasPage() {
     setSalvando(true)
     setErroSalvar(null)
 
+    const cnpjLimpo = form.cnpj.replace(/\D/g, '')
+    if (cnpjLimpo.length !== 14) {
+      setErroSalvar('CNPJ invalido: informe exatamente 14 digitos numericos.')
+      setSalvando(false)
+      return
+    }
+
     if (editandoId) {
       const res = await fetch(`/api/empresas/${editandoId}`, {
         method: 'PUT',

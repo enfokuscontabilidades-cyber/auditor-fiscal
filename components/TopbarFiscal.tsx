@@ -170,11 +170,11 @@ export default function TopbarFiscal() {
 
   function abrirNotificacao(item: FiscalNotification) {
     markAsRead(item.id)
-    if (item.status !== 'success') return
     if (item.action?.type === 'download') {
       triggerAction(item.id)
       return
     }
+    if (item.status !== 'success') return
     if (item.action?.type === 'details') {
       setDetalheAberto(prev => prev === item.id ? null : item.id)
     }
@@ -452,7 +452,7 @@ export default function TopbarFiscal() {
                   const expanded = detalheAberto === item.id && isDetails
                   return (
                     <div key={item.id} style={{ border: `1px solid ${item.read ? 'var(--af-border)' : 'rgba(39,199,216,0.38)'}`, borderRadius: 12, marginBottom: 8, background: item.read ? 'var(--af-surface)' : 'var(--af-primary-soft)', overflow: 'hidden', position: 'relative' }}>
-                      <button type="button" onClick={() => abrirNotificacao(item)} style={{ width: '100%', border: 0, background: 'transparent', color: 'var(--af-text)', padding: '10px 34px 10px 10px', cursor: item.status === 'success' && item.action ? 'pointer' : 'default', textAlign: 'left', display: 'flex', alignItems: 'flex-start', gap: 9 }}>
+                      <button type="button" onClick={() => abrirNotificacao(item)} style={{ width: '100%', border: 0, background: 'transparent', color: 'var(--af-text)', padding: '10px 34px 10px 10px', cursor: item.action ? 'pointer' : 'default', textAlign: 'left', display: 'flex', alignItems: 'flex-start', gap: 9 }}>
                         <span style={{ color: meta.color, flexShrink: 0, marginTop: 1 }}>{meta.icon}</span>
                         <span style={{ minWidth: 0, flex: 1 }}>
                           <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 3 }}>

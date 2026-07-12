@@ -21,6 +21,8 @@ type DocumentoDetalhado = {
   emitente_nome: string | null
   destinatario_cnpj: string | null
   destinatario_nome: string | null
+  chave_acesso: string | null
+  origem: string | null
   valor_total: number | null
   valor_produtos: number | null
   valor_desconto: number | null
@@ -45,6 +47,8 @@ type DocumentoJoin = {
   emitente_nome: string | null
   destinatario_cnpj: string | null
   destinatario_nome: string | null
+  chave_acesso: string | null
+  origem: string | null
   status: string
 }
 
@@ -56,6 +60,7 @@ type ProdutoDetalhado = {
   descricao: string | null
   ncm: string | null
   cfop: string | null
+  cfop_fornecedor?: string | null
   unidade: string | null
   quantidade: number | null
   valor_unitario: number | null
@@ -308,6 +313,8 @@ function legacyDocToDocumento(item: XmlLegacyDocumento, index: number): Document
     emitente_nome: item.emitente_nome ?? null,
     destinatario_cnpj: item.destinatario_cnpj ?? null,
     destinatario_nome: item.destinatario_nome ?? null,
+    chave_acesso: item.chave_nfe ?? null,
+    origem: 'xml_nfe',
     valor_total: item.valor_total_nota,
     valor_produtos: item.valor_total_nota,
     valor_desconto: 0,
@@ -334,6 +341,8 @@ function legacyItemToProduto(item: XmlLegacyItem, index: number): ProdutoDetalha
     emitente_nome: item.emitente_nome ?? null,
     destinatario_cnpj: item.destinatario_cnpj ?? null,
     destinatario_nome: item.destinatario_nome ?? null,
+    chave_acesso: item.chave_nfe ?? null,
+    origem: 'xml_nfe',
     status: 'ok',
   }
 
@@ -345,6 +354,7 @@ function legacyItemToProduto(item: XmlLegacyItem, index: number): ProdutoDetalha
     descricao: item.descricao ?? null,
     ncm: item.ncm ?? null,
     cfop: item.cfop ?? null,
+    cfop_fornecedor: item.cfop_fornecedor ?? null,
     unidade: null,
     quantidade: item.quantidade,
     valor_unitario: item.quantidade > 0 ? item.valor_total / item.quantidade : item.valor_total,
@@ -379,6 +389,10 @@ export async function GET(req: Request) {
   const competenciaFim = url.searchParams.get('competencia_fim')
   const competenciasFiltro = competenciasEntre(competenciaInicio, competenciaFim)
   const tipoMovimento = url.searchParams.get('tipo_movimento')
+  const ncmFiltro = url.searchParams.get('ncm') ?? ''
+  const cfopFiltro = url.searchParams.get('cfop') ?? ''
+  const participanteFiltro = url.searchParams.get('participante') ?? ''
+  const notaFiltro = url.searchParams.get('nota') ?? ''
   const nivel = (url.searchParams.get('nivel') || 'documento') as NivelRelatorio
   const ordem = (url.searchParams.get('ordem') || (nivel === 'produto' ? 'produto' : 'documento')) as OrdemRelatorio
   const resumido = url.searchParams.get('resumido') === 'true'
@@ -407,12 +421,14 @@ export async function GET(req: Request) {
   const buildDocumentosQuery = (withCount = false, filtrarMovimento = true) => {
     let query = supabase
       .from('fa_documentos_fiscais')
-      .select('id, tipo_movimento, numero, serie, modelo, data_emissao, data_competencia, emitente_cnpj, emitente_nome, destinatario_cnpj, destinatario_nome, valor_total, valor_produtos, valor_desconto, valor_frete, valor_icms, valor_pis, valor_cofins, valor_st, valor_ipi, status', withCount ? { count: 'exact' } : undefined)
+      .select('id, tipo_movimento, numero, serie, modelo, data_emissao, data_competencia, emitente_cnpj, emitente_nome, destinatario_cnpj, destinatario_nome, chave_acesso, origem, valor_total, valor_produtos, valor_desconto, valor_frete, valor_icms, valor_pis, valor_cofins, valor_st, valor_ipi, status', withCount ? { count: 'exact' } : undefined)
       .eq('empresa_id', empresaId)
       .in('data_competencia', competenciasFiltro)
 
     if (filtrarMovimento && tipoMovimento) query = query.eq('tipo_movimento', tipoMovimento)
     if (status) query = query.eq('status', status)
+    if (notaFiltro) query = query.or(`numero.ilike.%${notaFiltro}%,chave_acesso.ilike.%${notaFiltro}%`)
+    if (participanteFiltro) query = query.or(`emitente_nome.ilike.%${participanteFiltro}%,emitente_cnpj.ilike.%${participanteFiltro}%,destinatario_nome.ilike.%${participanteFiltro}%,destinatario_cnpj.ilike.%${participanteFiltro}%`)
 
     return query.order('data_emissao', { ascending: true }).order('numero', { ascending: true })
   }
@@ -436,14 +452,17 @@ export async function GET(req: Request) {
     for (let i = 0; i < ids.length; i += 500) {
       const loteIds = ids.slice(i, i + 500)
       const lote = await fetchAll<ProdutoDetalhado>(async (inicio, fim) => {
-        const { data, error } = await supabase
+        let q = supabase
           .from('fa_documentos_itens')
           .select('id, documento_id, item_numero, codigo_produto, descricao, ncm, cfop, unidade, quantidade, valor_unitario, valor_total, valor_desconto, valor_frete, cst_icms, csosn, valor_bc_icms, aliquota_icms, valor_icms, valor_bc_st, valor_st, cst_pis, valor_pis, cst_cofins, valor_cofins, valor_ipi, tipo_movimento')
           .eq('empresa_id', empresaId)
           .in('documento_id', loteIds)
           .order('created_at', { ascending: true })
-          .range(inicio, fim)
 
+        if (ncmFiltro) q = q.ilike('ncm', `%${ncmFiltro}%`)
+        if (cfopFiltro) q = q.ilike('cfop', `%${cfopFiltro}%`)
+
+        const { data, error } = await q.range(inicio, fim)
         return { data: data as ProdutoDetalhado[] | null, error }
       })
 
@@ -461,7 +480,7 @@ export async function GET(req: Request) {
   const carregarProdutosPaginados = async () => {
     let query = supabase
       .from('fa_documentos_itens')
-      .select('id, documento_id, item_numero, codigo_produto, descricao, ncm, cfop, unidade, quantidade, valor_unitario, valor_total, valor_desconto, valor_frete, cst_icms, csosn, valor_bc_icms, aliquota_icms, valor_icms, valor_bc_st, valor_st, cst_pis, valor_pis, cst_cofins, valor_cofins, valor_ipi, tipo_movimento, fa_documentos_fiscais!inner(id, tipo_movimento, numero, serie, modelo, data_emissao, data_competencia, emitente_cnpj, emitente_nome, destinatario_cnpj, destinatario_nome, status)', { count: 'exact' })
+      .select('id, documento_id, item_numero, codigo_produto, descricao, ncm, cfop, unidade, quantidade, valor_unitario, valor_total, valor_desconto, valor_frete, cst_icms, csosn, valor_bc_icms, aliquota_icms, valor_icms, valor_bc_st, valor_st, cst_pis, valor_pis, cst_cofins, valor_cofins, valor_ipi, tipo_movimento, fa_documentos_fiscais!inner(id, tipo_movimento, numero, serie, modelo, data_emissao, data_competencia, emitente_cnpj, emitente_nome, destinatario_cnpj, destinatario_nome, chave_acesso, origem, status)', { count: 'exact' })
       .eq('empresa_id', empresaId)
       .in('fa_documentos_fiscais.data_competencia', competenciasFiltro)
       .neq('fa_documentos_fiscais.status', 'cancelada')
@@ -469,6 +488,8 @@ export async function GET(req: Request) {
     if (tipoMovimento === 'entrada' || tipoMovimento === 'saida') {
       query = query.eq('tipo_movimento', tipoMovimento)
     }
+    if (ncmFiltro) query = query.ilike('ncm', `%${ncmFiltro}%`)
+    if (cfopFiltro) query = query.ilike('cfop', `%${cfopFiltro}%`)
 
     const { data, error, count } = await query
       .order('created_at', { ascending: true })
@@ -561,7 +582,16 @@ export async function GET(req: Request) {
     let total = count ?? rows.length
     if (rows.length === 0) {
       const legacy = await carregarXmlLegacyDocumentos({ supabase, empresaId, competenciaInicio, competenciaFim, tipoMovimento })
-      const legacyRows = aplicarFiltroDocumentos(legacy.map(legacyDocToDocumento), tipoMovimento)
+      let legacyRows = aplicarFiltroDocumentos(legacy.map(legacyDocToDocumento), tipoMovimento)
+      if (participanteFiltro) {
+        const q = participanteFiltro.toLowerCase()
+        legacyRows = legacyRows.filter(d =>
+          [d.emitente_nome, d.emitente_cnpj, d.destinatario_nome, d.destinatario_cnpj].some(v => v?.toLowerCase().includes(q))
+        )
+      }
+      if (notaFiltro) {
+        legacyRows = legacyRows.filter(d => d.numero?.includes(notaFiltro) || d.chave_acesso?.includes(notaFiltro))
+      }
       rows = legacyRows.slice(from, to + 1)
       total = legacyRows.length
     } else if (tipoMovimento === 'entrada' || tipoMovimento === 'saida') {
@@ -578,10 +608,37 @@ export async function GET(req: Request) {
     })
   }
 
+  if (participanteFiltro || notaFiltro) {
+    const todos = await carregarProdutosEstruturados()
+    const rows = todos.slice(from, to + 1)
+    return NextResponse.json({
+      rows,
+      total: todos.length,
+      page,
+      page_size: pageSize,
+      totalizadores: totalizadores(rows),
+    })
+  }
+
   let { rows, total } = await carregarProdutosPaginados()
   if (rows.length === 0) {
     const legacy = await carregarXmlLegacy({ supabase, empresaId, competenciaInicio, competenciaFim })
-    const produtos = aplicarFiltroProdutos(legacy.map(legacyItemToProduto), tipoMovimento)
+    let produtos = aplicarFiltroProdutos(legacy.map(legacyItemToProduto), tipoMovimento)
+    if (ncmFiltro) produtos = produtos.filter(p => p.ncm?.toLowerCase().includes(ncmFiltro.toLowerCase()))
+    if (cfopFiltro) produtos = produtos.filter(p => p.cfop?.toLowerCase().includes(cfopFiltro.toLowerCase()))
+    if (participanteFiltro) {
+      const q = participanteFiltro.toLowerCase()
+      produtos = produtos.filter(p => {
+        const doc = documentoRelacionado(p.fa_documentos_fiscais)
+        return [doc?.emitente_nome, doc?.emitente_cnpj, doc?.destinatario_nome, doc?.destinatario_cnpj].some(v => v?.toLowerCase().includes(q))
+      })
+    }
+    if (notaFiltro) {
+      produtos = produtos.filter(p => {
+        const doc = documentoRelacionado(p.fa_documentos_fiscais)
+        return doc?.numero?.includes(notaFiltro) || doc?.chave_acesso?.includes(notaFiltro)
+      })
+    }
     rows = produtos.slice(from, to + 1)
     total = produtos.length
   }

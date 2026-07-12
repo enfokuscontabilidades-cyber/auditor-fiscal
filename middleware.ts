@@ -5,8 +5,10 @@ function isPublicPath(pathname: string): boolean {
   return (
     pathname.startsWith('/login') ||
     pathname.startsWith('/landing') ||
+    pathname.startsWith('/diagnostico-reforma-tributaria') ||
     pathname.startsWith('/cadastro') ||
     pathname.startsWith('/auth') ||
+    pathname === '/api/leads/reforma-tributaria' ||
     pathname === '/api/stripe/webhook' ||
     pathname.startsWith('/_next/')
   )

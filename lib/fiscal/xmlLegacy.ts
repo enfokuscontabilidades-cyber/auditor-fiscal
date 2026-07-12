@@ -16,6 +16,7 @@ export type XmlLegacyItem = {
   descricao?: string
   ncm?: string
   cfop?: string
+  cfop_fornecedor?: string
   quantidade: number
   valor_total: number
   cancelada: boolean
@@ -145,6 +146,7 @@ export async function carregarXmlLegacy(params: {
         descricao: item.descricao,
         ncm: item.ncm,
         cfop: item.cfop_entrada_sugerido || item.cfop,
+        cfop_fornecedor: item.cfop,
         quantidade: quantidadeOuOcorrencia(item.quantidade),
         valor_total: item.valor_contabil ?? 0,
         cancelada: item.cancelada ?? false,

@@ -97,6 +97,10 @@ type LinhaSaida = {
   base_st: number; valor_st: number; valor_ipi: number;
   base_pis: number; aliquota_pis: number; valor_pis: number;
   base_cofins: number; aliquota_cofins: number; valor_cofins: number;
+  cst_ibs_cbs?: string; cclass_trib?: string; base_ibs_cbs?: number;
+  aliquota_ibs_uf?: number; valor_ibs_uf?: number;
+  aliquota_ibs_mun?: number; valor_ibs_mun?: number;
+  aliquota_cbs?: number;
   valor_ibs: number; valor_cbs: number;
   cbenef: string; cbenef_descricao: string;
   alertas_saida: string[]; status: StatusValidacao;
@@ -224,6 +228,30 @@ const CBENEF_GO: Record<string, string> = {
 // ══════════════════════════════════════════════════════════════════════════════
 // CONSTANTES
 // ══════════════════════════════════════════════════════════════════════════════
+
+function registrarCbenefGo(codigo: string) {
+  if (!CBENEF_GO[codigo]) {
+    CBENEF_GO[codigo] = `${codigo} - codigo oficial da tabela CBenef GO (IN 1518/2022-GSE)`;
+  }
+}
+
+function registrarFaixaCbenefGo(prefixo: string, inicio: number, fim: number) {
+  for (let numero = inicio; numero <= fim; numero += 1) {
+    registrarCbenefGo(`${prefixo}${String(numero).padStart(3, "0")}`);
+  }
+}
+
+registrarFaixaCbenefGo("GO800", 1, 25);
+registrarCbenefGo("GO809000");
+registrarFaixaCbenefGo("GO811", 1, 141);
+registrarCbenefGo("GO811900");
+registrarFaixaCbenefGo("GO812", 1, 48);
+registrarCbenefGo("GO812900");
+registrarFaixaCbenefGo("GO821", 1, 39);
+registrarCbenefGo("GO821900");
+registrarFaixaCbenefGo("GO822", 1, 19);
+registrarCbenefGo("GO822900");
+registrarFaixaCbenefGo("GO890", 1, 4);
 
 const PERFIS_EMPRESA_LABEL: Record<PerfilEmpresa, string> = {
   geral:"Empresa geral", supermercado:"Supermercado",
@@ -1552,7 +1580,7 @@ function extrairCfopsXml(txt: string): string[] {
 
 type XmlResult={itensEntrada:LinhaEntrada[];itensSaida:LinhaSaida[]; chaveNFe?: string};
 
-function parseXml(txt: string, perfil: PerfilEmpresa, forceEntrada = false): XmlResult {
+function parseXml(txt: string, perfil: PerfilEmpresa, forceEntrada = false, ehIndustrialEmpresa = false): XmlResult {
   const entradas: LinhaEntrada[]=[], saidas: LinhaSaida[]=[];
   try{
     const doc=new DOMParser().parseFromString(txt,"text/xml");
@@ -1645,11 +1673,21 @@ function parseXml(txt: string, perfil: PerfilEmpresa, forceEntrada = false): Xml
       const vCOF=nnumXml(gtxt(cofNode,"vCOFINS")||gtxt(cofNode,"vCOFINSAliq")||gtxt(cofNode,"vCOFINSQtde"));
 
       // IBS / CBS (Reforma Tributária)
-      const ibsGrp=imp?.getElementsByTagName("IBS")[0]||null;
-      const cbsGrp=imp?.getElementsByTagName("CBS")[0]||null;
-      const ibsCbsGrp=imp?.getElementsByTagName("ibsCbs")[0]||null;
-      const vIBS=nnumXml(gtxt(ibsGrp,"vIBS")||gtxt(ibsCbsGrp,"vIBS"));
-      const vCBS=nnumXml(gtxt(cbsGrp,"vCBS")||gtxt(ibsCbsGrp,"vCBS"));
+      const ibsCbsGrp=imp?.getElementsByTagName("IBSCBS")[0]||null;
+      const gIbsCbs=ibsCbsGrp?.getElementsByTagName("gIBSCBS")[0]||null;
+      const gIbsUf=gIbsCbs?.getElementsByTagName("gIBSUF")[0]||null;
+      const gIbsMun=gIbsCbs?.getElementsByTagName("gIBSMun")[0]||null;
+      const gCbs=gIbsCbs?.getElementsByTagName("gCBS")[0]||null;
+      const cstIbsCbs=gtxt(ibsCbsGrp,"CST");
+      const cClassTrib=gtxt(ibsCbsGrp,"cClassTrib");
+      const vBCIBSCBS=nnumXml(gtxt(gIbsCbs,"vBC"));
+      const pIBSUF=nnumXml(gtxt(gIbsUf,"pIBSUF"));
+      const vIBSUF=nnumXml(gtxt(gIbsUf,"vIBSUF"));
+      const pIBSMun=nnumXml(gtxt(gIbsMun,"pIBSMun"));
+      const vIBSMun=nnumXml(gtxt(gIbsMun,"vIBSMun"));
+      const vIBS=nnumXml(gtxt(gIbsCbs,"vIBS")) || vIBSUF + vIBSMun;
+      const pCBS=nnumXml(gtxt(gCbs,"pCBS"));
+      const vCBS=nnumXml(gtxt(gCbs,"vCBS"));
 
       // Determina se é saída — quando forceEntrada=true (importação de terceiros), tudo vira entrada
       const ehSaida=forceEntrada?false:(tpNF==="1"||cfopSaida(cfop));
@@ -1683,6 +1721,10 @@ function parseXml(txt: string, perfil: PerfilEmpresa, forceEntrada = false): Xml
           base_st:vBCST,valor_st:vST,valor_ipi:vIPI,
           base_pis:vBCPis,aliquota_pis:pPIS,valor_pis:vPIS,
           base_cofins:vBCCof,aliquota_cofins:pCOF,valor_cofins:vCOF,
+          cst_ibs_cbs:cstIbsCbs,cclass_trib:cClassTrib,base_ibs_cbs:vBCIBSCBS,
+          aliquota_ibs_uf:pIBSUF,valor_ibs_uf:vIBSUF,
+          aliquota_ibs_mun:pIBSMun,valor_ibs_mun:vIBSMun,
+          aliquota_cbs:pCBS,
           valor_ibs:vIBS,valor_cbs:vCBS,
           cbenef,cbenef_descricao:cbenefDesc,
           alertas_saida:alertas,
@@ -1708,7 +1750,7 @@ function parseXml(txt: string, perfil: PerfilEmpresa, forceEntrada = false): Xml
           base_icms:vBC,aliquota_icms:pICMS,valor_icms:vICMS,
           sugestao,classificacao:null as ClassificacaoManual,fonte:"xml" as const};
         const bTyped=b as Omit<LinhaEntrada,"status"|"avisos">;
-        const cl=sugerirClass(bTyped), res=validarItem(bTyped);
+        const cl=sugerirClass(bTyped, ehIndustrialEmpresa), res=validarItem(bTyped, ehIndustrialEmpresa);
         entradas.push({...b,...res,classificacao:cl,classificacaoManual:false});
       }
     }
@@ -1924,9 +1966,9 @@ function exportExcel(notas: NotaEntrada[], saidas: LinhaSaida[], emp: DadosEmpre
     const wsNS=XLSX.utils.aoa_to_sheet(rNS.map(r=>r.map(x=>x.v)));wr(wsNS,rNS);wsNS["!cols"]=[{wch:12},{wch:46},{wch:12},{wch:36},{wch:8},{wch:38},{wch:16},{wch:16},{wch:16},{wch:16},{wch:16},{wch:14},{wch:14},{wch:50},{wch:10}];
     XLSX.utils.book_append_sheet(wb,wsNS,"Resumo Saídas");
 
-    const hS=["Nº Nota","Chave de Acesso","Data","Destinatário","Cód.","Descrição","NCM","CFOP","CST ICMS","CST PIS","CST COFINS","Valor Produto","Frete Rateado","Despesas Rateadas","IPI Item","Desconto Rateado","Valor Contábil Total","Base ICMS","Alíq. ICMS","ICMS","ICMS-ST","IPI","PIS","COFINS","IBS","CBS","CBenef","Benefício Fiscal","Alertas","Status"];
+    const hS=["Nº Nota","Chave de Acesso","Data","Destinatário","Cód.","Descrição","NCM","CFOP","CST ICMS","CST PIS","CST COFINS","Valor Produto","Frete Rateado","Despesas Rateadas","IPI Item","Desconto Rateado","Valor Contábil Total","Base ICMS","Alíq. ICMS","ICMS","ICMS-ST","IPI","PIS","COFINS","CST IBS/CBS","cClassTrib","Base IBS/CBS","Alíq. IBS UF","IBS UF","Alíq. IBS Mun","IBS Mun","IBS","Alíq. CBS","CBS","CBenef","Benefício Fiscal","Alertas","Status"];
     const rS:XLSX.CellObject[][]=[hS.map(h)];
-    for(const s of saidas){rS.push([c(s.numero_nota,true),c(chaveMapS.get(s.numero_nota)||""),c(s.data),c(s.destinatario),c(s.codigo_produto),c(s.descricao),c(s.ncm),c(s.cfop),c(s.cst_icms),c(s.cst_pis),c(s.cst_cofins),c(s.valor_produto||s.valor_contabil,false,undefined,"#,##0.00"),c(s.valor_frete||0,false,undefined,"#,##0.00"),c(s.valor_despesas||0,false,undefined,"#,##0.00"),c(s.valor_ipi_item||0,false,undefined,"#,##0.00"),c(s.valor_desconto||0,false,undefined,"#,##0.00"),c(s.valor_contabil,false,undefined,"#,##0.00"),c(s.base_icms,false,undefined,"#,##0.00"),c(s.aliquota_icms,false,undefined,'0.00"%"'),c(s.valor_icms,false,undefined,"#,##0.00"),c(s.valor_st,false,undefined,"#,##0.00"),c(s.valor_ipi,false,undefined,"#,##0.00"),c(s.valor_pis,false,undefined,"#,##0.00"),c(s.valor_cofins,false,undefined,"#,##0.00"),c(s.valor_ibs,false,undefined,"#,##0.00"),c(s.valor_cbs,false,undefined,"#,##0.00"),c(s.cbenef,false,s.cbenef?"FFE8E0FA":undefined),c(s.cbenef_descricao),c(s.alertas_saida.join(" | ")),c(s.status,true,s.status==="ALERTA"?CA:CO)]);}
+    for(const s of saidas){rS.push([c(s.numero_nota,true),c(chaveMapS.get(s.numero_nota)||""),c(s.data),c(s.destinatario),c(s.codigo_produto),c(s.descricao),c(s.ncm),c(s.cfop),c(s.cst_icms),c(s.cst_pis),c(s.cst_cofins),c(s.valor_produto||s.valor_contabil,false,undefined,"#,##0.00"),c(s.valor_frete||0,false,undefined,"#,##0.00"),c(s.valor_despesas||0,false,undefined,"#,##0.00"),c(s.valor_ipi_item||0,false,undefined,"#,##0.00"),c(s.valor_desconto||0,false,undefined,"#,##0.00"),c(s.valor_contabil,false,undefined,"#,##0.00"),c(s.base_icms,false,undefined,"#,##0.00"),c(s.aliquota_icms,false,undefined,'0.00"%"'),c(s.valor_icms,false,undefined,"#,##0.00"),c(s.valor_st,false,undefined,"#,##0.00"),c(s.valor_ipi,false,undefined,"#,##0.00"),c(s.valor_pis,false,undefined,"#,##0.00"),c(s.valor_cofins,false,undefined,"#,##0.00"),c(s.cst_ibs_cbs),c(s.cclass_trib),c(s.base_ibs_cbs||0,false,undefined,"#,##0.00"),c(s.aliquota_ibs_uf||0,false,undefined,'0.0000"%"'),c(s.valor_ibs_uf||0,false,undefined,"#,##0.00"),c(s.aliquota_ibs_mun||0,false,undefined,'0.0000"%"'),c(s.valor_ibs_mun||0,false,undefined,"#,##0.00"),c(s.valor_ibs,false,undefined,"#,##0.00"),c(s.aliquota_cbs||0,false,undefined,'0.0000"%"'),c(s.valor_cbs,false,undefined,"#,##0.00"),c(s.cbenef,false,s.cbenef?"FFE8E0FA":undefined),c(s.cbenef_descricao),c(s.alertas_saida.join(" | ")),c(s.status,true,s.status==="ALERTA"?CA:CO)]);}
     const wsS=XLSX.utils.aoa_to_sheet(rS.map(r=>r.map(x=>x.v)));wr(wsS,rS);wsS["!cols"]=[{wch:12},{wch:46},{wch:12},{wch:38},{wch:12},{wch:42},{wch:12},{wch:8},{wch:8},{wch:10},{wch:10},{wch:14},{wch:14},{wch:12},{wch:14},{wch:14},{wch:12},{wch:12},{wch:12},{wch:12},{wch:12},{wch:14},{wch:55},{wch:55},{wch:10}];
     XLSX.utils.book_append_sheet(wb,wsS,"Notas Saídas");
   }
@@ -1991,6 +2033,9 @@ type DocumentoFiscalDb = {
     valor_bc_st: number; valor_st: number;
     cst_pis?: string; valor_bc_pis: number; aliquota_pis: number; valor_pis: number;
     cst_cofins?: string; valor_bc_cofins: number; aliquota_cofins: number; valor_cofins: number;
+    cst_ibs_cbs?: string; cclass_trib?: string; valor_bc_ibs_cbs?: number;
+    aliquota_ibs_uf?: number; valor_ibs_uf?: number; aliquota_ibs_mun?: number; valor_ibs_mun?: number;
+    valor_ibs?: number; aliquota_cbs?: number; valor_cbs?: number;
   }>;
 };
 
@@ -2067,6 +2112,7 @@ export default function ValidadorPage() {
   const pendingMeta=useRef<XmlMetadata[]>([]);
   const pendingDevRefs=useRef<Set<string>>(new Set());
   const pendingImportReport=useRef<ImportacaoXmlReport | null>(null);
+  const empresaAnteriorRef=useRef<string|null>(null);
   const D=tema==="escuro";
   const refXmlTerceiros=useRef<HTMLInputElement|null>(null);
   const refXmlProprio=useRef<HTMLInputElement|null>(null);
@@ -2074,7 +2120,7 @@ export default function ValidadorPage() {
 
   useEffect(()=>{
     const salvo = (window.localStorage.getItem("af-theme") as "escuro"|"claro"|null) || "claro";
-    setTema(salvo);
+    queueMicrotask(()=>setTema(salvo));
     const onThemeChange = (event: Event) => {
       const proximo = (event as CustomEvent<"escuro"|"claro">).detail;
       if (proximo === "escuro" || proximo === "claro") setTema(proximo);
@@ -2086,10 +2132,10 @@ export default function ValidadorPage() {
   useEffect(()=>{
     let ativo = true;
     if(!modalImportAberto || arquivosImportacao.length===0){
-      setPreviewImportacao(null);
+      queueMicrotask(()=>{ if(ativo) setPreviewImportacao(null); });
       return;
     }
-    setPreviewImportacao(null);
+    queueMicrotask(()=>{ if(ativo) setPreviewImportacao(null); });
     (async()=>{
       const extraidos = await extrairXmlsDeArquivos(arquivosImportacao);
       if(!ativo) return;
@@ -2127,7 +2173,7 @@ export default function ValidadorPage() {
 
   // Carrega lista de empresas ao montar (para o seletor inline)
   useEffect(()=>{
-    setCarregandoEmpresas(true);
+    queueMicrotask(()=>setCarregandoEmpresas(true));
     fetch("/api/empresas").then(r=>r.json()).then((lista: EmpresaSelecionada[])=>{
       setListaEmpresas(lista);
     }).finally(()=>setCarregandoEmpresas(false));
@@ -2135,16 +2181,65 @@ export default function ValidadorPage() {
 
   // Define se empresa é industrial pelo CNAE (divisões 10-33 = manufatura)
   useEffect(()=>{
-    if(!empresa?.cnae_principal) { setEhIndustrial(false); return; }
+    const nomeNormalizado = (empresa?.razao_social || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toUpperCase();
+    const nomeIndicaIndustria = /\bINDUSTR/.test(nomeNormalizado);
+    if(!empresa?.cnae_principal) { queueMicrotask(()=>setEhIndustrial(nomeIndicaIndustria)); return; }
     const cnae=empresa.cnae_principal.replace(/\D/g,"");
     const div=parseInt(cnae.slice(0,2),10);
-    setEhIndustrial(div>=10&&div<=33);
+    queueMicrotask(()=>setEhIndustrial(nomeIndicaIndustria || (div>=10&&div<=33)));
   },[empresa]);
+
+  useEffect(()=>{
+    const atual = empresa?.id ?? null;
+    if(empresaAnteriorRef.current === null) {
+      empresaAnteriorRef.current = atual;
+      return;
+    }
+    if(empresaAnteriorRef.current === atual) return;
+
+    empresaAnteriorRef.current = atual;
+    queueMicrotask(() => {
+      setLinhas([]);
+      setSaidas([]);
+      setNfses([]);
+      setErro("");
+      setInfoCanc("");
+      setSessaoAtual(null);
+      setXmlsPendentes([]);
+      setCompetenciaXml("");
+      setPeriodoInicio("");
+      setSalvouComSucesso(false);
+      setErroSalvar("");
+      setModalAberto(false);
+      setModalImportAberto(false);
+      setArquivosImportacao([]);
+      setPreviewImportacao(null);
+      setExpandidas(new Set());
+      setExpandidasS(new Set());
+      setExpandidasNfse(new Set());
+      setModulo("entradas");
+      setBuscaS("");
+      setBuscaNfse("");
+      setPaginaNotasEntrada(1);
+      setPaginaItensEntrada(1);
+      setPaginaNotasSaida(1);
+      setPaginaNfse(1);
+    });
+    pendingNe.current = [];
+    pendingNs.current = [];
+    pendingQtdCanc.current = 0;
+    pendingMeta.current = [];
+    pendingDevRefs.current = new Set();
+    pendingImportReport.current = null;
+  },[empresa?.id]);
 
   // Carrega sessões salvas ao trocar de empresa
   useEffect(()=>{
-    if(!empresa) { setSessoesSalvas([]); return; }
-    setCarregandoSessoes(true);
+    if(!empresa) { queueMicrotask(()=>setSessoesSalvas([])); return; }
+    queueMicrotask(()=>setCarregandoSessoes(true));
     fetch(`/api/sessoes?empresa_id=${empresa.id}`)
       .then(r=>r.json())
       .then((lista: SessaoSalva[])=>{ if(Array.isArray(lista)) setSessoesSalvas(lista); })
@@ -2153,14 +2248,14 @@ export default function ValidadorPage() {
   },[empresa]);
 
   useEffect(()=>{
-    if(!empresa) { setCfopVinculos([]); setLimpezaInicio(""); setLimpezaFim(""); return; }
+    if(!empresa) { queueMicrotask(()=>{ setCfopVinculos([]); setLimpezaInicio(""); setLimpezaFim(""); }); return; }
     const raw = window.localStorage.getItem(`validador-cfop-vinculos-${empresa.id}`);
-    if(!raw) { setCfopVinculos([]); return; }
+    if(!raw) { queueMicrotask(()=>setCfopVinculos([])); return; }
     try {
       const parsed = JSON.parse(raw) as CfopVinculo[];
-      setCfopVinculos(Array.isArray(parsed) ? parsed.filter(v=>v.cfopSaida&&v.cfopEntrada) : []);
+      queueMicrotask(()=>setCfopVinculos(Array.isArray(parsed) ? parsed.filter(v=>v.cfopSaida&&v.cfopEntrada) : []));
     } catch {
-      setCfopVinculos([]);
+      queueMicrotask(()=>setCfopVinculos([]));
     }
   },[empresa]);
 
@@ -2272,7 +2367,11 @@ export default function ValidadorPage() {
             base_st: item.valor_bc_st, valor_st: item.valor_st, valor_ipi: item.valor_ipi ?? 0,
             base_pis: item.valor_bc_pis, aliquota_pis: item.aliquota_pis, valor_pis: item.valor_pis,
             base_cofins: item.valor_bc_cofins, aliquota_cofins: item.aliquota_cofins, valor_cofins: item.valor_cofins,
-            valor_ibs: 0, valor_cbs: 0,
+            cst_ibs_cbs: item.cst_ibs_cbs ?? "", cclass_trib: item.cclass_trib ?? "", base_ibs_cbs: item.valor_bc_ibs_cbs ?? 0,
+            aliquota_ibs_uf: item.aliquota_ibs_uf ?? 0, valor_ibs_uf: item.valor_ibs_uf ?? 0,
+            aliquota_ibs_mun: item.aliquota_ibs_mun ?? 0, valor_ibs_mun: item.valor_ibs_mun ?? 0,
+            aliquota_cbs: item.aliquota_cbs ?? 0,
+            valor_ibs: item.valor_ibs ?? 0, valor_cbs: item.valor_cbs ?? 0,
             cbenef: "", cbenef_descricao: "",
             alertas_saida: [], status: "OK",
           });
@@ -2358,6 +2457,9 @@ export default function ValidadorPage() {
                 valor_bc_st: number; valor_st: number;
                 cst_pis?: string; valor_bc_pis: number; aliquota_pis: number; valor_pis: number;
                 cst_cofins?: string; valor_bc_cofins: number; aliquota_cofins: number; valor_cofins: number;
+                cst_ibs_cbs?: string; cclass_trib?: string; valor_bc_ibs_cbs?: number;
+                aliquota_ibs_uf?: number; valor_ibs_uf?: number; aliquota_ibs_mun?: number; valor_ibs_mun?: number;
+                valor_ibs?: number; aliquota_cbs?: number; valor_cbs?: number;
               }>;
             }> = await resDb.json();
 
@@ -2392,7 +2494,11 @@ export default function ValidadorPage() {
                     base_st: item.valor_bc_st, valor_st: item.valor_st, valor_ipi: item.valor_ipi ?? 0,
                     base_pis: item.valor_bc_pis, aliquota_pis: item.aliquota_pis, valor_pis: item.valor_pis,
                     base_cofins: item.valor_bc_cofins, aliquota_cofins: item.aliquota_cofins, valor_cofins: item.valor_cofins,
-                    valor_ibs: 0, valor_cbs: 0,
+                    cst_ibs_cbs: item.cst_ibs_cbs ?? '', cclass_trib: item.cclass_trib ?? '', base_ibs_cbs: item.valor_bc_ibs_cbs ?? 0,
+                    aliquota_ibs_uf: item.aliquota_ibs_uf ?? 0, valor_ibs_uf: item.valor_ibs_uf ?? 0,
+                    aliquota_ibs_mun: item.aliquota_ibs_mun ?? 0, valor_ibs_mun: item.valor_ibs_mun ?? 0,
+                    aliquota_cbs: item.aliquota_cbs ?? 0,
+                    valor_ibs: item.valor_ibs ?? 0, valor_cbs: item.valor_cbs ?? 0,
                     cbenef: '', cbenef_descricao: '',
                     alertas_saida: [], status: 'OK',
                   });
@@ -2591,7 +2697,7 @@ export default function ValidadorPage() {
         }
       }
 
-      const {itensEntrada,itensSaida,chaveNFe}=parseXml(txt, perfil, forceTipo === "terceiro");
+      const {itensEntrada,itensSaida,chaveNFe}=parseXml(txt, perfil, forceTipo === "terceiro", ehIndustrial);
       const ehCancelada = !!chaveNFe && chavesCanceladas.has(chaveNFe);
       if(ehCancelada) qtdCanc++;
 
@@ -2616,7 +2722,10 @@ export default function ValidadorPage() {
             valor_contabil:0, valor_produto:0, valor_desconto:0, valor_frete:0,
             valor_despesas:0, valor_ipi_item:0,
             base_icms:0, valor_icms:0, valor_st:0, valor_ipi:0,
-            valor_pis:0, valor_cofins:0, valor_ibs:0, valor_cbs:0,
+            valor_pis:0, valor_cofins:0,
+            cst_ibs_cbs:"", cclass_trib:"", base_ibs_cbs:0,
+            aliquota_ibs_uf:0, valor_ibs_uf:0, aliquota_ibs_mun:0, valor_ibs_mun:0,
+            aliquota_cbs:0, valor_ibs:0, valor_cbs:0,
             alertas_saida:["NOTA CANCELADA - evento de cancelamento localizado na pasta."],
             status:"ALERTA" as StatusValidacao,
             cancelada:true,
@@ -3032,6 +3141,16 @@ export default function ValidadorPage() {
             valor_bc_cofins: s.base_cofins,
             aliquota_cofins: s.aliquota_cofins,
             valor_cofins: s.valor_cofins,
+            cst_ibs_cbs: s.cst_ibs_cbs,
+            cclass_trib: s.cclass_trib,
+            valor_bc_ibs_cbs: s.base_ibs_cbs ?? 0,
+            aliquota_ibs_uf: s.aliquota_ibs_uf ?? 0,
+            valor_ibs_uf: s.valor_ibs_uf ?? 0,
+            aliquota_ibs_mun: s.aliquota_ibs_mun ?? 0,
+            valor_ibs_mun: s.valor_ibs_mun ?? 0,
+            valor_ibs: s.valor_ibs,
+            aliquota_cbs: s.aliquota_cbs ?? 0,
+            valor_cbs: s.valor_cbs,
             valor_ipi: s.valor_ipi,
             tipo_movimento: "saida",
             impacto_receita: "soma_receita",
@@ -3242,6 +3361,16 @@ export default function ValidadorPage() {
               valor_bc_cofins: s.base_cofins,
               aliquota_cofins: s.aliquota_cofins,
               valor_cofins: s.valor_cofins,
+              cst_ibs_cbs: s.cst_ibs_cbs,
+              cclass_trib: s.cclass_trib,
+              valor_bc_ibs_cbs: s.base_ibs_cbs ?? 0,
+              aliquota_ibs_uf: s.aliquota_ibs_uf ?? 0,
+              valor_ibs_uf: s.valor_ibs_uf ?? 0,
+              aliquota_ibs_mun: s.aliquota_ibs_mun ?? 0,
+              valor_ibs_mun: s.valor_ibs_mun ?? 0,
+              valor_ibs: s.valor_ibs,
+              aliquota_cbs: s.aliquota_cbs ?? 0,
+              valor_cbs: s.valor_cbs,
               valor_ipi: s.valor_ipi,
               tipo_movimento: "saida",
               impacto_receita: "soma_receita",
@@ -3594,7 +3723,7 @@ export default function ValidadorPage() {
     page:{minHeight:"100vh",background:T.pageBg,color:T.pageClr,padding:"28px 20px 60px",fontFamily:"'Segoe UI',system-ui,sans-serif"} as React.CSSProperties,
     inner:{position:"relative" as const,maxWidth:1440,margin:"0 auto"},
     card:{borderRadius:20,background:T.cardBg,border:T.cardBrd,boxShadow:T.cardShd} as React.CSSProperties,
-    inp:{background:T.inpBg,border:T.inpBrd,borderRadius:10,color:T.inpClr,padding:"8px 12px",fontSize:13,outline:"none",width:"100%"} as React.CSSProperties,
+    inp:{background:T.inpBg,border:T.inpBrd,borderRadius:10,color:T.inpClr,padding:"8px 12px",fontSize:13,outline:"none",width:"100%",colorScheme:D?"dark":"light"} as React.CSSProperties,
     bP:{display:"inline-flex",alignItems:"center",gap:7,borderRadius:12,background:D?"linear-gradient(135deg,var(--af-primary),#1a8fa0)":"linear-gradient(135deg,var(--af-primary),#2563eb)",color:"var(--af-surface)",fontWeight:700,fontSize:13,padding:"10px 18px",border:"none",cursor:"pointer",boxShadow:"0 4px 14px rgba(39,199,216,0.25)"} as React.CSSProperties,
     bG:{display:"inline-flex",alignItems:"center",gap:7,borderRadius:12,background:T.bGbg,border:T.bGbrd,color:T.bGclr,fontWeight:600,fontSize:13,padding:"10px 18px",cursor:"pointer"} as React.CSSProperties,
     bD:{display:"inline-flex",alignItems:"center",gap:7,borderRadius:12,background:"rgba(239,68,68,0.07)",border:"1px solid rgba(239,68,68,0.18)",color:D?"var(--af-danger)":"#b91c1c",fontWeight:600,fontSize:13,padding:"10px 18px",cursor:"pointer"} as React.CSSProperties,
@@ -3606,10 +3735,11 @@ export default function ValidadorPage() {
 
   function SelCl({val,onChange,mini=false}:{val:ClassificacaoManual;onChange:(v:ClassificacaoManual)=>void;mini?:boolean}) {
     const cor=val?CLASSIFICACAO_COR[val]:T.accentDim;
-    const optBg=D?"#031623":"var(--af-surface)";
-    return <select value={val||""} onChange={e=>onChange((e.target.value as ClassificacaoManual)||null)} style={{background:val?`${cor}18`:T.inpBg,border:`1px solid ${val?cor+"55":D?"var(--af-border)":"rgba(39,199,216,0.22)"}`,borderRadius:8,color:cor,padding:mini?"3px 8px":"5px 10px",fontSize:mini?10:11,fontWeight:600,cursor:"pointer",outline:"none",minWidth:mini?120:150}}>
-      <option value="" style={{background:optBg,color:T.accent}}>A classificar</option>
-      {Object.entries(CLASSIFICACAO_LABEL).map(([v,lb])=><option key={v} value={v} style={{background:optBg,color:T.pageClr}}>{lb}</option>)}
+    const optBg=D?"#0b1726":"#ffffff";
+    const optClr=D?"#e5eef8":"#0f172a";
+    return <select value={val||""} onChange={e=>onChange((e.target.value as ClassificacaoManual)||null)} style={{background:val?`${cor}18`:T.inpBg,border:`1px solid ${val?cor+"55":D?"var(--af-border)":"rgba(39,199,216,0.22)"}`,borderRadius:8,color:cor,padding:mini?"3px 8px":"5px 10px",fontSize:mini?10:11,fontWeight:600,cursor:"pointer",outline:"none",minWidth:mini?120:150,colorScheme:D?"dark":"light"}}>
+      <option value="" style={{background:optBg,color:optClr}}>A classificar</option>
+      {Object.entries(CLASSIFICACAO_LABEL).map(([v,lb])=><option key={v} value={v} style={{background:optBg,color:optClr}}>{lb}</option>)}
     </select>;
   }
 
@@ -3617,16 +3747,17 @@ export default function ValidadorPage() {
     if(item.tipo_nfe!=="terceiro") return <span style={{color:T.accentDim}}>—</span>;
     const opcoes = getOpcoesEntrada(item.cfop, item.sugestao.tipo, ehIndustrial);
     const valor = item.cfop_entrada_sugerido || opcoes[0]?.cfop || "";
-    const optBg = D?"#031623":"var(--af-surface)";
+    const optBg = D?"#0b1726":"#ffffff";
+    const optClr = D?"#e5eef8":"#0f172a";
     return (
       <div style={{display:"flex",flexDirection:"column" as const,gap:2,minWidth:110}}>
         <span style={{fontSize:9,color:T.accentDim,letterSpacing:"0.04em",textTransform:"uppercase" as const}}>
           {item.cfop} <span style={{color:"rgba(39,199,216,0.5)"}}>→</span>
         </span>
         <select value={valor} onChange={e=>setCfopEntrada(item.id,e.target.value)}
-          style={{background:T.inpBg,border:`1px solid rgba(39,199,216,0.35)`,borderRadius:7,color:"var(--af-primary)",padding:"3px 6px",fontSize:11,fontWeight:700,cursor:"pointer",outline:"none"}}>
+          style={{background:T.inpBg,border:`1px solid rgba(39,199,216,0.35)`,borderRadius:7,color:D?"#67e8f9":"#0e7490",padding:"3px 6px",fontSize:11,fontWeight:700,cursor:"pointer",outline:"none",colorScheme:D?"dark":"light"}}>
           {opcoes.map(o=>(
-            <option key={o.cfop} value={o.cfop} style={{background:optBg,color:D?"var(--af-text)":"var(--af-text)"}}>
+            <option key={o.cfop} value={o.cfop} style={{background:optBg,color:optClr}}>
               {o.cfop} — {o.tipo}
             </option>
           ))}
@@ -3640,7 +3771,7 @@ export default function ValidadorPage() {
   function Tg({st,cancelada}:{st:StatusValidacao;cancelada?:boolean}) {
     if(cancelada) return <span style={{display:"inline-flex",alignItems:"center",gap:4,borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:700,background:"rgba(167,139,250,0.10)",border:"1px solid rgba(167,139,250,0.3)",color:"#c4b5fd",whiteSpace:"nowrap" as const}}>🚫 CANCELADA</span>;
     const ok=st==="OK";
-    return <span style={{display:"inline-flex",alignItems:"center",gap:4,borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:700,background:ok?"rgba(34,197,94,0.10)":"rgba(251,191,36,0.10)",border:ok?"1px solid rgba(34,197,94,0.25)":"1px solid rgba(251,191,36,0.25)",color:ok?"#86efac":"var(--af-warning)",whiteSpace:"nowrap" as const}}>{ok?<CheckCircle2 size={10}/>:<AlertTriangle size={10}/>}{st}</span>;
+    return <span style={{display:"inline-flex",alignItems:"center",gap:4,borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:700,background:ok?"rgba(34,197,94,0.10)":"rgba(251,191,36,0.10)",border:ok?"1px solid rgba(34,197,94,0.25)":"1px solid rgba(251,191,36,0.25)",color:ok?(D?"#86efac":"#15803d"):"var(--af-warning)",whiteSpace:"nowrap" as const}}>{ok?<CheckCircle2 size={10}/>:<AlertTriangle size={10}/>}{st}</span>;
   }
 
   const vazio=linhas.length===0&&saidas.length===0&&nfses.length===0;
@@ -3947,7 +4078,7 @@ export default function ValidadorPage() {
       )}
 
       <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap" as const}}>
-        {([["entradas","Entradas",ArrowDownLeft],["saidas","Saídas",ArrowUpRight],["cfop","Resumo CFOP",Tag],["nfse","NFS-e",FileText]] as const).map(([m,lb,Icon])=>(
+        {([["entradas","Entradas",ArrowDownLeft],["saidas","Saídas",ArrowUpRight],["nfse","Serviço",FileText],["cfop","Resumo CFOP",Tag]] as const).map(([m,lb,Icon])=>(
           <button key={m} type="button" onClick={()=>setModulo(m)} style={{display:"flex",alignItems:"center",gap:7,padding:"10px 22px",borderRadius:12,fontSize:13,fontWeight:700,border:"none",cursor:"pointer",background:modulo===m?D?"var(--af-primary-soft)":"var(--af-primary-soft)":D?"rgba(255,255,255,0.04)":"var(--af-primary-soft)",color:modulo===m?T.accent:T.accentDim,borderBottom:modulo===m?"2px solid var(--af-primary)":"2px solid transparent"}}>
             <Icon size={14}/>{lb} {m==="entradas"?`(${linhas.length} itens)`:m==="saidas"?`(${saidas.length} itens)`:m==="nfse"?`(${nfses.length})`:``}
           </button>
@@ -4005,8 +4136,8 @@ export default function ValidadorPage() {
                       <td style={S.td}><Tg st={nota.status} cancelada={nota.itens.every(i=>i.cancelada)}/></td>
                     </tr>
                     {exp&&<tr style={{background:"rgba(5,18,28,0.6)"}}><td colSpan={12} style={{padding:"0 12px 12px 44px"}}>
-                      <div style={{borderRadius:12,background:"rgba(39,199,216,0.03)",border:"1px solid rgba(127,221,228,0.09)",overflow:"hidden",marginTop:6}}>
-                        <table style={{width:"100%",borderCollapse:"collapse" as const}}>
+                      <div style={{borderRadius:12,background:D?"rgba(39,199,216,0.03)":"#ffffff",border:D?"1px solid rgba(127,221,228,0.09)":"1px solid #cbd5e1",overflowX:"auto",overflowY:"hidden",maxWidth:"100%",marginTop:6}}>
+                        <table style={{minWidth:1580,width:"max-content",borderCollapse:"collapse" as const}}>
                           <thead><tr style={{background:"rgba(5,18,28,0.7)"}}>{["Cód.","Descrição","NCM","CFOP Forn.","CFOP Entrada","CST","Valor","Base ICMS","Alíq.","ICMS","Classificação","Sugestão","Status"].map(h=><th key={h} style={S.thSub}>{h}</th>)}</tr></thead>
                           <tbody>{nota.itens.map(item=>(
                             <tr key={item.id}>
@@ -4214,10 +4345,10 @@ export default function ValidadorPage() {
                       <td style={S.td}><div style={{display:"flex",flexWrap:"wrap" as const,gap:4}}>{nota.alertas.length?nota.alertas.slice(0,2).map((a,i)=><span key={i} style={{background:D?"rgba(251,191,36,0.07)":"rgba(180,120,0,0.09)",border:D?"1px solid rgba(251,191,36,0.16)":"1px solid rgba(180,120,0,0.25)",borderRadius:20,padding:"2px 9px",fontSize:11,color:D?"var(--af-warning)":"#7a5000"}}>{a.slice(0,50)}{a.length>50?"…":""}</span>):<span style={{color:D?"var(--af-muted)":"rgba(10,102,116,0.35)",fontSize:11}}>—</span>}</div></td>
                       <td style={S.td}><Tg st={nota.status} cancelada={notaCancS}/></td>
                     </tr>
-                    {exp&&<tr style={{background:"rgba(5,18,28,0.6)"}}><td colSpan={14} style={{padding:"0 12px 12px 44px"}}>
-                      <div style={{borderRadius:12,background:"rgba(39,199,216,0.03)",border:"1px solid rgba(127,221,228,0.09)",overflow:"hidden",marginTop:6}}>
-                        <table style={{width:"100%",borderCollapse:"collapse" as const}}>
-                          <thead><tr style={{background:"rgba(5,18,28,0.7)"}}>{["Cód.","Descrição","NCM","CFOP","CST","CST PIS","Valor","ICMS","Alíq.","ICMS-ST","IPI","PIS","COFINS","IBS","CBS","CBenef","Benefício Fiscal","Status"].map(h=><th key={h} style={S.thSub}>{h}</th>)}</tr></thead>
+                    {exp&&<tr style={{background:D?"rgba(5,18,28,0.6)":"rgba(15,23,42,0.08)"}}><td colSpan={14} style={{padding:"0 8px 12px 44px",maxWidth:0}}>
+                      <div style={{borderRadius:12,background:D?"rgba(39,199,216,0.03)":"#ffffff",border:D?"1px solid rgba(127,221,228,0.09)":"1px solid #cbd5e1",overflowX:"auto",overflowY:"hidden",maxWidth:"100%",marginTop:6}}>
+                        <table style={{minWidth:1580,width:"max-content",borderCollapse:"collapse" as const}}>
+                          <thead><tr style={{background:"rgba(5,18,28,0.7)"}}>{["Cód.","Descrição","NCM","CFOP","CST","CST PIS","Valor","ICMS","Alíq.","ICMS-ST","IPI","PIS","COFINS","CST IBS/CBS","cClassTrib","BC IBS/CBS","IBS UF","IBS Mun","IBS","CBS","CBenef","Benefício Fiscal","Status"].map(h=><th key={h} style={S.thSub}>{h}</th>)}</tr></thead>
                           <tbody>{nota.itens.map(item=>(
                             <tr key={item.id} style={{borderTop:"1px solid rgba(127,221,228,0.05)",background:item.cancelada?D?"rgba(167,139,250,0.04)":"rgba(167,139,250,0.08)":"transparent",opacity:item.cancelada?0.7:1,textDecoration:item.cancelada?"line-through":"none"}}>
                               <td style={{...S.tdSub,color:D?"rgba(238,246,251,0.6)":T.accentDim}}>{item.codigo_produto||"—"}</td>
@@ -4233,6 +4364,11 @@ export default function ValidadorPage() {
                               <td style={S.tdSub}>{item.valor_ipi>0?fmoe(item.valor_ipi):<span style={{color:D?"var(--af-muted)":"rgba(10,102,116,0.35)"}}>—</span>}</td>
                               <td style={S.tdSub}>{fmoe(item.valor_pis)}</td>
                               <td style={S.tdSub}>{fmoe(item.valor_cofins)}</td>
+                              <td style={S.tdSub}>{item.cst_ibs_cbs||"—"}</td>
+                              <td style={S.tdSub}>{item.cclass_trib||"—"}</td>
+                              <td style={S.tdSub}>{(item.base_ibs_cbs??0)>0?fmoe(item.base_ibs_cbs??0):<span style={{color:D?"var(--af-muted)":"rgba(10,102,116,0.35)"}}>—</span>}</td>
+                              <td style={S.tdSub}>{(item.valor_ibs_uf??0)>0?<span>{fmoe(item.valor_ibs_uf??0)} <small style={{color:D?"var(--af-muted)":"rgba(10,102,116,0.45)"}}>({fperc(item.aliquota_ibs_uf??0)})</small></span>:<span style={{color:D?"var(--af-muted)":"rgba(10,102,116,0.35)"}}>—</span>}</td>
+                              <td style={S.tdSub}>{(item.valor_ibs_mun??0)>0?<span>{fmoe(item.valor_ibs_mun??0)} <small style={{color:D?"var(--af-muted)":"rgba(10,102,116,0.45)"}}>({fperc(item.aliquota_ibs_mun??0)})</small></span>:<span style={{color:D?"var(--af-muted)":"rgba(10,102,116,0.35)"}}>—</span>}</td>
                               <td style={S.tdSub}>{item.valor_ibs>0?<span style={{color:"#34d399",fontWeight:600}}>{fmoe(item.valor_ibs)}</span>:<span style={{color:D?"var(--af-muted)":"rgba(10,102,116,0.35)"}}>—</span>}</td>
                               <td style={S.tdSub}>{item.valor_cbs>0?<span style={{color:"#60a5fa",fontWeight:600}}>{fmoe(item.valor_cbs)}</span>:<span style={{color:D?"var(--af-muted)":"rgba(10,102,116,0.35)"}}>—</span>}</td>
                               <td style={S.tdSub}>{item.cbenef?<span title={item.cbenef_descricao} style={{display:"inline-flex",alignItems:"center",gap:4,background:"rgba(167,139,250,0.10)",border:"1px solid rgba(167,139,250,0.25)",borderRadius:7,padding:"2px 8px",fontSize:10,color:"#a78bfa",cursor:"help"}}>{item.cbenef}<Info size={8} style={{opacity:0.7}}/></span>:<span style={{color:D?"var(--af-muted)":"rgba(10,102,116,0.35)"}}>—</span>}</td>

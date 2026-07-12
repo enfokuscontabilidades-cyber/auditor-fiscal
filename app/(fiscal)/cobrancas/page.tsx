@@ -1,9 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Plus, CheckCircle, Clock, AlertTriangle, Trash2, X } from 'lucide-react'
-import type { Cobranca } from '@/lib/types'
+import { AlertTriangle, CheckCircle, Clock, Plus, Trash2, X } from 'lucide-react'
 import PaginationControls, { getPageItems } from '@/components/ui/PaginationControls'
+import type { Cobranca } from '@/lib/types'
 
 type EmpresaItem = { id: string; razao_social: string }
 
@@ -22,6 +22,18 @@ const FORM_VAZIO = {
   observacao: '',
 }
 
+const inputStyle: React.CSSProperties = {
+  width: '100%',
+  background: 'var(--af-surface-2)',
+  border: '1px solid var(--af-border)',
+  borderRadius: 8,
+  padding: '10px 12px',
+  color: 'var(--af-text)',
+  fontSize: 13,
+  outline: 'none',
+  boxSizing: 'border-box',
+}
+
 export default function CobrancasPage() {
   const [cobrancas, setCobrancas] = useState<Cobranca[]>([])
   const [empresas, setEmpresas] = useState<EmpresaItem[]>([])
@@ -34,21 +46,27 @@ export default function CobrancasPage() {
   const [pagina, setPagina] = useState(1)
   const [linhasPorPagina, setLinhasPorPagina] = useState(50)
 
-  async function carregar() {
+  async function carregar(status = filtro) {
     setLoading(true)
-    const url = filtro ? `/api/cobrancas?status=${filtro}` : '/api/cobrancas'
+    const url = status ? `/api/cobrancas?status=${status}` : '/api/cobrancas'
     const res = await fetch(url)
     const data = await res.json()
     if (Array.isArray(data)) setCobrancas(data)
     setLoading(false)
   }
 
-  useEffect(() => { carregar() }, [filtro])
   useEffect(() => {
-    fetch('/api/empresas').then(r => r.json()).then(d => { if (Array.isArray(d)) setEmpresas(d) })
+    queueMicrotask(() => { void carregar(filtro) })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtro])
+
+  useEffect(() => {
+    fetch('/api/empresas')
+      .then(r => r.json())
+      .then((d: unknown) => { if (Array.isArray(d)) setEmpresas(d as EmpresaItem[]) })
+      .catch(() => null)
   }, [])
 
-  // Auto-marcar atrasadas (vencimento passado e ainda pendente)
   const hoje = new Date().toISOString().split('T')[0]
   const cobrancasExibidas = cobrancas.map(c => ({
     ...c,
@@ -70,14 +88,14 @@ export default function CobrancasPage() {
       }),
     })
     if (!res.ok) {
-      const d = await res.json().catch(() => ({}))
+      const d = await res.json().catch(() => ({} as { error?: string }))
       setErroForm(d.error ?? 'Erro ao salvar')
       setSalvando(false)
       return
     }
     setModal(false)
     setForm(FORM_VAZIO)
-    carregar()
+    await carregar()
     setSalvando(false)
   }
 
@@ -87,13 +105,13 @@ export default function CobrancasPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: 'pago', pago_em: hoje }),
     })
-    carregar()
+    await carregar()
   }
 
   async function excluir(id: string) {
     if (!confirm('Excluir esta cobrança?')) return
     await fetch(`/api/cobrancas?id=${id}`, { method: 'DELETE' })
-    carregar()
+    await carregar()
   }
 
   const totais = {
@@ -106,97 +124,102 @@ export default function CobrancasPage() {
   const fmtData = (d: string) => new Date(d + 'T12:00:00').toLocaleDateString('pt-BR')
 
   const statusIcon = (s: string) => {
-    if (s === 'pago') return <CheckCircle size={14} style={{ color: '#4ade80' }} />
-    if (s === 'atrasado') return <AlertTriangle size={14} style={{ color: '#f87171' }} />
-    return <Clock size={14} style={{ color: '#fbbf24' }} />
+    if (s === 'pago') return <CheckCircle size={14} style={{ color: '#16a34a' }} />
+    if (s === 'atrasado') return <AlertTriangle size={14} style={{ color: '#dc2626' }} />
+    return <Clock size={14} style={{ color: '#b45309' }} />
   }
 
   const statusColor: Record<string, React.CSSProperties> = {
-    pago:     { background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.25)', color: '#4ade80' },
-    atrasado: { background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.25)', color: '#f87171' },
-    pendente: { background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.25)', color: '#fbbf24' },
+    pago: { background: 'rgba(34,197,94,0.10)', border: '1px solid rgba(34,197,94,0.28)', color: '#15803d' },
+    atrasado: { background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.28)', color: '#b91c1c' },
+    pendente: { background: 'rgba(251,191,36,0.14)', border: '1px solid rgba(251,191,36,0.32)', color: '#92400e' },
   }
 
   return (
-    <div style={{ padding: '32px 40px', color: '#e2e8f0' }}>
+    <div style={{ padding: '32px 40px', color: 'var(--af-text)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 28 }}>
         <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: '#f1f5f9', margin: '0 0 4px' }}>Cobranças</h1>
-          <p style={{ fontSize: 13, color: 'rgba(148,163,184,0.7)', margin: 0 }}>Honorários e pagamentos dos clientes</p>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--af-text)', margin: '0 0 4px' }}>Cobranças</h1>
+          <p style={{ fontSize: 13, color: 'var(--af-muted)', margin: 0 }}>Honorários e pagamentos dos clientes</p>
         </div>
         <button
           onClick={() => setModal(true)}
           style={{
-            display: 'flex', alignItems: 'center', gap: 8,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
             background: 'linear-gradient(90deg, rgba(39,199,216,0.9), rgba(8,145,178,0.9))',
-            border: 'none', borderRadius: 8, padding: '10px 18px',
-            color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+            border: 'none',
+            borderRadius: 8,
+            padding: '10px 18px',
+            color: '#fff',
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: 'pointer',
           }}
         >
           <Plus size={15} /> Nova cobrança
         </button>
       </div>
 
-      {/* Totais */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 28 }}>
         {[
-          { label: 'A receber', valor: totais.pendente, cor: '#fbbf24' },
-          { label: 'Em atraso', valor: totais.atrasado, cor: '#f87171' },
-          { label: 'Recebido', valor: totais.pago, cor: '#4ade80' },
+          { label: 'A receber', valor: totais.pendente, cor: '#b45309' },
+          { label: 'Em atraso', valor: totais.atrasado, cor: '#b91c1c' },
+          { label: 'Recebido', valor: totais.pago, cor: '#15803d' },
         ].map(({ label, valor, cor }) => (
-          <div key={label} style={{
-            background: 'rgba(15,23,42,0.8)', border: '1px solid rgba(51,65,85,0.6)',
-            borderRadius: 12, padding: '20px 24px',
-          }}>
-            <div style={{ fontSize: 12, color: 'rgba(148,163,184,0.6)', marginBottom: 8 }}>{label}</div>
+          <div key={label} style={{ background: 'var(--af-surface)', border: '1px solid var(--af-border)', borderRadius: 12, padding: '20px 24px' }}>
+            <div style={{ fontSize: 12, color: 'var(--af-muted)', marginBottom: 8 }}>{label}</div>
             <div style={{ fontSize: 22, fontWeight: 700, color: cor }}>{fmt(valor)}</div>
           </div>
         ))}
       </div>
 
-      {/* Filtros */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
         {FILTROS.map(f => (
           <button
             key={f.value}
             onClick={() => { setFiltro(f.value); setPagina(1) }}
             style={{
-              padding: '7px 16px', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer',
-              background: filtro === f.value ? 'rgba(39,199,216,0.15)' : 'rgba(30,41,59,0.5)',
-              border: filtro === f.value ? '1px solid rgba(39,199,216,0.4)' : '1px solid rgba(51,65,85,0.4)',
-              color: filtro === f.value ? 'rgba(39,199,216,0.9)' : 'rgba(148,163,184,0.7)',
+              padding: '7px 16px',
+              borderRadius: 8,
+              fontSize: 13,
+              fontWeight: 500,
+              cursor: 'pointer',
+              background: filtro === f.value ? 'rgba(39,199,216,0.15)' : 'var(--af-surface-2)',
+              border: filtro === f.value ? '1px solid rgba(39,199,216,0.4)' : '1px solid var(--af-border)',
+              color: filtro === f.value ? 'var(--af-primary)' : 'var(--af-muted)',
             }}
-          >{f.label}</button>
+          >
+            {f.label}
+          </button>
         ))}
       </div>
 
-      {/* Lista */}
-      <div style={{ background: 'rgba(15,23,42,0.8)', border: '1px solid rgba(51,65,85,0.6)', borderRadius: 12, overflow: 'hidden' }}>
+      <div style={{ background: 'var(--af-surface)', border: '1px solid var(--af-border)', borderRadius: 12, overflow: 'hidden' }}>
         {loading ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: 'rgba(148,163,184,0.4)', fontSize: 13 }}>Carregando...</div>
+          <div style={{ padding: '40px', textAlign: 'center', color: 'var(--af-muted)', fontSize: 13 }}>Carregando...</div>
         ) : cobrancasExibidas.length === 0 ? (
-          <div style={{ padding: '48px', textAlign: 'center', color: 'rgba(148,163,184,0.4)', fontSize: 13 }}>
-            Nenhuma cobrança encontrada.
-          </div>
+          <div style={{ padding: '48px', textAlign: 'center', color: 'var(--af-muted)', fontSize: 13 }}>Nenhuma cobrança encontrada.</div>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
-              <tr style={{ borderBottom: '1px solid rgba(51,65,85,0.5)' }}>
+              <tr style={{ borderBottom: '1px solid var(--af-border)', background: 'var(--af-surface-2)' }}>
                 {['Cliente', 'Descrição', 'Vencimento', 'Valor', 'Status', ''].map(h => (
-                  <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'rgba(148,163,184,0.5)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</th>
+                  <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--af-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {cobrancasPagina.map(c => (
-                <tr key={c.id} style={{ borderBottom: '1px solid rgba(51,65,85,0.3)' }}>
-                  <td style={{ padding: '13px 16px', fontSize: 13, color: '#f1f5f9' }}>
-                    {c.empresa?.razao_social ?? <span style={{ color: 'rgba(148,163,184,0.4)' }}>—</span>}
+                <tr key={c.id} style={{ borderBottom: '1px solid var(--af-border)' }}>
+                  <td style={{ padding: '13px 16px', fontSize: 13, color: 'var(--af-text)' }}>
+                    {c.empresa?.razao_social ?? <span style={{ color: 'var(--af-muted)' }}>-</span>}
                   </td>
-                  <td style={{ padding: '13px 16px', fontSize: 13, color: 'rgba(226,232,240,0.8)' }}>{c.descricao}</td>
-                  <td style={{ padding: '13px 16px', fontSize: 13, color: 'rgba(226,232,240,0.7)' }}>{fmtData(c.vencimento)}</td>
-                  <td style={{ padding: '13px 16px', fontSize: 13, fontWeight: 600, color: '#f1f5f9' }}>
-                    {c.valor != null ? fmt(c.valor) : <span style={{ color: 'rgba(148,163,184,0.4)' }}>—</span>}
+                  <td style={{ padding: '13px 16px', fontSize: 13, color: 'var(--af-text-soft)' }}>{c.descricao}</td>
+                  <td style={{ padding: '13px 16px', fontSize: 13, color: 'var(--af-muted)' }}>{fmtData(c.vencimento)}</td>
+                  <td style={{ padding: '13px 16px', fontSize: 13, fontWeight: 600, color: 'var(--af-text)' }}>
+                    {c.valor != null ? fmt(c.valor) : <span style={{ color: 'var(--af-muted)' }}>-</span>}
                   </td>
                   <td style={{ padding: '13px 16px' }}>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600, ...statusColor[c.status] }}>
@@ -208,17 +231,17 @@ export default function CobrancasPage() {
                     <div style={{ display: 'flex', gap: 6 }}>
                       {c.status !== 'pago' && (
                         <button
-                          onClick={() => marcarPago(c)}
+                          onClick={() => { void marcarPago(c) }}
                           title="Marcar como pago"
-                          style={{ background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 6, padding: '5px 10px', color: '#4ade80', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}
+                          style={{ background: 'rgba(34,197,94,0.10)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: 6, padding: '5px 10px', color: '#15803d', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}
                         >
                           Recebido
                         </button>
                       )}
                       <button
-                        onClick={() => excluir(c.id)}
+                        onClick={() => { void excluir(c.id) }}
                         title="Excluir"
-                        style={{ background: 'none', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 6, padding: '5px 7px', color: 'rgba(239,68,68,0.6)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                        style={{ background: 'none', border: '1px solid rgba(239,68,68,0.28)', borderRadius: 6, padding: '5px 7px', color: '#b91c1c', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
                       >
                         <Trash2 size={13} />
                       </button>
@@ -240,84 +263,52 @@ export default function CobrancasPage() {
         )}
       </div>
 
-      {/* Modal nova cobrança */}
       {modal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 24 }}>
-          <div style={{ background: 'rgba(15,23,42,0.98)', border: '1px solid rgba(51,65,85,0.6)', borderRadius: 16, padding: '32px 36px', width: '100%', maxWidth: 460 }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.58)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 24 }}>
+          <div style={{ background: 'var(--af-surface)', border: '1px solid var(--af-border)', borderRadius: 16, padding: '32px 36px', width: '100%', maxWidth: 460, boxShadow: '0 24px 70px rgba(15,23,42,0.22)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-              <h2 style={{ fontSize: 17, fontWeight: 700, color: '#f1f5f9', margin: 0 }}>Nova cobrança</h2>
-              <button onClick={() => { setModal(false); setForm(FORM_VAZIO); setErroForm('') }} style={{ background: 'none', border: 'none', color: 'rgba(148,163,184,0.6)', cursor: 'pointer' }}>
+              <h2 style={{ fontSize: 17, fontWeight: 700, color: 'var(--af-text)', margin: 0 }}>Nova cobrança</h2>
+              <button onClick={() => { setModal(false); setForm(FORM_VAZIO); setErroForm('') }} style={{ background: 'none', border: 'none', color: 'var(--af-muted)', cursor: 'pointer' }}>
                 <X size={18} />
               </button>
             </div>
 
             <form onSubmit={salvar} style={{ display: 'grid', gap: 16 }}>
               <div>
-                <label style={{ fontSize: 12, color: 'rgba(203,213,225,0.7)', fontWeight: 500, display: 'block', marginBottom: 6 }}>Cliente (opcional)</label>
-                <select
-                  value={form.empresa_id}
-                  onChange={e => setForm(f => ({ ...f, empresa_id: e.target.value }))}
-                  style={{ width: '100%', background: 'rgba(30,41,59,0.8)', border: '1px solid rgba(71,85,105,0.5)', borderRadius: 8, padding: '10px 12px', color: '#f1f5f9', fontSize: 13, outline: 'none' }}
-                >
+                <label style={{ fontSize: 12, color: 'var(--af-muted)', fontWeight: 500, display: 'block', marginBottom: 6 }}>Cliente (opcional)</label>
+                <select value={form.empresa_id} onChange={e => setForm(f => ({ ...f, empresa_id: e.target.value }))} style={inputStyle}>
                   <option value="">Sem cliente específico</option>
                   {empresas.map(emp => <option key={emp.id} value={emp.id}>{emp.razao_social}</option>)}
                 </select>
               </div>
               <div>
-                <label style={{ fontSize: 12, color: 'rgba(203,213,225,0.7)', fontWeight: 500, display: 'block', marginBottom: 6 }}>Descrição *</label>
-                <input
-                  required
-                  value={form.descricao}
-                  onChange={e => setForm(f => ({ ...f, descricao: e.target.value }))}
-                  placeholder="Ex: Honorários competência 05/2025"
-                  style={{ width: '100%', background: 'rgba(30,41,59,0.8)', border: '1px solid rgba(71,85,105,0.5)', borderRadius: 8, padding: '10px 12px', color: '#f1f5f9', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
-                />
+                <label style={{ fontSize: 12, color: 'var(--af-muted)', fontWeight: 500, display: 'block', marginBottom: 6 }}>Descrição *</label>
+                <input required value={form.descricao} onChange={e => setForm(f => ({ ...f, descricao: e.target.value }))} placeholder="Ex: Honorários competência 05/2026" style={inputStyle} />
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div>
-                  <label style={{ fontSize: 12, color: 'rgba(203,213,225,0.7)', fontWeight: 500, display: 'block', marginBottom: 6 }}>Valor (R$)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={form.valor}
-                    onChange={e => setForm(f => ({ ...f, valor: e.target.value }))}
-                    placeholder="0,00"
-                    style={{ width: '100%', background: 'rgba(30,41,59,0.8)', border: '1px solid rgba(71,85,105,0.5)', borderRadius: 8, padding: '10px 12px', color: '#f1f5f9', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
-                  />
+                  <label style={{ fontSize: 12, color: 'var(--af-muted)', fontWeight: 500, display: 'block', marginBottom: 6 }}>Valor (R$)</label>
+                  <input type="number" step="0.01" min="0" value={form.valor} onChange={e => setForm(f => ({ ...f, valor: e.target.value }))} placeholder="0,00" style={inputStyle} />
                 </div>
                 <div>
-                  <label style={{ fontSize: 12, color: 'rgba(203,213,225,0.7)', fontWeight: 500, display: 'block', marginBottom: 6 }}>Vencimento *</label>
-                  <input
-                    required
-                    type="date"
-                    value={form.vencimento}
-                    onChange={e => setForm(f => ({ ...f, vencimento: e.target.value }))}
-                    style={{ width: '100%', background: 'rgba(30,41,59,0.8)', border: '1px solid rgba(71,85,105,0.5)', borderRadius: 8, padding: '10px 12px', color: '#f1f5f9', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
-                  />
+                  <label style={{ fontSize: 12, color: 'var(--af-muted)', fontWeight: 500, display: 'block', marginBottom: 6 }}>Vencimento *</label>
+                  <input required type="date" value={form.vencimento} onChange={e => setForm(f => ({ ...f, vencimento: e.target.value }))} style={inputStyle} />
                 </div>
               </div>
               <div>
-                <label style={{ fontSize: 12, color: 'rgba(203,213,225,0.7)', fontWeight: 500, display: 'block', marginBottom: 6 }}>Observação</label>
-                <input
-                  value={form.observacao}
-                  onChange={e => setForm(f => ({ ...f, observacao: e.target.value }))}
-                  placeholder="Opcional"
-                  style={{ width: '100%', background: 'rgba(30,41,59,0.8)', border: '1px solid rgba(71,85,105,0.5)', borderRadius: 8, padding: '10px 12px', color: '#f1f5f9', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
-                />
+                <label style={{ fontSize: 12, color: 'var(--af-muted)', fontWeight: 500, display: 'block', marginBottom: 6 }}>Observação</label>
+                <input value={form.observacao} onChange={e => setForm(f => ({ ...f, observacao: e.target.value }))} placeholder="Opcional" style={inputStyle} />
               </div>
 
               {erroForm && (
-                <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: '9px 12px', color: '#fca5a5', fontSize: 13 }}>{erroForm}</div>
+                <div style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: '9px 12px', color: '#b91c1c', fontSize: 13 }}>{erroForm}</div>
               )}
 
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                <button type="button" onClick={() => { setModal(false); setForm(FORM_VAZIO); setErroForm('') }}
-                  style={{ padding: '10px 20px', background: 'none', border: '1px solid rgba(71,85,105,0.5)', borderRadius: 8, color: 'rgba(148,163,184,0.7)', fontSize: 13, cursor: 'pointer' }}>
+                <button type="button" onClick={() => { setModal(false); setForm(FORM_VAZIO); setErroForm('') }} style={{ padding: '10px 20px', background: 'none', border: '1px solid var(--af-border)', borderRadius: 8, color: 'var(--af-muted)', fontSize: 13, cursor: 'pointer' }}>
                   Cancelar
                 </button>
-                <button type="submit" disabled={salvando}
-                  style={{ padding: '10px 24px', background: 'linear-gradient(90deg, rgba(39,199,216,0.9), rgba(8,145,178,0.9))', border: 'none', borderRadius: 8, color: '#fff', fontSize: 13, fontWeight: 600, cursor: salvando ? 'not-allowed' : 'pointer' }}>
+                <button type="submit" disabled={salvando} style={{ padding: '10px 24px', background: 'linear-gradient(90deg, rgba(39,199,216,0.9), rgba(8,145,178,0.9))', border: 'none', borderRadius: 8, color: '#fff', fontSize: 13, fontWeight: 600, cursor: salvando ? 'not-allowed' : 'pointer' }}>
                   {salvando ? 'Salvando...' : 'Salvar'}
                 </button>
               </div>

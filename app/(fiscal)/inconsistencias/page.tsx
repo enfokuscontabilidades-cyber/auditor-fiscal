@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { AlertaFiscal } from '@/lib/types'
 import { useEmpresaAtiva } from '@/lib/hooks/useEmpresaAtiva'
@@ -11,6 +11,7 @@ import GlassCard from '@/components/ui/GlassCard'
 import EmptyState from '@/components/ui/EmptyState'
 import PaginationControls, { getPageItems } from '@/components/ui/PaginationControls'
 import { useNotifications } from '@/components/notifications/NotificationProvider'
+import { DESC_CFOP } from '@/lib/fiscal/descCfop'
 
 // ─── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -64,6 +65,8 @@ type RelatorioFiscalDocumento = {
   emitente_nome: string | null
   destinatario_cnpj: string | null
   destinatario_nome: string | null
+  chave_acesso: string | null
+  origem: string | null
   valor_total: number | null
   valor_produtos: number | null
   valor_desconto: number | null
@@ -78,7 +81,7 @@ type RelatorioFiscalDocumento = {
 
 type RelatorioFiscalDocumentoJoin = Pick<
   RelatorioFiscalDocumento,
-  'id' | 'tipo_movimento' | 'numero' | 'serie' | 'modelo' | 'data_emissao' | 'data_competencia' | 'emitente_cnpj' | 'emitente_nome' | 'destinatario_cnpj' | 'destinatario_nome' | 'status'
+  'id' | 'tipo_movimento' | 'numero' | 'serie' | 'modelo' | 'data_emissao' | 'data_competencia' | 'emitente_cnpj' | 'emitente_nome' | 'destinatario_cnpj' | 'destinatario_nome' | 'chave_acesso' | 'origem' | 'status'
 >
 
 type RelatorioFiscalProduto = {
@@ -89,6 +92,7 @@ type RelatorioFiscalProduto = {
   descricao: string | null
   ncm: string | null
   cfop: string | null
+  cfop_fornecedor?: string | null
   unidade: string | null
   quantidade: number | null
   valor_unitario: number | null
@@ -134,6 +138,240 @@ function workbookToXlsxBlob(wb: XLSX.WorkBook) {
   const data = XLSX.write(wb, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer
   return new Blob([data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
 }
+
+type RelatorioFiscalDocumentoJoinLocal = {
+  id?: string; tipo_movimento?: string; numero?: string | null; serie?: string | null
+  modelo?: string | null; data_emissao?: string | null; data_competencia?: string | null
+  emitente_cnpj?: string | null; emitente_nome?: string | null
+  destinatario_cnpj?: string | null; destinatario_nome?: string | null
+  chave_acesso?: string | null; origem?: string | null; status?: string
+}
+
+type RelatorioFiscalProdutoLocal = {
+  id: string; documento_id: string; item_numero?: number | null
+  codigo_produto?: string | null; descricao?: string | null; ncm?: string | null
+  cfop?: string | null; cfop_fornecedor?: string | null; unidade?: string | null; quantidade?: number | null
+  valor_unitario?: number | null; valor_total?: number | null; valor_desconto?: number | null
+  valor_frete?: number | null; cst_icms?: string | null; csosn?: string | null
+  valor_bc_icms?: number | null; aliquota_icms?: number | null; valor_icms?: number | null
+  valor_bc_st?: number | null; valor_st?: number | null; cst_pis?: string | null
+  valor_pis?: number | null; cst_cofins?: string | null; valor_cofins?: number | null
+  valor_ipi?: number | null; tipo_movimento?: string | null
+  fa_documentos_fiscais?: RelatorioFiscalDocumentoJoinLocal | RelatorioFiscalDocumentoJoinLocal[] | null
+}
+
+function construirExcelFiscal(
+  itens: RelatorioFiscalProdutoLocal[],
+  aba: 'entradas_saidas' | 'produtos',
+  tipoMov: string,
+): XLSX.WorkBook {
+  const wb = XLSX.utils.book_new()
+  const CC = 'FF0D3340', CB = 'FFFFFFFF'
+  const h = (v: string): XLSX.CellObject => ({
+    v, t: 's',
+    s: { font: { bold: true, color: { rgb: CB }, sz: 11, name: 'Calibri' }, fill: { fgColor: { rgb: CC } }, alignment: { horizontal: 'center', vertical: 'center', wrapText: true }, border: { bottom: { style: 'medium', color: { rgb: 'FF27C7D8' } } } }
+  })
+  const c = (v: unknown, b = false, z?: string): XLSX.CellObject => ({
+    v: v as string | number, t: typeof v === 'number' ? 'n' : 's', z,
+    s: { font: { bold: b, sz: 10, name: 'Calibri' }, alignment: { vertical: 'center' }, border: { bottom: { style: 'thin', color: { rgb: 'FFE0EAED' } }, right: { style: 'thin', color: { rgb: 'FFE0EAED' } } } }
+  })
+  const wr = (ws: XLSX.WorkSheet, rows: XLSX.CellObject[][]) =>
+    rows.forEach((row, r) => row.forEach((cl, col) => { ws[XLSX.utils.encode_cell({ r, c: col })] = cl }))
+
+  const getDoc = (item: RelatorioFiscalProdutoLocal): RelatorioFiscalDocumentoJoinLocal | null => {
+    const d = item.fa_documentos_fiscais
+    if (!d) return null
+    return Array.isArray(d) ? (d[0] ?? null) : d
+  }
+  const movItem = (item: RelatorioFiscalProdutoLocal): 'entrada' | 'saida' => {
+    const doc = getDoc(item)
+    if (doc?.tipo_movimento === 'entrada' || doc?.tipo_movimento === 'devolucao_venda') return 'entrada'
+    if (doc?.tipo_movimento === 'saida' || doc?.tipo_movimento === 'devolucao_compra') return 'saida'
+    const first = item.cfop?.trim().charAt(0) ?? ''
+    if (['1', '2', '3'].includes(first)) return 'entrada'
+    return 'saida'
+  }
+  const cfopForn = (cfop: string | null | undefined): string => {
+    if (!cfop) return '—'
+    if (cfop.charAt(0) === '1') return '5' + cfop.slice(1)
+    if (cfop.charAt(0) === '2') return '6' + cfop.slice(1)
+    return cfop
+  }
+  const cfopEntradaEfet = (cfop: string | null | undefined): string => {
+    if (!cfop) return '—'
+    if (cfop.charAt(0) === '5') return '1' + cfop.slice(1)
+    if (cfop.charAt(0) === '6') return '2' + cfop.slice(1)
+    return cfop
+  }
+  const fData = (d?: string | null) => d ? new Date(`${d}T00:00:00`).toLocaleDateString('pt-BR') : '—'
+  const origemLabel = (o?: string | null): string => {
+    const m: Record<string, string> = { xml_nfe: 'XML NF-e', xml_nfce: 'XML NFC-e', sped_txt: 'SPED', manual: 'Manual', xml_nfse: 'XML NFS-e', outro: 'Outro' }
+    return o ? (m[o] ?? o) : '—'
+  }
+
+  const entradas = itens.filter(i => movItem(i) === 'entrada')
+  const saidas   = itens.filter(i => movItem(i) === 'saida')
+
+  if (aba === 'entradas_saidas') {
+    // ── Notas Entradas ─────────────────────────────────────────────────────────
+    if (tipoMov !== 'saida' && entradas.length > 0) {
+      type GrpNota = { doc: RelatorioFiscalDocumentoJoinLocal | null; cfops: Map<string, { v: number; b: number; i: number }>; total_itens: number; total: number }
+      const notaMap = new Map<string, GrpNota>()
+      for (const item of entradas) {
+        const doc = getDoc(item)
+        const key = doc?.id ?? item.documento_id
+        if (!notaMap.has(key)) notaMap.set(key, { doc, cfops: new Map(), total_itens: 0, total: 0 })
+        const g = notaMap.get(key)!
+        g.total_itens++
+        g.total += Number(item.valor_total ?? 0)
+        const cfop = item.cfop ?? '—'
+        if (!g.cfops.has(cfop)) g.cfops.set(cfop, { v: 0, b: 0, i: 0 })
+        const cf = g.cfops.get(cfop)!
+        cf.v += Number(item.valor_total ?? 0)
+        cf.b += Number(item.valor_bc_icms ?? 0)
+        cf.i += Number(item.valor_icms ?? 0)
+      }
+      const hNE = ['Nº Nota', 'Chave de Acesso', 'Data', 'Fornecedor', 'Itens', 'CFOP', 'Descrição CFOP', 'Valor (CFOP)', 'Base ICMS (CFOP)', 'ICMS (CFOP)', 'Valor Contábil Nota', 'Status']
+      const rNE: XLSX.CellObject[][] = [hNE.map(h)]
+      for (const [, nota] of notaMap) {
+        const { doc, cfops, total_itens, total } = nota
+        const numero = doc?.numero ?? '—'
+        const chave = doc?.chave_acesso ?? '—'
+        const data = fData(doc?.data_emissao)
+        const forn = doc?.emitente_nome || doc?.emitente_cnpj || '—'
+        Array.from(cfops.entries()).forEach(([cfop, vals], idx) => {
+          rNE.push([
+            c(idx === 0 ? numero : '', idx === 0), c(idx === 0 ? chave : ''),
+            c(idx === 0 ? data : ''), c(idx === 0 ? forn : ''),
+            c(idx === 0 ? total_itens : '', false, '0'), c(cfop, true),
+            c(DESC_CFOP[cfop] ?? `CFOP ${cfop}`),
+            c(vals.v, false, '#,##0.00'), c(vals.b, false, '#,##0.00'), c(vals.i, false, '#,##0.00'),
+            c(idx === 0 ? total : '', false, '#,##0.00'), c('—'),
+          ])
+        })
+      }
+      const wsNE = XLSX.utils.aoa_to_sheet(rNE.map(r => r.map(x => x.v)))
+      wr(wsNE, rNE)
+      wsNE['!cols'] = [{ wch: 14 }, { wch: 46 }, { wch: 12 }, { wch: 36 }, { wch: 8 }, { wch: 8 }, { wch: 38 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 10 }]
+      XLSX.utils.book_append_sheet(wb, wsNE, 'Notas Entradas')
+    }
+
+    // ── Resumo Saídas ──────────────────────────────────────────────────────────
+    if (tipoMov !== 'entrada' && saidas.length > 0) {
+      type GrpSaida = { doc: RelatorioFiscalDocumentoJoinLocal | null; cfops: Map<string, { v: number; b: number; i: number }>; total: number; ticms: number; tpis: number; tcofins: number }
+      const notaMapS = new Map<string, GrpSaida>()
+      for (const item of saidas) {
+        const doc = getDoc(item)
+        const key = doc?.id ?? item.documento_id
+        if (!notaMapS.has(key)) notaMapS.set(key, { doc, cfops: new Map(), total: 0, ticms: 0, tpis: 0, tcofins: 0 })
+        const g = notaMapS.get(key)!
+        g.total += Number(item.valor_total ?? 0)
+        g.ticms += Number(item.valor_icms ?? 0)
+        g.tpis += Number(item.valor_pis ?? 0)
+        g.tcofins += Number(item.valor_cofins ?? 0)
+        const cfop = item.cfop ?? '—'
+        if (!g.cfops.has(cfop)) g.cfops.set(cfop, { v: 0, b: 0, i: 0 })
+        const cf = g.cfops.get(cfop)!
+        cf.v += Number(item.valor_total ?? 0)
+        cf.b += Number(item.valor_bc_icms ?? 0)
+        cf.i += Number(item.valor_icms ?? 0)
+      }
+      const hRS = ['Nº Nota', 'Chave de Acesso', 'Data', 'Destinatário', 'CFOP', 'Descrição CFOP', 'Valor (CFOP)', 'Base ICMS (CFOP)', 'ICMS (CFOP)', 'Valor Contábil Nota', 'ICMS Total Nota', 'PIS Total', 'COFINS Total', 'Status']
+      const rRS: XLSX.CellObject[][] = [hRS.map(h)]
+      for (const [, nota] of notaMapS) {
+        const { doc, cfops, total, ticms, tpis, tcofins } = nota
+        const numero = doc?.numero ?? '—'
+        const chave = doc?.chave_acesso ?? '—'
+        const data = fData(doc?.data_emissao)
+        const dest = doc?.destinatario_nome || doc?.destinatario_cnpj || '—'
+        Array.from(cfops.entries()).forEach(([cfop, vals], idx) => {
+          rRS.push([
+            c(idx === 0 ? numero : '', idx === 0), c(idx === 0 ? chave : ''),
+            c(idx === 0 ? data : ''), c(idx === 0 ? dest : ''),
+            c(cfop, true), c(DESC_CFOP[cfop] ?? `CFOP ${cfop}`),
+            c(vals.v, false, '#,##0.00'), c(vals.b, false, '#,##0.00'), c(vals.i, false, '#,##0.00'),
+            c(idx === 0 ? total : '', false, '#,##0.00'), c(idx === 0 ? ticms : '', false, '#,##0.00'),
+            c(idx === 0 ? tpis : '', false, '#,##0.00'), c(idx === 0 ? tcofins : '', false, '#,##0.00'), c('—'),
+          ])
+        })
+      }
+      const wsRS = XLSX.utils.aoa_to_sheet(rRS.map(r => r.map(x => x.v)))
+      wr(wsRS, rRS)
+      wsRS['!cols'] = [{ wch: 12 }, { wch: 46 }, { wch: 12 }, { wch: 36 }, { wch: 8 }, { wch: 38 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 10 }]
+      XLSX.utils.book_append_sheet(wb, wsRS, 'Resumo Saídas')
+    }
+  } else {
+    // ── Itens Entradas ─────────────────────────────────────────────────────────
+    if (tipoMov !== 'saida' && entradas.length > 0) {
+      const hIE = ['Nº Nota', 'Chave de Acesso', 'Data', 'Fornecedor', 'Cód.', 'Descrição', 'NCM', 'CFOP Forn.', 'CFOP Entrada', 'CST/CSOSN', 'Valor Produto', 'Frete Rateado', 'Despesas Rateadas', 'IPI Item', 'Desconto Rateado', 'Valor Contábil Total', 'Base ICMS', 'Alíq. ICMS', 'ICMS', 'Fonte']
+      const rIE: XLSX.CellObject[][] = [hIE.map(h)]
+      for (const item of entradas) {
+        const doc = getDoc(item)
+        rIE.push([
+          c(doc?.numero ?? '—', true), c(doc?.chave_acesso ?? '—'),
+          c(fData(doc?.data_emissao)),
+          c(doc?.emitente_nome || doc?.emitente_cnpj || '—'),
+          c(item.codigo_produto ?? ''), c(item.descricao ?? ''), c(item.ncm ?? ''),
+          c(item.cfop_fornecedor || cfopForn(item.cfop)), c(cfopEntradaEfet(item.cfop)),
+          c(item.cst_icms ?? item.csosn ?? ''),
+          c(Number(item.valor_total ?? 0), false, '#,##0.00'),
+          c(Number(item.valor_frete ?? 0), false, '#,##0.00'),
+          c('—'),
+          c(Number(item.valor_ipi ?? 0), false, '#,##0.00'),
+          c(Number(item.valor_desconto ?? 0), false, '#,##0.00'),
+          c(Number(item.valor_total ?? 0), false, '#,##0.00'),
+          c(Number(item.valor_bc_icms ?? 0), false, '#,##0.00'),
+          c(Number(item.aliquota_icms ?? 0), false, '0.00'),
+          c(Number(item.valor_icms ?? 0), false, '#,##0.00'),
+          c(origemLabel(doc?.origem)),
+        ])
+      }
+      const wsIE = XLSX.utils.aoa_to_sheet(rIE.map(r => r.map(x => x.v)))
+      wr(wsIE, rIE)
+      wsIE['!cols'] = [{ wch: 12 }, { wch: 46 }, { wch: 12 }, { wch: 36 }, { wch: 12 }, { wch: 44 }, { wch: 12 }, { wch: 8 }, { wch: 8 }, { wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 8 }, { wch: 12 }, { wch: 12 }]
+      XLSX.utils.book_append_sheet(wb, wsIE, 'Itens Entradas')
+    }
+
+    // ── Notas Saídas ───────────────────────────────────────────────────────────
+    if (tipoMov !== 'entrada' && saidas.length > 0) {
+      const hNS = ['Nº Nota', 'Chave de Acesso', 'Data', 'Destinatário', 'Cód.', 'Descrição', 'NCM', 'CFOP', 'CST ICMS', 'CST PIS', 'CST COFINS', 'Valor Produto', 'Frete Rateado', 'Despesas Rateadas', 'IPI Item', 'Desconto Rateado', 'Valor Contábil Total', 'Base ICMS', 'Alíq. ICMS', 'ICMS', 'ICMS-ST', 'IPI', 'PIS', 'COFINS', 'Status']
+      const rNS: XLSX.CellObject[][] = [hNS.map(h)]
+      for (const item of saidas) {
+        const doc = getDoc(item)
+        rNS.push([
+          c(doc?.numero ?? '—', true), c(doc?.chave_acesso ?? '—'),
+          c(fData(doc?.data_emissao)),
+          c(doc?.destinatario_nome || doc?.destinatario_cnpj || '—'),
+          c(item.codigo_produto ?? ''), c(item.descricao ?? ''), c(item.ncm ?? ''),
+          c(item.cfop ?? ''),
+          c(item.cst_icms ?? item.csosn ?? ''), c(item.cst_pis ?? ''), c(item.cst_cofins ?? ''),
+          c(Number(item.valor_total ?? 0), false, '#,##0.00'),
+          c(Number(item.valor_frete ?? 0), false, '#,##0.00'),
+          c('—'),
+          c(Number(item.valor_ipi ?? 0), false, '#,##0.00'),
+          c(Number(item.valor_desconto ?? 0), false, '#,##0.00'),
+          c(Number(item.valor_total ?? 0), false, '#,##0.00'),
+          c(Number(item.valor_bc_icms ?? 0), false, '#,##0.00'),
+          c(Number(item.aliquota_icms ?? 0), false, '0.00'),
+          c(Number(item.valor_icms ?? 0), false, '#,##0.00'),
+          c(Number(item.valor_st ?? 0), false, '#,##0.00'),
+          c(Number(item.valor_ipi ?? 0), false, '#,##0.00'),
+          c(Number(item.valor_pis ?? 0), false, '#,##0.00'),
+          c(Number(item.valor_cofins ?? 0), false, '#,##0.00'),
+          c('—'),
+        ])
+      }
+      const wsNS = XLSX.utils.aoa_to_sheet(rNS.map(r => r.map(x => x.v)))
+      wr(wsNS, rNS)
+      wsNS['!cols'] = [{ wch: 12 }, { wch: 46 }, { wch: 12 }, { wch: 38 }, { wch: 12 }, { wch: 42 }, { wch: 12 }, { wch: 8 }, { wch: 8 }, { wch: 10 }, { wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 8 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 10 }]
+      XLSX.utils.book_append_sheet(wb, wsNS, 'Notas Saídas')
+    }
+  }
+
+  return wb
+}
+
+type FiltrosAplicados = { ncm: string; cfop: string; participante: string; nota: string }
 
 type DivergenciaSimplesCandidato = {
   documento_id: string
@@ -212,6 +450,13 @@ export default function RelatoriosPage() {
   const [compInicio, setCompInicio] = useState('')
   const [compFim,    setCompFim]    = useState('')
   const [tipoMov,    setTipoMov]    = useState('') // '' = ambos, 'entrada', 'saida'
+
+  // Filtros adicionais (abas fiscais)
+  const [filtroNcm,         setFiltroNcm]         = useState('')
+  const [filtroCfop,        setFiltroCfop]        = useState('')
+  const [filtroParticipante, setFiltroParticipante] = useState('')
+  const [filtroNota,        setFiltroNota]        = useState('')
+  const filtrosRef = useRef<FiltrosAplicados>({ ncm: '', cfop: '', participante: '', nota: '' })
 
   // Estado aba Inconsistências (mantido intacto)
   const [alertas,       setAlertas]      = useState<AlertaFiscal[]>([])
@@ -449,6 +694,11 @@ export default function RelatoriosPage() {
     if (compInicio) params.set('competencia_inicio', compInicio)
     if (compFim) params.set('competencia_fim', compFim)
     if (tipoMov) params.set('tipo_movimento', tipoMov)
+    const filtros = filtrosRef.current
+    if (filtros.ncm) params.set('ncm', filtros.ncm)
+    if (filtros.cfop) params.set('cfop', filtros.cfop)
+    if (filtros.participante) params.set('participante', filtros.participante)
+    if (filtros.nota) params.set('nota', filtros.nota)
 
     try {
       const controller = new AbortController()
@@ -635,6 +885,42 @@ export default function RelatoriosPage() {
     return todas
   }
 
+  async function buscarTodosItensFiscal(): Promise<RelatorioFiscalProdutoLocal[]> {
+    const todas: RelatorioFiscalProdutoLocal[] = []
+    const tamanho = 1000
+    let pagina = 1
+
+    while (true) {
+      const params = new URLSearchParams({
+        empresa_id: empresaId ?? '',
+        nivel: 'produto',
+        resumido: 'false',
+        page: String(pagina),
+        page_size: String(tamanho),
+      })
+      if (compInicio) params.set('competencia_inicio', compInicio)
+      if (compFim) params.set('competencia_fim', compFim)
+      if (tipoMov) params.set('tipo_movimento', tipoMov)
+      const filtros = filtrosRef.current
+      if (filtros.ncm) params.set('ncm', filtros.ncm)
+      if (filtros.cfop) params.set('cfop', filtros.cfop)
+      if (filtros.participante) params.set('participante', filtros.participante)
+      if (filtros.nota) params.set('nota', filtros.nota)
+
+      const res = await fetch(`/api/relatorios/entradas-saidas?${params}`)
+      const body = await res.json() as RelatorioFiscalResposta
+      if (!res.ok && body.error?.toLowerCase().includes('requested range not satisfiable') && todas.length > 0) break
+      if (!res.ok) throw new Error(body.error ?? 'Erro ao exportar relatório.')
+      const rows = Array.isArray(body.rows) ? body.rows : []
+      if (rows.length === 0) break
+      todas.push(...(rows as RelatorioFiscalProdutoLocal[]))
+      if (rows.length < tamanho) break
+      pagina += 1
+    }
+
+    return todas
+  }
+
   async function exportarExcel() {
     if (!empresaId || abaAtiva === 'inconsistencias') return
     setExportandoExcel(true)
@@ -646,6 +932,22 @@ export default function RelatoriosPage() {
         successTitle: 'Excel de relatorios pronto',
         errorTitle: 'Erro ao gerar Excel',
       }, async () => {
+      // Abas entradas_saidas e produtos (detalhado): exportação multi-planilha estilizada
+      if ((abaAtiva === 'entradas_saidas' || abaAtiva === 'produtos') && !resumidoFiscal) {
+        const itens = await buscarTodosItensFiscal()
+        const wb = construirExcelFiscal(itens, abaAtiva, tipoMov)
+        if (wb.SheetNames.length === 0) throw new Error('Não há dados para exportar.')
+        return {
+          message: 'Clique para baixar o relatorio gerado.',
+          action: {
+            type: 'download' as const,
+            filename: nomeArquivoExcel(),
+            mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            blob: workbookToXlsxBlob(wb),
+          },
+        }
+      }
+
       const rowsFonte = abaFiscal ? await buscarFiscalParaExcel() : []
       let rows: Record<string, string | number | null | undefined>[] = []
 
@@ -662,43 +964,6 @@ export default function RelatoriosPage() {
             ICMS: r.valor_icms,
             ST: r.valor_st,
             IPI: r.valor_ipi,
-          }))
-        } else if (abaAtiva === 'produtos') {
-          rows = rowsFonte.filter(isProdutoFiscal).map(p => {
-            const doc = docProduto(p)
-            return {
-              Competencia: competenciaDaLinha(p),
-              Data: dataFiscal(doc?.data_emissao),
-              Nota: doc?.numero ?? '',
-              Movimento: doc?.tipo_movimento ?? p.tipo_movimento ?? '',
-              Participante: participanteFiscal(doc),
-              Produto: p.descricao ?? '',
-              NCM: p.ncm ?? '',
-              CFOP: p.cfop ?? '',
-              CST_CSOSN: p.cst_icms || p.csosn || '',
-              Quantidade: Number(p.quantidade ?? 0),
-              Valor_Contabil: Number(p.valor_total ?? 0),
-              Base_ICMS: Number(p.valor_bc_icms ?? 0),
-              Aliquota_ICMS: Number(p.aliquota_icms ?? 0),
-              ICMS: Number(p.valor_icms ?? 0),
-              ST: Number(p.valor_st ?? 0),
-              IPI: Number(p.valor_ipi ?? 0),
-            }
-          })
-        } else {
-          rows = rowsFonte.filter(isDocumentoFiscal).map(d => ({
-            Competencia: competenciaDaLinha(d),
-            Data: dataFiscal(d.data_emissao),
-            Nota: d.numero ?? '',
-            Serie: d.serie ?? '',
-            Modelo: d.modelo ?? '',
-            Movimento: d.tipo_movimento,
-            Participante: participanteFiscal(d),
-            Valor_Contabil: Number(d.valor_total ?? 0),
-            Desconto: Number(d.valor_desconto ?? 0),
-            Frete: Number(d.valor_frete ?? 0),
-            ICMS: Number(d.valor_icms ?? 0),
-            IPI: Number(d.valor_ipi ?? 0),
           }))
         }
       } else if (abaAtiva === 'documentos') {
@@ -997,7 +1262,20 @@ export default function RelatoriosPage() {
               <option value="entrada">Somente Entradas</option>
               <option value="saida">Somente Saídas</option>
             </select>
-            <button style={S.btnAplicar} onClick={abaFiscal ? carregarRelatorioFiscal : carregarRelatorio}>Consultar</button>
+            <button style={S.btnAplicar} onClick={() => {
+              if (abaFiscal) {
+                const comNcmCfop = abaAtiva === 'produtos' || abaAtiva === 'cfop'
+                filtrosRef.current = {
+                  ncm: comNcmCfop ? filtroNcm : '',
+                  cfop: comNcmCfop ? filtroCfop : '',
+                  participante: filtroParticipante,
+                  nota: filtroNota,
+                }
+                void carregarRelatorioFiscal()
+              } else {
+                void carregarRelatorio()
+              }
+            }}>Consultar</button>
             <button
               style={{ ...S.btnAplicar, display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--af-surface-2)', border: '1px solid var(--af-border)', color: 'var(--af-text)' }}
               onClick={exportarExcel}
@@ -1006,6 +1284,21 @@ export default function RelatoriosPage() {
               <Download size={13} /> {exportandoExcel ? 'Gerando...' : 'Excel'}
             </button>
           </div>
+
+          {abaFiscal && (
+            <div style={{ ...S.filterRow, marginTop: -8 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--af-muted)', letterSpacing: '0.08em', textTransform: 'uppercase' as const }}>Busca</span>
+              {(abaAtiva === 'produtos' || abaAtiva === 'cfop') && (
+                <>
+                  <input style={{ ...S.input, width: 110 }} type="text" placeholder="NCM" value={filtroNcm} onChange={e => setFiltroNcm(e.target.value)} title="Filtrar por NCM" />
+                  <input style={{ ...S.input, width: 80 }} type="text" placeholder="CFOP" value={filtroCfop} onChange={e => setFiltroCfop(e.target.value)} title="Filtrar por CFOP" />
+                </>
+              )}
+              <input style={{ ...S.input, width: 200 }} type="text" placeholder="Fornecedor/Cliente" value={filtroParticipante} onChange={e => setFiltroParticipante(e.target.value)} title="Filtrar por fornecedor ou cliente (nome ou CNPJ)" />
+              <input style={{ ...S.input, width: 200 }} type="text" placeholder="Nota ou chave de acesso" value={filtroNota} onChange={e => setFiltroNota(e.target.value)} title="Filtrar por número da nota ou chave de acesso" />
+              <span style={{ fontSize: 10, color: 'var(--af-muted)' }}>↵ Clique Consultar para aplicar</span>
+            </div>
+          )}
 
           {abaFiscal && (
             <div style={{ ...S.filterRow, marginTop: -8 }}>
