@@ -14,6 +14,7 @@ import {
   Receipt,
   FilePen,
   Scale,
+  Users,
 } from 'lucide-react'
 
 type OrgInfo = { id: string; nome: string; plano: string }
@@ -31,16 +32,26 @@ const LINKS = [
   { href: '/obrigacoes', label: 'Obrigações', icon: ClipboardList },
 ]
 
+const LINK_LEADS_ADMIN = { href: '/leads-reforma-tributaria', label: 'Leads Reforma', icon: Users }
+
 export default function SidebarFiscal() {
   const pathname = usePathname()
   const [org, setOrg] = useState<OrgInfo | null>(null)
+  const [acessoLeadsAdmin, setAcessoLeadsAdmin] = useState(false)
 
   useEffect(() => {
     fetch('/api/organizacoes')
       .then(r => r.json())
       .then((d: unknown) => { if (d && typeof d === 'object') setOrg(d as OrgInfo) })
       .catch(() => null)
+
+    fetch('/api/leads-reforma-tributaria/acesso')
+      .then(r => r.json())
+      .then((d: { permitido?: boolean }) => setAcessoLeadsAdmin(Boolean(d.permitido)))
+      .catch(() => null)
   }, [])
+
+  const links = acessoLeadsAdmin ? [...LINKS, LINK_LEADS_ADMIN] : LINKS
 
   function navLinkStyle(active: boolean): React.CSSProperties {
     return {
@@ -83,7 +94,7 @@ export default function SidebarFiscal() {
       <div style={{ flex: 1, padding: '12px 0 10px' }}>
         <div className="af-sidebar-section-title">Navegação</div>
 
-        {LINKS.map(({ href, label, icon: Icon }) => {
+        {links.map(({ href, label, icon: Icon }) => {
           const active = pathname === href
           return (
             <Link key={href} href={href} style={navLinkStyle(active)}>

@@ -5,6 +5,7 @@ import * as XLSX from 'xlsx'
 import { AlertTriangle, CheckCircle2, Download, FileSearch, Search, SlidersHorizontal } from 'lucide-react'
 import { useEmpresaAtiva } from '@/lib/hooks/useEmpresaAtiva'
 import { useTheme } from '@/components/ThemeProvider'
+import { money, numberFmt, n, temReforma, analisarLinha, montarLinha, type SituacaoReforma } from '@/lib/fiscal/analiseReformaTributaria'
 
 type ItemFiscal = {
   id: string
@@ -104,19 +105,10 @@ type LinhaRelatorio = {
   valorCbs: number
   destacado: boolean
   alertas: string[]
-  situacao: 'ok' | 'alerta' | 'critico'
+  situacao: SituacaoReforma
 }
 
 type SituacaoFiltro = 'todos' | 'destacadas' | 'sem_destaque' | 'divergencias'
-
-const money = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
-const numberFmt = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })
-const ALIQUOTA_IBS_UF_2026 = 0.1
-const ALIQUOTA_CBS_2026 = 0.9
-
-function n(v: unknown): number {
-  return typeof v === 'number' && Number.isFinite(v) ? v : 0
-}
 
 function dataBr(data?: string) {
   if (!data) return '-'
@@ -133,63 +125,6 @@ function competenciaDaData(data?: string) {
   }
   const m = data.slice(0, 7)
   return /^\d{4}-\d{2}$/.test(m) ? m : ''
-}
-
-function temReforma(item: Partial<ItemFiscal> & Partial<ItemXmlSaida>) {
-  return Boolean(
-    item.cst_ibs_cbs ||
-    item.cclass_trib ||
-    n(item.valor_bc_ibs_cbs) > 0 ||
-    n(item.base_ibs_cbs) > 0 ||
-    n(item.valor_ibs) > 0 ||
-    n(item.valor_cbs) > 0 ||
-    n(item.valor_ibs_uf) > 0 ||
-    n(item.valor_ibs_mun) > 0,
-  )
-}
-
-function arred2(valor: number) {
-  return Math.round((valor + Number.EPSILON) * 100) / 100
-}
-
-function analisarLinha(base: Omit<LinhaRelatorio, 'alertas' | 'situacao'>): Pick<LinhaRelatorio, 'alertas' | 'situacao'> {
-  const alertas: string[] = []
-  if (!base.destacado) {
-    alertas.push('Sem destaque de IBS/CBS')
-  } else {
-    if (!base.cst || base.cst === '-') alertas.push('CST IBS/CBS ausente')
-    if (!base.cclass || base.cclass === '-') alertas.push('cClassTrib ausente')
-    if (base.aliquotaIbsUf > 0 && Math.abs(base.aliquotaIbsUf - ALIQUOTA_IBS_UF_2026) > 0.0001) {
-      alertas.push(`Aliquota IBS UF diferente de ${numberFmt.format(ALIQUOTA_IBS_UF_2026)}%`)
-    }
-    if (base.aliquotaCbs > 0 && Math.abs(base.aliquotaCbs - ALIQUOTA_CBS_2026) > 0.0001) {
-      alertas.push(`Aliquota CBS diferente de ${numberFmt.format(ALIQUOTA_CBS_2026)}%`)
-    }
-    const baseCalculo = base.base || base.valorItem
-    if (baseCalculo > 0 && base.valorIbsUf > 0) {
-      const esperado = arred2(baseCalculo * (ALIQUOTA_IBS_UF_2026 / 100))
-      if (Math.abs(base.valorIbsUf - esperado) > 0.02) alertas.push(`IBS UF esperado: ${money.format(esperado)}`)
-    }
-    if (baseCalculo > 0 && base.valorCbs > 0) {
-      const esperado = arred2(baseCalculo * (ALIQUOTA_CBS_2026 / 100))
-      if (Math.abs(base.valorCbs - esperado) > 0.02) alertas.push(`CBS esperado: ${money.format(esperado)}`)
-    }
-  }
-  return { alertas, situacao: alertas.length ? (base.destacado ? 'alerta' : 'critico') : 'ok' }
-}
-
-function montarLinha(base: Omit<LinhaRelatorio, 'alertas' | 'situacao' | 'destacado'> & { destacado?: boolean }): LinhaRelatorio {
-  const destacado = base.destacado ?? temReforma({
-    cst_ibs_cbs: base.cst === '-' ? undefined : base.cst,
-    cclass_trib: base.cclass === '-' ? undefined : base.cclass,
-    valor_bc_ibs_cbs: base.base,
-    valor_ibs: base.valorIbs,
-    valor_cbs: base.valorCbs,
-    valor_ibs_uf: base.valorIbsUf,
-    valor_ibs_mun: base.valorIbsMun,
-  })
-  const linhaBase = { ...base, destacado }
-  return { ...linhaBase, ...analisarLinha(linhaBase) }
 }
 
 function mesLabel(comp: string) {

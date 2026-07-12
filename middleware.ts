@@ -6,9 +6,13 @@ function isPublicPath(pathname: string): boolean {
     pathname.startsWith('/login') ||
     pathname.startsWith('/landing') ||
     pathname.startsWith('/diagnostico-reforma-tributaria') ||
+    pathname.startsWith('/privacidade') ||
+    pathname.startsWith('/termos') ||
     pathname.startsWith('/cadastro') ||
     pathname.startsWith('/auth') ||
     pathname === '/api/leads/reforma-tributaria' ||
+    pathname === '/api/diagnostico-reforma-tributaria/analisar' ||
+    pathname.startsWith('/api/diagnostico-reforma-tributaria/relatorio/') ||
     pathname === '/api/stripe/webhook' ||
     pathname.startsWith('/_next/')
   )
