@@ -9,6 +9,8 @@ import {
   analisarDocumentosReforma,
   type ItemBrutoReforma,
   type DocumentoParaAnaliseReforma,
+  type GrupoDivergenciaReforma,
+  type ResumoAnaliseReforma,
 } from '@/lib/fiscal/resumoReformaTributaria'
 import {
   montarLinhasReforma,
@@ -55,6 +57,43 @@ function numeroSeguroRelatorio(valor: number | null | undefined): number {
   if (typeof valor !== 'number' || !Number.isFinite(valor)) return 0
   if (Math.abs(valor) > LIMITE_NUMERO_RELATORIO) return 0
   return valor
+}
+
+function inteiroSeguroRelatorio(valor: number): number {
+  const seguro = numeroSeguroRelatorio(valor)
+  return Math.max(0, Math.floor(seguro))
+}
+
+function corHexSegura(valor: string | null | undefined): string | null {
+  const cor = valor?.trim()
+  return cor && /^#[0-9a-f]{6}$/i.test(cor) ? cor : null
+}
+
+function sanitizarResumoRelatorio(resumo: ResumoAnaliseReforma): ResumoAnaliseReforma {
+  return {
+    totalDocumentos: inteiroSeguroRelatorio(resumo.totalDocumentos),
+    totalItens: inteiroSeguroRelatorio(resumo.totalItens),
+    documentosAdequados: inteiroSeguroRelatorio(resumo.documentosAdequados),
+    documentosAtencao: inteiroSeguroRelatorio(resumo.documentosAtencao),
+    documentosCriticos: inteiroSeguroRelatorio(resumo.documentosCriticos),
+    documentosAfetados: inteiroSeguroRelatorio(resumo.documentosAfetados),
+    itensAdequados: inteiroSeguroRelatorio(resumo.itensAdequados),
+    itensAtencao: inteiroSeguroRelatorio(resumo.itensAtencao),
+    itensCriticos: inteiroSeguroRelatorio(resumo.itensCriticos),
+    itensAfetados: inteiroSeguroRelatorio(resumo.itensAfetados),
+    tiposDivergencia: inteiroSeguroRelatorio(resumo.tiposDivergencia),
+    ocorrenciasDivergencia: inteiroSeguroRelatorio(resumo.ocorrenciasDivergencia),
+    totalIbs: numeroSeguroRelatorio(resumo.totalIbs),
+    totalCbs: numeroSeguroRelatorio(resumo.totalCbs),
+  }
+}
+
+function sanitizarGruposRelatorio(grupos: GrupoDivergenciaReforma[]): GrupoDivergenciaReforma[] {
+  return grupos.map(grupo => ({
+    ...grupo,
+    totalDocumentos: inteiroSeguroRelatorio(grupo.totalDocumentos),
+    totalItens: inteiroSeguroRelatorio(grupo.totalItens),
+  }))
 }
 
 function linhasParaDocumentosAnalise(linhas: LinhaReforma[]): DocumentoParaAnaliseReforma[] {
@@ -218,7 +257,7 @@ export async function POST(request: Request) {
       estado: perfil.estado,
       contadorResponsavel: perfil.contador_responsavel,
       crc: perfil.crc,
-      corPrincipal: perfil.cor_principal,
+      corPrincipal: corHexSegura(perfil.cor_principal),
     }
     logoPathEscritorio = perfil.logo_path
   }
@@ -250,9 +289,16 @@ export async function POST(request: Request) {
   const documentosParaAnalise = linhasParaDocumentosAnalise(linhasRelatorio)
 
   const { resumo, grupos, documentos: documentosAnalisados } = analisarDocumentosReforma(documentosParaAnalise, opcoesAnalise)
+  const resumoRelatorio = sanitizarResumoRelatorio(resumo)
+  const gruposRelatorio = sanitizarGruposRelatorio(grupos)
 
   const anexoDocumentos: AnexoDocumentoReforma[] = documentosAnalisados.map(d => ({
-    nota: d.numero, data: d.data, participante: d.participante, situacao: d.situacao, valorIbs: d.valorIbs, valorCbs: d.valorCbs,
+    nota: d.numero,
+    data: d.data,
+    participante: d.participante,
+    situacao: d.situacao,
+    valorIbs: numeroSeguroRelatorio(d.valorIbs),
+    valorCbs: numeroSeguroRelatorio(d.valorCbs),
   }))
 
   const documentosSemDestaque: DocumentoSemDestaqueReforma[] = documentosAnalisados
@@ -260,7 +306,7 @@ export async function POST(request: Request) {
     .map(d => ({
       tipoDocumento: LABEL_TIPO_DOCUMENTO[d.tipoDocumento] ?? 'Documento',
       numero: d.numero, serie: d.serie, data: d.data,
-      itensAfetados: d.itensAfetados, principalDivergencia: d.principalDivergencia, status: d.situacao,
+      itensAfetados: inteiroSeguroRelatorio(d.itensAfetados), principalDivergencia: d.principalDivergencia, status: d.situacao,
     }))
 
   const codigoRelatorio = crypto.randomUUID().slice(0, 8).toUpperCase()
@@ -278,8 +324,8 @@ export async function POST(request: Request) {
           parametros: parametrosResolvidos,
           modoParametros,
           observacaoParametros,
-          resumo,
-          grupos,
+          resumo: resumoRelatorio,
+          grupos: gruposRelatorio,
           documentosSemDestaque,
           escritorio,
         }, logoPathEscritorio)
@@ -289,8 +335,8 @@ export async function POST(request: Request) {
           competencia: competencia || undefined,
           dataEmissao: new Date(),
           parametros: PARAMETROS_REFORMA_2026,
-          resumo,
-          grupos,
+          resumo: resumoRelatorio,
+          grupos: gruposRelatorio,
           anexoDocumentos,
         })
   } catch (error) {
@@ -314,8 +360,8 @@ export async function POST(request: Request) {
     parametros_utilizados: parametrosResolvidos,
     observacao: observacaoParametros ?? null,
     versao_parametros: parametrosResolvidos.versao,
-    total_documentos: resumo.totalDocumentos,
-    total_itens: resumo.totalItens,
+    total_documentos: resumoRelatorio.totalDocumentos,
+    total_itens: resumoRelatorio.totalItens,
     hash_arquivo: hashArquivo,
     competencia: competencia || null,
   })

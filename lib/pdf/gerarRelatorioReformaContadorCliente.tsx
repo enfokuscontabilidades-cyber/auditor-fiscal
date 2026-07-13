@@ -6,11 +6,14 @@ import RelatorioReformaContadorClientePdf, { type DadosRelatorioReformaContadorC
 async function carregarLogoEscritorioDataUri(logoPath: string | null): Promise<string | null> {
   if (!logoPath) return null
   try {
+    const extensao = logoPath.toLowerCase().split('.').pop()
+    if (extensao !== 'png' && extensao !== 'jpg' && extensao !== 'jpeg') return null
+
     const admin = createAdminClient()
     const { data, error } = await admin.storage.from('escritorio-logos').download(logoPath)
     if (error || !data) return null
     const buffer = Buffer.from(await data.arrayBuffer())
-    const mime = logoPath.endsWith('.png') ? 'image/png' : logoPath.endsWith('.webp') ? 'image/webp' : 'image/jpeg'
+    const mime = extensao === 'png' ? 'image/png' : 'image/jpeg'
     return `data:${mime};base64,${buffer.toString('base64')}`
   } catch {
     return null
@@ -22,5 +25,10 @@ export async function gerarRelatorioReformaContadorClientePdf(
   logoPath: string | null,
 ): Promise<Buffer> {
   const logoDataUri = await carregarLogoEscritorioDataUri(logoPath)
-  return renderToBuffer(<RelatorioReformaContadorClientePdf dados={dados} logoDataUri={logoDataUri} />)
+  try {
+    return await renderToBuffer(<RelatorioReformaContadorClientePdf dados={dados} logoDataUri={logoDataUri} />)
+  } catch (error) {
+    if (!logoDataUri) throw error
+    return renderToBuffer(<RelatorioReformaContadorClientePdf dados={dados} logoDataUri={null} />)
+  }
 }
