@@ -16,13 +16,23 @@ export default function NovoEscritorioPage() {
   const [nome, setNome] = useState('')
   const [erro, setErro] = useState('')
   const [carregando, setCarregando] = useState(false)
+  const [produto, setProduto] = useState<string | null>(null)
+  const [plano, setPlano] = useState<string | null>(null)
 
   useEffect(() => {
     fetch('/api/convites')
       .then(r => r.json())
       .then((d: unknown) => setConvite((d as Convite) ?? null))
       .catch(() => setConvite(null))
+
+    const params = new URLSearchParams(window.location.search)
+    setProduto(params.get('produto'))
+    setPlano(params.get('plano'))
   }, [])
+
+  const destinoAposCriar = produto === 'reforma_tributaria'
+    ? `/aguardando-ativacao?produto=reforma_tributaria&plano=${plano ?? ''}`
+    : '/'
 
   async function aceitarConvite() {
     setCarregando(true)
@@ -51,7 +61,10 @@ export default function NovoEscritorioPage() {
       const res = await fetch('/api/organizacoes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nome }),
+        body: JSON.stringify({
+          nome,
+          ...(produto === 'reforma_tributaria' ? { produtoEscopo: 'tax_reform_only', planoCodigo: plano } : {}),
+        }),
       })
       if (!res.ok) {
         if (res.status === 409) { router.push('/'); return }
@@ -60,7 +73,7 @@ export default function NovoEscritorioPage() {
         setErro(msg)
         return
       }
-      router.push('/')
+      router.push(destinoAposCriar)
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Erro inesperado. Tente novamente.')
     } finally {

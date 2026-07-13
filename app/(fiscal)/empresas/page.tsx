@@ -3,10 +3,17 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { Empresa } from '@/lib/types'
-import { Plus, Building2, Pencil, Star, Search, RefreshCw, AlertCircle, Users, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, Building2, Pencil, Star, Search, RefreshCw, AlertCircle, Users, ChevronDown, ChevronUp, Lock } from 'lucide-react'
 import { useEmpresaAtiva } from '@/lib/hooks/useEmpresaAtiva'
 import PageHeader from '@/components/ui/PageHeader'
 import PaginationControls, { getPageItems } from '@/components/ui/PaginationControls'
+import { formatarLimite } from '@/lib/planos/reformaTributariaPlanos'
+
+type RtAssinaturaInfo = {
+  produtoEscopo: 'full_platform' | 'tax_reform_only'
+  cnpjSlotsUsados: number
+  limiteCnpj: number | null
+}
 
 type Socio = {
   nome: string
@@ -80,7 +87,18 @@ export default function EmpresasPage() {
   const [carregandoQsa, setCarregandoQsa] = useState(false)
   const [pagina, setPagina] = useState(1)
   const [linhasPorPagina, setLinhasPorPagina] = useState(50)
+  const [rtInfo, setRtInfo] = useState<RtAssinaturaInfo | null>(null)
+  const [confirmacaoVaga, setConfirmacaoVaga] = useState(false)
   const { empresaAtiva, definirEmpresaAtiva } = useEmpresaAtiva()
+
+  useEffect(() => {
+    fetch('/api/rt/assinatura').then(r => r.json()).then(d => {
+      if (d?.produtoEscopo) setRtInfo(d)
+    }).catch(() => null)
+  }, [])
+
+  const restritoRt = rtInfo?.produtoEscopo === 'tax_reform_only'
+  const limiteAtingido = restritoRt && rtInfo!.limiteCnpj !== null && rtInfo!.cnpjSlotsUsados >= rtInfo!.limiteCnpj
 
   async function fetchQsa(cnpj: string) {
     const cnpjLimpo = cnpj.replace(/\D/g, '')
@@ -119,6 +137,7 @@ export default function EmpresasPage() {
     setErroSalvar(null)
     setQsaData(null)
     setMostrarQsa(false)
+    setConfirmacaoVaga(false)
     setModal(true)
   }
 
@@ -244,13 +263,16 @@ export default function EmpresasPage() {
       const res = await fetch('/api/empresas', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, ...(restritoRt ? { confirmacaoVagaPermanente: confirmacaoVaga } : {}) }),
       })
       if (!res.ok) {
         const json = await res.json().catch(() => ({}))
         setErroSalvar(json.error ?? `Erro ao salvar (${res.status})`)
         setSalvando(false)
         return
+      }
+      if (restritoRt) {
+        fetch('/api/rt/assinatura').then(r => r.json()).then(d => { if (d?.produtoEscopo) setRtInfo(d) }).catch(() => null)
       }
     }
 
@@ -341,14 +363,45 @@ export default function EmpresasPage() {
         subtitle={empresaAtiva ? `Em análise: ${empresaAtiva.razao_social}` : 'Cadastro e gerenciamento das empresas clientes.'}
         actions={
           <button
-            style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--af-primary)', border: 'none', borderRadius: 8, color: '#fff', fontSize: 13, fontWeight: 700, padding: '9px 16px', cursor: 'pointer' }}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              background: limiteAtingido ? 'var(--af-border)' : 'var(--af-primary)',
+              border: 'none', borderRadius: 8, color: limiteAtingido ? 'var(--af-muted)' : '#fff',
+              fontSize: 13, fontWeight: 700, padding: '9px 16px',
+              cursor: limiteAtingido ? 'not-allowed' : 'pointer',
+            }}
             onClick={abrirNovo}
+            disabled={limiteAtingido}
+            title={limiteAtingido ? 'Limite de CNPJs do plano atingido' : undefined}
           >
             <Plus size={15} />
             Nova empresa
           </button>
         }
       />
+
+      {restritoRt && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10,
+          background: limiteAtingido ? 'rgba(239,68,68,0.06)' : 'var(--af-primary-soft)',
+          border: `1px solid ${limiteAtingido ? 'rgba(239,68,68,0.25)' : 'rgba(39,199,216,0.2)'}`,
+          borderRadius: 10, padding: '10px 16px', marginBottom: 18, fontSize: 12.5,
+        }}>
+          <span style={{ color: limiteAtingido ? 'var(--af-danger)' : 'var(--af-text)', fontWeight: 600 }}>
+            {rtInfo!.limiteCnpj === null
+              ? formatarLimite(null, 'CNPJ')
+              : `${rtInfo!.cnpjSlotsUsados} de ${rtInfo!.limiteCnpj} CNPJ${rtInfo!.limiteCnpj === 1 ? '' : 's'} utilizado${rtInfo!.cnpjSlotsUsados === 1 ? '' : 's'}`}
+            {limiteAtingido && ' — você utilizou todas as vagas de CNPJ do seu plano.'}
+          </span>
+          {limiteAtingido && (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <a href="/assinatura" style={{ fontSize: 12, fontWeight: 700, color: 'var(--af-primary)', textDecoration: 'none' }}>Fazer upgrade</a>
+              <a href="/assinatura" style={{ fontSize: 12, fontWeight: 700, color: 'var(--af-muted)', textDecoration: 'none' }}>Ver meu plano</a>
+              <a href="mailto:suporte@enfokus.com.br" style={{ fontSize: 12, fontWeight: 700, color: 'var(--af-muted)', textDecoration: 'none' }}>Falar com o suporte</a>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Busca */}
       <div style={{
@@ -567,8 +620,9 @@ export default function EmpresasPage() {
               <label style={labelStyle}>CNPJ</label>
               <div style={{ display: 'flex', gap: 7, marginBottom: 4 }}>
                 <input
-                  style={{ ...inputStyle, marginBottom: 0, flex: 1 }}
+                  style={{ ...inputStyle, marginBottom: 0, flex: 1, opacity: (restritoRt && editandoId) ? 0.6 : 1 }}
                   value={form.cnpj}
+                  disabled={restritoRt && Boolean(editandoId)}
                   onChange={e => { setForm(f => ({ ...f, cnpj: e.target.value })); setErroCnpj(null) }}
                   placeholder="00.000.000/0000-00"
                 />
@@ -599,6 +653,18 @@ export default function EmpresasPage() {
                   color: 'var(--af-danger)', fontSize: 12,
                 }}>
                   <AlertCircle size={12} />{erroCnpj}
+                </div>
+              )}
+
+              {restritoRt && editandoId && (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12,
+                  padding: '7px 10px', background: 'rgba(148,163,184,0.06)',
+                  border: '1px solid var(--af-border)', borderRadius: 7,
+                  color: 'var(--af-muted)', fontSize: 11.5,
+                }}>
+                  <Lock size={12} />
+                  CNPJ vinculado permanentemente ao plano. Para corrigir, fale com o suporte.
                 </div>
               )}
 
@@ -851,6 +917,28 @@ export default function EmpresasPage() {
                 </div>
               )}
 
+              {restritoRt && !editandoId && (
+                <div style={{
+                  background: 'rgba(250,204,21,0.06)', border: '1px solid rgba(250,204,21,0.25)',
+                  borderRadius: 8, padding: '11px 12px', margin: '4px 0 12px',
+                }}>
+                  <p style={{ margin: '0 0 8px', fontSize: 11.5, color: 'var(--af-text)', lineHeight: 1.5 }}>
+                    Após a confirmação, este CNPJ ficará vinculado permanentemente a uma das vagas do seu plano e não
+                    poderá ser substituído por outro CNPJ.
+                  </p>
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12, color: 'var(--af-text)', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={confirmacaoVaga}
+                      onChange={e => setConfirmacaoVaga(e.target.checked)}
+                      style={{ marginTop: 2 }}
+                    />
+                    Confirmo que o CNPJ informado está correto e entendo que ele ocupará permanentemente uma vaga do
+                    meu plano.
+                  </label>
+                </div>
+              )}
+
               <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
                 <button type="button" style={{
                   flex: 1, background: 'transparent', border: '1px solid rgba(200,220,240,0.18)',
@@ -861,8 +949,9 @@ export default function EmpresasPage() {
                 <button type="submit" style={{
                   flex: 2, background: 'var(--af-primary)', border: 'none', borderRadius: 8,
                   color: '#050d17', fontSize: 13, fontWeight: 700, padding: '10px',
-                  cursor: salvando ? 'not-allowed' : 'pointer', opacity: salvando ? 0.7 : 1,
-                }} disabled={salvando}>
+                  cursor: (salvando || (restritoRt && !editandoId && !confirmacaoVaga)) ? 'not-allowed' : 'pointer',
+                  opacity: (salvando || (restritoRt && !editandoId && !confirmacaoVaga)) ? 0.6 : 1,
+                }} disabled={salvando || (restritoRt && !editandoId && !confirmacaoVaga)}>
                   {salvando ? 'Salvando...' : editandoId ? 'Atualizar empresa' : 'Salvar empresa'}
                 </button>
               </div>

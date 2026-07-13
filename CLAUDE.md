@@ -18,21 +18,29 @@ npx tsc --noEmit # verificar erros de TypeScript sem compilar
 ## Estrutura do projeto
 
 - `app/(fiscal)/` — todas as páginas autenticadas do sistema
-- `app/cadastro/` — cadastro de novo usuário (público)
-- `app/aguardando-ativacao/` — tela de assinatura/ativação de plano (público)
+- `app/(fiscal)/(full-platform)/` — subgrupo de rotas que só orgs `produto_escopo='full_platform'` podem acessar (auditor_fiscal, editor_sped, validador_entradas, simples_nacional, inconsistencias, planejamento, obrigacoes, cobrancas, leads-reforma-tributaria, admin-reforma-tributaria); grupo de rotas do Next.js — não altera a URL, só agrupa o gate de acesso em `layout.tsx`
+- `app/cadastro/` — cadastro de novo usuário (público); aceita `?produto=reforma_tributaria&plano=<codigo>` para o funil de planos pagos
+- `app/aguardando-ativacao/` — tela de assinatura/ativação de plano (público); dinâmica conforme `?produto=`
 - `app/configuracoes/novo-escritorio/` — onboarding: criar org ou aceitar convite (público)
+- `app/planos-reforma-tributaria/` — página pública de preços dos planos de Reforma Tributária
 - `app/api/` — rotas de API que se comunicam com o banco Supabase
+- `app/api/rt/` — assinatura, uso e upgrade do produto Reforma Tributária (org autenticada)
+- `app/api/admin/rt/` — área administrativa de assinaturas/CNPJ (staff Enfokus, allowlist `LEADS_ADMIN_EMAILS`)
 - `lib/supabase/` — clientes Supabase: `client.ts` (browser), `server.ts` (SSR), `admin.ts` (service-role), `org.ts` (helper), `fetchAll.ts` (paginação completa)
+- `lib/planos/` — camada de planos pagos de Reforma Tributária: `reformaTributariaPlanos.ts` (catálogo central de preços/limites), `acessoReformaTributaria.ts` (`getContextoAcesso`, `canAccessModule`, `canCreateCompany`, `canProcessXml`, `canGenerateReport` — único ponto de verdade de permissão), `auditoria.ts` (`registrarEventoRt`), `quotaXml.ts` (serviço centralizado de quota de XMLs: `reservarQuotaXml`/`liberarQuotaXml`/`reconciliarUsoXml`, reserva atômica via RPC — único ponto de verdade sobre saldo de XMLs; nunca reimplementar a checagem localmente)
 - `lib/rules/` — motor de regras fiscais: `engine.ts`, `types.ts`, `executores/` (icms, cfop, pis_cofins, ncm)
-- `lib/fiscal/` — biblioteca compartilhada de classificação fiscal: `classificacao.ts` (NCM_UC/IMOB/COMB, famCFOP, analisarProduto, validarItemSped)
+- `lib/fiscal/` — biblioteca compartilhada de classificação fiscal: `classificacao.ts` (NCM_UC/IMOB/COMB, famCFOP, analisarProduto, validarItemSped); `parametrosReforma2026.ts` (parâmetros de referência versionados de IBS/CBS do período de teste); `analiseReformaTributaria.ts` (motor único de IBS/CBS — adequado/atenção/crítico —, usado pelo diagnóstico público e pela área autenticada); `resumoReformaTributaria.ts` (agregação de situação a partir de itens brutos)
 - `lib/sped/` — tipos e parsers do SPED: `types.ts`, `parsers.ts`, `validators.ts`
 - `lib/simples/` — lógica do Simples Nacional: `calcularSimples.ts`, `cfopReceita.ts`, `tabelasAnexos.ts`
-- `lib/nfe/` — parsing de XML de NF-e
+- `lib/nfe/` — parsing de XML de NF-e (`parseNfeParaDocumento`, reaproveitado pelo importador de Reforma Tributária)
 - `lib/types.ts` — tipos TypeScript compartilhados
+- `components/reforma/ImportadorXmlReforma.tsx` — upload de XML reaproveitado pela página `/reforma_tributaria` (grava em `fa_documentos_fiscais`/`fa_documentos_itens` via `/api/documentos-fiscais/importar-nfe`)
 - `middleware.ts` — guarda de autenticação (protege todas as rotas exceto `/login`, `/cadastro`, `/auth`, `/api/stripe/webhook`)
 - `supabase_setup.sql` — DDL completo do banco de dados
 - `supabase_migration_fase_a.sql` — migração idempotente: coluna `competencia` em `fa_arquivos_xml` + tabelas `fa_documentos_fiscais`, `fa_documentos_itens`, `sn_receitas_mensais`, `sn_apuracoes`, `sn_apuracoes_receitas`
 - `supabase_migration_cnpj_cache.sql` — migração idempotente: tabela `cnpj_cache` (cache de consultas CNPJ)
+- `supabase_migration_reforma_tributaria_planos.sql` — migração idempotente: coluna `produto_escopo` em `organizacoes` + tabelas `rt_assinaturas`, `rt_cnpj_slots`, `rt_correcoes_cnpj`, `rt_uso_mensal`, `rt_documentos_processados`, `rt_auditoria`, `rt_webhook_eventos`
+- `supabase_migration_rt_quota_atomica.sql` — migração idempotente: funções `rt_reservar_quota_xml`/`rt_liberar_quota_xml`/`rt_reconciliar_uso_xml` (reserva de quota de XML atômica via advisory lock, chamáveis só por service role) + tabela `rt_reconciliacoes_uso`
 - `components/SessionGuard.tsx` — guard client-side de sessão de browser
 - `components/ModalCnpj.tsx` — modal de resultado de consulta CNPJ (6 seções + botão cadastrar empresa)
 - `components/ui/` — componentes visuais compartilhados: `PageHeader`, `GlassCard`, `MetricCard`, `EmptyState`
@@ -46,9 +54,17 @@ NEXT_PUBLIC_SUPABASE_URL=...
 NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 SUPABASE_SERVICE_ROLE_KEY=...      # cliente admin (bypassa RLS)
 STRIPE_SECRET_KEY=...              # chave Stripe (sk_live_ ou sk_test_)
-STRIPE_PRICE_ID=...                # ID do produto no Stripe
+STRIPE_PRICE_ID=...                # ID do produto Founder Access no Stripe
 STRIPE_WEBHOOK_SECRET=...          # segredo do webhook Stripe
 NEXT_PUBLIC_APP_URL=...            # URL pública (sem trailing slash)
+
+# Planos pagos de Reforma Tributária (produto tax_reform_only) — opcionais;
+# sem eles o checkout desses planos retorna erro amigável, mas a ativação
+# manual pelo admin continua funcionando.
+STRIPE_PRICE_ID_RT_ESSENCIAL=...
+STRIPE_PRICE_ID_RT_PROFISSIONAL=...
+STRIPE_PRICE_ID_RT_ILIMITADO=...
+LEADS_ADMIN_EMAILS=...             # allowlist (CSV) de /leads-reforma-tributaria e /admin-reforma-tributaria
 ```
 
 ## Padrões de código
@@ -108,9 +124,18 @@ O arquivo `supabase_setup.sql` contém o DDL completo. Para aplicar em um novo p
 3. Colar e executar o conteúdo de `supabase_setup.sql`
 
 Tabelas SaaS:
-- `organizacoes` — escritórios; `plano` = `'pendente'` | `'founder_access'`
+- `organizacoes` — escritórios; `plano` = `'pendente'` | `'founder_access'`; `produto_escopo` = `'full_platform'` | `'tax_reform_only'` (coluna adicionada via `supabase_migration_reforma_tributaria_planos.sql`, default `'full_platform'` — não afeta orgs existentes)
 - `membros_organizacao` — vínculo usuário × org; `papel` = `'admin'` | `'membro'`
 - `convites_organizacao` — convites por e-mail para orgs existentes
+
+Tabelas de planos pagos de Reforma Tributária (criadas via `supabase_migration_reforma_tributaria_planos.sql`, todas com RLS habilitado — só `select` liberado ao papel `authenticated` via `is_member_of(org_id)`; toda escrita passa por `createAdminClient()` nas API routes):
+- `rt_assinaturas` — 1 por org (`unique(org_id)`); `status` = `pending|active|past_due|canceled|expired|suspended|manual`; guarda `stripe_customer_id`/`stripe_subscription_id` e as datas de ciclo
+- `rt_cnpj_slots` — vaga permanente de CNPJ por assinatura; `unique(empresa_id)` e `unique(org_id, cnpj_normalizado)`; nunca é removida ao arquivar/excluir empresa — é isso que impede a substituição de CNPJ
+- `rt_correcoes_cnpj` — trilha de auditoria da correção administrativa de CNPJ (exclusiva do admin, via `/api/admin/rt/cnpj-correcao`)
+- `rt_uso_mensal` — contador de XMLs processados por ciclo (`assinatura_id` + `periodo_inicio`)
+- `rt_documentos_processados` — chaves de acesso já contabilizadas no ciclo (evita contar 2x um reprocessamento; `unique(assinatura_id, chave_acesso)`)
+- `rt_auditoria` — log de eventos comerciais (criação/ativação/cancelamento de assinatura, CNPJ vinculado/corrigido, limite atingido) — nunca grava XML ou dado fiscal
+- `rt_webhook_eventos` — idempotência dos eventos do Stripe (`id` = `event.id`), sem policy de RLS (só service role)
 
 Tabelas fiscais (todas com `org_id`):
 - `empresas` — cadastro das empresas clientes
@@ -181,3 +206,6 @@ useEffect(() => {
 - Não inserir registros sem `org_id` em tabelas de dados fiscais
 - Não usar `createAdminClient()` em Client Components nem expô-lo ao browser
 - Não usar chave `sk_live_` do Stripe com cartões de teste — usar `sk_test_` para desenvolvimento local
+- Não checar plano/permissão de Reforma Tributária "na mão" em uma página nova — sempre usar `getContextoAcesso`/`canAccessModule`/`canCreateCompany`/`canProcessXml`/`canGenerateReport` de `lib/planos/acessoReformaTributaria.ts`
+- Não liberar vaga de CNPJ ao arquivar ou excluir empresa — a regra de negócio é que `rt_cnpj_slots` nunca é removida por ação do cliente
+- Não adicionar módulo novo à plataforma completa sem colocar a pasta dentro de `app/(fiscal)/(full-platform)/` — é o único gate central para orgs `tax_reform_only`

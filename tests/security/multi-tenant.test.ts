@@ -14,6 +14,11 @@
  *     MEMBRO_A_ID=...          # UUID do registro de membro do membro_a (em membros_organizacao)
  *     MEMBRO_B_ID=...          # UUID do registro de membro do membro_b
  *
+ *   Para o GRUPO 6 (planos pagos de Reforma Tributária), adicionar também:
+ *     TOKEN_TAX_REFORM=...     # JWT de um usuário admin de uma org com produto_escopo='tax_reform_only'
+ *                              # e assinatura ativa (status='manual' ou 'active')
+ *     EMPRESA_TAX_REFORM_ID=...# UUID de uma empresa já vinculada a uma vaga (rt_cnpj_slots) dessa org
+ *
  * EXECUÇÃO (após configurar):
  *   npx vitest tests/security/multi-tenant.test.ts
  *   ou: npx jest tests/security/multi-tenant.test.ts
@@ -32,6 +37,8 @@ const MEMBRO_A   = process.env.MEMBRO_A_ID   ?? ''
 const TOKEN_ADMIN_A  = process.env.TOKEN_ADMIN_A  ?? ''
 const TOKEN_MEMBRO_A = process.env.TOKEN_MEMBRO_A ?? ''
 const TOKEN_ADMIN_B  = process.env.TOKEN_ADMIN_B  ?? ''
+const TOKEN_TAX_REFORM   = process.env.TOKEN_TAX_REFORM ?? ''
+const EMPRESA_TAX_REFORM = process.env.EMPRESA_TAX_REFORM_ID ?? ''
 
 /** Realiza uma chamada à API Next.js com o token fornecido. */
 async function api(
@@ -271,6 +278,63 @@ describe('Fluxos legítimos preservados', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
+// GRUPO 6: Planos pagos de Reforma Tributária (produto_escopo='tax_reform_only')
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Bloqueio de módulo — organização restrita à Reforma Tributária', () => {
+  test('Org tax_reform_only recebe 403 em API exclusiva da plataforma completa', async () => {
+    const rotas = [
+      '/api/simples_nacional',
+      '/api/arquivos-sped',
+      '/api/planejamento-tributario/simular',
+      '/api/alertas',
+      '/api/sessoes',
+      '/api/cobrancas',
+    ]
+    for (const rota of rotas) {
+      const { status } = await api('GET', rota, TOKEN_TAX_REFORM)
+      expect(status).toBe(403)
+    }
+  })
+
+  test('Org tax_reform_only continua acessando os módulos permitidos', async () => {
+    const permitidas = ['/api/empresas', '/api/organizacoes', '/api/rt/assinatura', '/api/rt/uso']
+    for (const rota of permitidas) {
+      const { status } = await api('GET', rota, TOKEN_TAX_REFORM)
+      expect(status).toBe(200)
+    }
+  })
+
+  test('Cadastro de segundo CNPJ é bloqueado quando o limite do plano é atingido', async () => {
+    const { status, json } = await api('POST', '/api/empresas', TOKEN_TAX_REFORM, {
+      razao_social: 'Empresa de teste — segundo CNPJ',
+      cnpj: '11222333000181',
+      confirmacaoVagaPermanente: true,
+    })
+    // 403 com LIMITE_CNPJ_ATINGIDO se o plano de teste já estiver na vaga máxima;
+    // 201 é aceitável apenas se a org de teste ainda tiver vaga livre.
+    expect([201, 403]).toContain(status)
+    if (status === 403) expect((json as { codigo?: string }).codigo).toBe('LIMITE_CNPJ_ATINGIDO')
+  })
+
+  test('Alterar o CNPJ de uma empresa já vinculada a uma vaga é bloqueado', async () => {
+    if (!EMPRESA_TAX_REFORM) return
+    const { status } = await api('PUT', `/api/empresas/${EMPRESA_TAX_REFORM}`, TOKEN_TAX_REFORM, {
+      razao_social: 'Empresa de teste',
+      cnpj: '00000000000191',
+    })
+    expect(status).toBe(403)
+  })
+
+  test('Correção de CNPJ exige allowlist de admin — usuário comum recebe 403', async () => {
+    const { status } = await api('POST', '/api/admin/rt/cnpj-correcao', TOKEN_TAX_REFORM, {
+      slotId: 'id-qualquer', cnpjNovo: '11222333000181', justificativa: 'teste',
+    })
+    expect(status).toBe(403)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
 // TESTES MANUAIS (via Supabase REST direto — não automatizáveis aqui)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -311,4 +375,18 @@ describe('Fluxos legítimos preservados', () => {
  *   NOTA: Este caso ainda não é bloqueado em nível de RLS — apenas pela API Next.js.
  *   Para bloquear 100% no banco, seria necessário um trigger de validação de FK cross-org.
  *   A camada API foi corrigida e é a principal barreira.
+ *
+ * T-M-06: SELECT direto em rt_cnpj_slots/rt_assinaturas via anon key + JWT de Admin A com org_id de Org B
+ *
+ * URL: GET https://<SUPABASE_URL>/rest/v1/rt_cnpj_slots?org_id=eq.<ORG_B_ID>
+ * URL: GET https://<SUPABASE_URL>/rest/v1/rt_assinaturas?org_id=eq.<ORG_B_ID>
+ * Headers: apikey: <ANON_KEY>, Authorization: Bearer <TOKEN_ADMIN_A>
+ * Esperado: array vazio (RLS is_member_of bloqueia — Admin A não é membro de Org B)
+ *
+ * T-M-07: INSERT/UPDATE direto em rt_assinaturas ou rt_cnpj_slots via anon key + JWT
+ *
+ * URL: POST/PATCH https://<SUPABASE_URL>/rest/v1/rt_assinaturas
+ * Headers: apikey: <ANON_KEY>, Authorization: Bearer <TOKEN_TAX_REFORM>
+ * Body: { status: "active" } (tentando se auto-ativar sem pagamento)
+ * Esperado: 403 (sem policy de insert/update para authenticated — só service_role escreve)
  */

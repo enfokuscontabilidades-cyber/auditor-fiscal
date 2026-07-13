@@ -4,8 +4,126 @@ export interface Organizacao {
   id: string
   nome: string
   plano: 'pendente' | 'founder_access' | 'pro' | 'enterprise'
+  produto_escopo: 'full_platform' | 'tax_reform_only'
   created_at: string
   updated_at: string
+}
+
+export type PlanoReformaTributariaCodigo = 'rt_essencial' | 'rt_profissional' | 'rt_ilimitado'
+
+export type StatusAssinaturaRt =
+  | 'pending' | 'active' | 'past_due' | 'canceled' | 'expired' | 'suspended' | 'manual'
+
+export interface AssinaturaRt {
+  id: string
+  org_id: string
+  plano_codigo: PlanoReformaTributariaCodigo
+  preco_contratado_centavos: number
+  status: StatusAssinaturaRt
+  periodo_inicio: string | null
+  ciclo_inicio: string | null
+  ciclo_fim: string | null
+  proxima_renovacao: string | null
+  cancelamento_solicitado: boolean
+  acesso_ate: string | null
+  stripe_customer_id: string | null
+  stripe_subscription_id: string | null
+  criado_em: string
+  atualizado_em: string
+}
+
+export interface RtCnpjSlot {
+  id: string
+  assinatura_id: string
+  org_id: string
+  empresa_id: string
+  cnpj_normalizado: string
+  vinculado_em: string
+  vinculado_por: string | null
+  status: 'ativo' | 'corrigido'
+}
+
+export interface RtUsoMensal {
+  id: string
+  assinatura_id: string
+  org_id: string
+  periodo_inicio: string
+  periodo_fim: string
+  xmls_processados: number
+  atualizado_em: string
+}
+
+// ---------------------------------------------------------------
+// Relatório do contador para o cliente (segunda modalidade de PDF)
+// ---------------------------------------------------------------
+
+export type ReportAudience = 'company' | 'accountant_client'
+
+/** Como os parâmetros tributários de referência devem ser aplicados na análise. */
+export type ModoParametrosReforma = 'padrao_2026' | 'especifico' | 'estrutural'
+
+/** Identidade institucional do escritório contábil (workspace) — usada só na versão do contador. */
+export interface EscritorioContabilPerfil {
+  id: string
+  org_id: string
+  nome: string
+  razao_social: string | null
+  cnpj: string | null
+  logo_path: string | null
+  logo_atualizado_em: string | null
+  telefone: string | null
+  whatsapp: string | null
+  email: string | null
+  site: string | null
+  cidade: string | null
+  estado: string | null
+  contador_responsavel: string | null
+  crc: string | null
+  cor_principal: string | null
+  criado_em: string
+  atualizado_em: string
+}
+
+/** Parâmetros tributários específicos de um cliente, versionados — só a linha `ativo=true` é a referência vigente. */
+export interface RtParametrosCliente {
+  id: string
+  org_id: string
+  empresa_id: string
+  versao: number
+  aliquota_cbs: number
+  aliquota_ibs_total: number
+  aliquota_ibs_uf: number | null
+  aliquota_ibs_mun: number | null
+  cst: string
+  cclass_trib: string
+  observacao: string | null
+  vigencia_inicio: string
+  vigencia_fim: string | null
+  ativo: boolean
+  criado_por: string | null
+  criado_por_email: string | null
+  criado_em: string
+}
+
+/** Trilha de auditoria de cada PDF de Reforma Tributária gerado. */
+export interface RtRelatorioGerado {
+  id: string
+  org_id: string
+  empresa_id: string
+  tipo_relatorio: ReportAudience
+  gerado_por: string | null
+  escritorio_nome_snapshot: string | null
+  escritorio_logo_path_snapshot: string | null
+  escritorio_cor_snapshot: string | null
+  modo_parametros: ModoParametrosReforma
+  parametros_utilizados: unknown
+  observacao: string | null
+  versao_parametros: string
+  total_documentos: number
+  total_itens: number
+  hash_arquivo: string
+  competencia: string | null
+  criado_em: string
 }
 
 export interface MembroOrganizacao {

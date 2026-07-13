@@ -179,14 +179,14 @@ export default function FormularioDiagnostico({ onSucesso }: Props) {
           </Campo>
           <Campo id="regime" label="Regime tributário *" erro={erros.regime}>
             <select id="regime" style={inputEstilo(!!erros.regime)} value={campos.regime} onChange={e => atualizar('regime', e.target.value)}>
-              <option value="">Selecione</option>
-              {REGIMES.map(r => <option key={r} value={r}>{r}</option>)}
+              <option value="" style={optionEstilo}>Selecione</option>
+              {REGIMES.map(r => <option key={r} value={r} style={optionEstilo}>{r}</option>)}
             </select>
           </Campo>
           <Campo id="estado" label="Estado *" erro={erros.estado}>
             <select id="estado" style={inputEstilo(!!erros.estado)} value={campos.estado} onChange={e => atualizar('estado', e.target.value)}>
-              <option value="">Selecione</option>
-              {UFS.map(uf => <option key={uf} value={uf}>{uf}</option>)}
+              <option value="" style={optionEstilo}>Selecione</option>
+              {UFS.map(uf => <option key={uf} value={uf} style={optionEstilo}>{uf}</option>)}
             </select>
           </Campo>
           <Campo id="cidade" label="Cidade *" erro={erros.cidade}>
@@ -253,6 +253,11 @@ const consentLabel: React.CSSProperties = {
   lineHeight: 1.5,
   color: cor.textoSuave,
   cursor: 'pointer',
+}
+
+const optionEstilo: React.CSSProperties = {
+  background: '#ffffff',
+  color: '#0f172a',
 }
 
 const erroTexto: React.CSSProperties = {

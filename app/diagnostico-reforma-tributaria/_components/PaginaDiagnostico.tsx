@@ -12,6 +12,7 @@ import AreaUpload from './AreaUpload'
 import PainelProcessamento from './PainelProcessamento'
 import PainelResultado, { type ResultadoArquivo, type ResumoAnalise } from './PainelResultado'
 import ChamadaComercial from './ChamadaComercial'
+import CtaPlanosPagos from './CtaPlanosPagos'
 import RodapePublico from './RodapePublico'
 import { cor, cardBase, container } from './tokens'
 
@@ -121,6 +122,7 @@ export default function PaginaDiagnostico() {
         {etapa === 'resultado' && (
           <>
             <PainelResultado resultados={resultados} resumo={resumo} codigoDiagnostico={codigoDiagnostico} relatorioToken={relatorioToken} onNovaAnalise={handleNovaAnalise} />
+            <CtaPlanosPagos codigoDiagnostico={codigoDiagnostico} />
             <ChamadaComercial codigoDiagnostico={codigoDiagnostico} />
           </>
         )}

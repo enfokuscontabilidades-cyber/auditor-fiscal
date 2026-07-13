@@ -15,29 +15,42 @@ import {
   FilePen,
   Scale,
   Users,
+  CreditCard,
+  Lock,
+  ShieldCheck,
 } from 'lucide-react'
+import type { ModuloFiscal } from '@/lib/planos/acessoReformaTributaria'
 
 type OrgInfo = { id: string; nome: string; plano: string }
 
-const LINKS = [
-  { href: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/empresas', label: 'Empresas', icon: Building2 },
-  { href: '/auditor_fiscal', label: 'Auditor SPED', icon: FileSearch },
-  { href: '/editor_sped', label: 'Editor SPED', icon: FilePen },
-  { href: '/validador_entradas', label: 'Validador NF-e', icon: FileText },
-  { href: '/simples_nacional', label: 'Simples Nacional', icon: Receipt },
-  { href: '/inconsistencias', label: 'Relatórios', icon: BarChart3 },
-  { href: '/reforma_tributaria', label: 'Reforma Tributária', icon: Scale },
-  { href: '/planejamento', label: 'Planejamento Tributário', icon: Calculator },
-  { href: '/obrigacoes', label: 'Obrigações', icon: ClipboardList },
+const LINKS: { href: string; label: string; icon: typeof LayoutDashboard; modulo: ModuloFiscal }[] = [
+  { href: '/', label: 'Dashboard', icon: LayoutDashboard, modulo: 'dashboard' },
+  { href: '/empresas', label: 'Empresas', icon: Building2, modulo: 'empresas' },
+  { href: '/auditor_fiscal', label: 'Auditor SPED', icon: FileSearch, modulo: 'auditor_fiscal' },
+  { href: '/editor_sped', label: 'Editor SPED', icon: FilePen, modulo: 'editor_sped' },
+  { href: '/validador_entradas', label: 'Validador NF-e', icon: FileText, modulo: 'validador_entradas' },
+  { href: '/simples_nacional', label: 'Simples Nacional', icon: Receipt, modulo: 'simples_nacional' },
+  { href: '/inconsistencias', label: 'Relatórios', icon: BarChart3, modulo: 'inconsistencias' },
+  { href: '/reforma_tributaria', label: 'Reforma Tributária', icon: Scale, modulo: 'reforma_tributaria' },
+  { href: '/planejamento', label: 'Planejamento Tributário', icon: Calculator, modulo: 'planejamento' },
+  { href: '/obrigacoes', label: 'Obrigações', icon: ClipboardList, modulo: 'obrigacoes' },
+  { href: '/assinatura', label: 'Assinatura', icon: CreditCard, modulo: 'assinatura' },
 ]
 
-const LINK_LEADS_ADMIN = { href: '/leads-reforma-tributaria', label: 'Leads Reforma', icon: Users }
+const LINK_LEADS_ADMIN = { href: '/leads-reforma-tributaria', label: 'Leads Reforma', icon: Users, modulo: 'leads_reforma_tributaria' as ModuloFiscal }
+const LINK_ADMIN_RT = { href: '/admin-reforma-tributaria', label: 'Assinaturas RT (admin)', icon: ShieldCheck, modulo: 'leads_reforma_tributaria' as ModuloFiscal }
 
-export default function SidebarFiscal() {
+const FERRAMENTAS_BLOQUEADAS = [
+  { label: 'Auditor SPED Fiscal', icon: FileSearch },
+  { label: 'Simples Nacional (PGDAS-D)', icon: Receipt },
+  { label: 'Planejamento Tributário', icon: Calculator },
+]
+
+export default function SidebarFiscal({ allowedModules }: { allowedModules: ModuloFiscal[] | null }) {
   const pathname = usePathname()
   const [org, setOrg] = useState<OrgInfo | null>(null)
   const [acessoLeadsAdmin, setAcessoLeadsAdmin] = useState(false)
+  const restrito = allowedModules !== null
 
   useEffect(() => {
     fetch('/api/organizacoes')
@@ -45,13 +58,16 @@ export default function SidebarFiscal() {
       .then((d: unknown) => { if (d && typeof d === 'object') setOrg(d as OrgInfo) })
       .catch(() => null)
 
+    if (restrito) return // módulo de leads nunca aparece para acesso restrito
+
     fetch('/api/leads-reforma-tributaria/acesso')
       .then(r => r.json())
       .then((d: { permitido?: boolean }) => setAcessoLeadsAdmin(Boolean(d.permitido)))
       .catch(() => null)
-  }, [])
+  }, [restrito])
 
-  const links = acessoLeadsAdmin ? [...LINKS, LINK_LEADS_ADMIN] : LINKS
+  const todosLinks = acessoLeadsAdmin ? [...LINKS, LINK_LEADS_ADMIN, LINK_ADMIN_RT] : LINKS
+  const links = allowedModules ? todosLinks.filter(l => allowedModules.includes(l.modulo)) : todosLinks
 
   function navLinkStyle(active: boolean): React.CSSProperties {
     return {
@@ -87,7 +103,9 @@ export default function SidebarFiscal() {
           <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--af-surface-2)', letterSpacing: '-0.01em' }}>
             {org?.nome ?? 'Auditor Fiscal'}
           </div>
-          <div style={{ fontSize: 11, color: 'rgba(203,213,225,0.64)', marginTop: 2 }}>Análise fiscal e tributária</div>
+          <div style={{ fontSize: 11, color: 'rgba(203,213,225,0.64)', marginTop: 2 }}>
+            {restrito ? 'Reforma Tributária' : 'Análise fiscal e tributária'}
+          </div>
         </div>
       </div>
 
@@ -103,6 +121,34 @@ export default function SidebarFiscal() {
             </Link>
           )
         })}
+
+        {restrito && (
+          <div style={{ margin: '18px 12px 0', paddingTop: 14, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+            <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'rgba(203,213,225,0.45)', marginBottom: 8 }}>
+              Conheça outras ferramentas
+            </div>
+            {FERRAMENTAS_BLOQUEADAS.map(({ label, icon: Icon }) => (
+              <div key={label} style={{
+                display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', marginBottom: 4,
+                borderRadius: 8, fontSize: 12, color: 'rgba(203,213,225,0.45)',
+              }}>
+                <Icon size={14} strokeWidth={2} />
+                <span style={{ flex: 1 }}>{label}</span>
+                <Lock size={12} />
+              </div>
+            ))}
+            <a
+              href="/landing"
+              style={{
+                display: 'block', textAlign: 'center', marginTop: 8, padding: '8px 10px',
+                borderRadius: 8, border: '1px solid rgba(39,199,216,0.3)', color: 'rgba(125,211,252,0.9)',
+                fontSize: 11.5, fontWeight: 700, textDecoration: 'none',
+              }}
+            >
+              Conhecer a plataforma completa
+            </a>
+          </div>
+        )}
       </div>
     </nav>
   )

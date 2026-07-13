@@ -1,6 +1,10 @@
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { getOrgId } from '@/lib/supabase/org'
 import { validarEmpresaDaOrg, respostaForbidden } from '@/lib/supabase/validation'
+import { getContextoAcesso, assinaturaEstaAtiva, getXmlUsageLimit, MENSAGENS_RT } from '@/lib/planos/acessoReformaTributaria'
+import { registrarEventoRt } from '@/lib/planos/auditoria'
+import { reservarQuotaXml, liberarQuotaXml, periodoInicioAtual, periodoFimDoInicio, chaveQuotaParaDocumento } from '@/lib/planos/quotaXml'
 import { NextResponse } from 'next/server'
 import type { DocumentoFiscalInput, DocumentoFiscalItemInput } from '@/lib/types'
 
@@ -47,6 +51,13 @@ export async function POST(request: Request) {
     return respostaForbidden('empresa_id')
   }
 
+  const ctx = await getContextoAcesso(supabase, orgId)
+  const restritoRt = ctx.produtoEscopo === 'tax_reform_only'
+
+  if (restritoRt && !assinaturaEstaAtiva(ctx)) {
+    return NextResponse.json({ error: MENSAGENS_RT.assinaturaInativa, codigo: 'ASSINATURA_INATIVA' }, { status: 403 })
+  }
+
   // Deduplica por chave_acesso para evitar "ON CONFLICT DO UPDATE command cannot affect
   // row a second time" quando o batch contém a mesma nota mais de uma vez
   const docsPorChave = new Map<string, Omit<DocumentoFiscalInput, 'empresa_id'>>()
@@ -55,10 +66,80 @@ export async function POST(request: Request) {
     const chave = doc.chave_acesso ?? doc.numero ?? `__idx_${i}`
     docsPorChave.set(chave, doc)
   }
-  const documentosDedupados = Array.from(docsPorChave.values())
+  let documentosDedupados = Array.from(docsPorChave.values())
 
   const erros: string[] = []
   const docsSalvos: DocRetornado[] = []
+
+  let periodoInicio = ''
+  let admin: ReturnType<typeof createAdminClient> | null = null
+  /** chave de quota (chave_acesso real ou sintética) reservada nesta chamada — usada para devolver quota se a gravação falhar. */
+  let chavesReservadas = new Set<string>()
+  /** doc -> chave de quota, na mesma ordem de documentosDedupados após os filtros abaixo. */
+  const quotaKeyPorDoc = new Map<Omit<DocumentoFiscalInput, 'empresa_id'>, string>()
+
+  if (restritoRt && ctx.assinatura) {
+    admin = createAdminClient()
+
+    // Validação server-side de posse do CNPJ: uma chamada direta à API não pode
+    // contabilizar (nem gravar) documentos de outra empresa só porque o front
+    // deixou de filtrar. O front já faz esse filtro, mas aqui é a barreira real.
+    const { data: empresaRow } = await admin.from('empresas').select('cnpj').eq('id', empresa_id).single()
+    const cnpjEmpresa = (empresaRow?.cnpj ?? '').replace(/\D/g, '')
+    if (cnpjEmpresa) {
+      const antes = documentosDedupados.length
+      documentosDedupados = documentosDedupados.filter(doc => {
+        const emit = (doc.emitente_cnpj ?? '').replace(/\D/g, '')
+        const dest = (doc.destinatario_cnpj ?? '').replace(/\D/g, '')
+        return emit === cnpjEmpresa || dest === cnpjEmpresa
+      })
+      const removidos = antes - documentosDedupados.length
+      if (removidos > 0) {
+        erros.push(`${removidos} documento(s) não pertencem à empresa selecionada e não foram processados.`)
+      }
+    }
+
+    periodoInicio = periodoInicioAtual(ctx.assinatura.ciclo_inicio)
+    const periodoFim = periodoFimDoInicio(periodoInicio)
+    const limite = getXmlUsageLimit(ctx)
+
+    documentosDedupados.forEach((doc, idx) => quotaKeyPorDoc.set(doc, chaveQuotaParaDocumento(doc.chave_acesso ?? null, idx)))
+
+    const resultado = await reservarQuotaXml(admin, {
+      assinaturaId: ctx.assinatura.id,
+      orgId,
+      empresaId: empresa_id,
+      periodoInicio,
+      periodoFim,
+      limite,
+      chaves: Array.from(quotaKeyPorDoc.values()),
+    })
+
+    if (resultado.rejeitadas.length > 0) {
+      const dataRenovacao = ctx.assinatura.proxima_renovacao
+        ? new Date(ctx.assinatura.proxima_renovacao).toLocaleDateString('pt-BR')
+        : 'no próximo ciclo'
+      erros.push(
+        `Este lote contém ${resultado.elegiveis} XML(s) novo(s), mas seu plano possui apenas ${resultado.permitidas} análise(s) disponível(is) neste ciclo. ` +
+        `Nenhum dos ${resultado.rejeitadas.length} documento(s) excedente(s) foi processado. ${MENSAGENS_RT.limiteXmlAtingido(dataRenovacao)}`,
+      )
+      await registrarEventoRt(admin, {
+        orgId, assinaturaId: ctx.assinatura.id, tipo: 'limite_xml_atingido',
+        detalhes: { elegiveis: resultado.elegiveis, permitidas: resultado.permitidas, rejeitados: resultado.rejeitadas.length },
+        atorUserId: user.id,
+      })
+    }
+
+    chavesReservadas = new Set(resultado.reservadas)
+    const permitidasSet = new Set([...resultado.jaProcessadas, ...resultado.reservadas])
+    documentosDedupados = documentosDedupados.filter(doc => permitidasSet.has(quotaKeyPorDoc.get(doc)!))
+  }
+
+  if (documentosDedupados.length === 0) {
+    return NextResponse.json({ salvos: 0, duplicados: 0, erros }, { status: erros.length ? 207 : 201 })
+  }
+
+  const chavesQuotaParaLiberar: string[] = []
 
   for (const lote of chunk(documentosDedupados, DOC_BATCH)) {
     const docsComTenant = lote.map(doc => ({ ...doc, org_id: orgId, empresa_id }))
@@ -69,10 +150,18 @@ export async function POST(request: Request) {
 
     if (error) {
       erros.push(`Lote de documentos: ${error.message}`)
+      for (const doc of lote) {
+        const quotaKey = quotaKeyPorDoc.get(doc)
+        if (quotaKey && chavesReservadas.has(quotaKey)) chavesQuotaParaLiberar.push(quotaKey)
+      }
       continue
     }
 
     docsSalvos.push(...((data ?? []) as DocRetornado[]))
+  }
+
+  if (admin && ctx.assinatura && chavesQuotaParaLiberar.length > 0) {
+    await liberarQuotaXml(admin, { assinaturaId: ctx.assinatura.id, periodoInicio, chaves: chavesQuotaParaLiberar })
   }
 
   if (docsSalvos.length === 0) {

@@ -1,9 +1,11 @@
 'use client'
 
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
-import { Bell, BellRing, Users, UserPlus, Trash2, Crown, Building2, Volume2, VolumeX } from 'lucide-react'
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { Bell, BellRing, Users, UserPlus, Trash2, Crown, Building2, Volume2, VolumeX, FileBadge, Upload, ImageOff, Loader2 } from 'lucide-react'
 import PageHeader from '@/components/ui/PageHeader'
 import { useNotifications } from '@/components/notifications/NotificationProvider'
+import { redimensionarLogoParaPng } from '@/lib/imagem/redimensionarLogoCliente'
+import type { EscritorioContabilPerfil } from '@/lib/types'
 
 type Membro = {
   id: string
@@ -17,6 +19,37 @@ type Org = {
   id: string
   nome: string
   plano: string
+  papel?: 'admin' | 'membro'
+}
+
+type EscritorioForm = {
+  nome: string
+  razaoSocial: string
+  cnpj: string
+  telefone: string
+  whatsapp: string
+  email: string
+  site: string
+  cidade: string
+  estado: string
+  contadorResponsavel: string
+  crc: string
+  corPrincipal: string
+}
+
+const ESCRITORIO_FORM_VAZIO: EscritorioForm = {
+  nome: '', razaoSocial: '', cnpj: '', telefone: '', whatsapp: '', email: '', site: '',
+  cidade: '', estado: '', contadorResponsavel: '', crc: '', corPrincipal: '',
+}
+
+function perfilParaForm(p: EscritorioContabilPerfil | null): EscritorioForm {
+  if (!p) return ESCRITORIO_FORM_VAZIO
+  return {
+    nome: p.nome ?? '', razaoSocial: p.razao_social ?? '', cnpj: p.cnpj ?? '', telefone: p.telefone ?? '',
+    whatsapp: p.whatsapp ?? '', email: p.email ?? '', site: p.site ?? '', cidade: p.cidade ?? '',
+    estado: p.estado ?? '', contadorResponsavel: p.contador_responsavel ?? '', crc: p.crc ?? '',
+    corPrincipal: p.cor_principal ?? '',
+  }
 }
 
 export default function ConfiguracoesPage() {
@@ -27,6 +60,20 @@ export default function ConfiguracoesPage() {
   const [erro, setErro] = useState('')
   const [sucesso, setSucesso] = useState('')
   const [carregando, setCarregando] = useState(false)
+
+  const [escritorioForm, setEscritorioForm] = useState<EscritorioForm>(ESCRITORIO_FORM_VAZIO)
+  const [logoUrl, setLogoUrl] = useState<string | null>(null)
+  const [salvandoEscritorio, setSalvandoEscritorio] = useState(false)
+  const [enviandoLogo, setEnviandoLogo] = useState(false)
+  const [mensagemEscritorio, setMensagemEscritorio] = useState<{ tipo: 'erro' | 'sucesso'; texto: string } | null>(null)
+  const logoInputRef = useRef<HTMLInputElement>(null)
+
+  function carregarEscritorio() {
+    fetch('/api/rt/escritorio').then(r => r.json()).then(d => {
+      setEscritorioForm(perfilParaForm(d?.perfil ?? null))
+      setLogoUrl(d?.logoUrl ?? null)
+    }).catch(() => {})
+  }
 
   const cardStyle: CSSProperties = {
     background: 'var(--af-surface)',
@@ -49,7 +96,68 @@ export default function ConfiguracoesPage() {
   useEffect(() => {
     fetch('/api/organizacoes').then(r => r.json()).then(d => setOrg(d))
     fetch('/api/membros').then(r => r.json()).then(d => { if (Array.isArray(d)) setMembros(d) })
+    carregarEscritorio()
   }, [])
+
+  async function salvarEscritorio(e: React.FormEvent) {
+    e.preventDefault()
+    setMensagemEscritorio(null)
+    if (!escritorioForm.nome.trim()) {
+      setMensagemEscritorio({ tipo: 'erro', texto: 'O nome do escritório é obrigatório.' })
+      return
+    }
+    setSalvandoEscritorio(true)
+    try {
+      const res = await fetch('/api/rt/escritorio', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(escritorioForm),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setMensagemEscritorio({ tipo: 'erro', texto: body.error ?? 'Erro ao salvar os dados do escritório.' })
+        return
+      }
+      setMensagemEscritorio({ tipo: 'sucesso', texto: 'Dados do escritório salvos com sucesso.' })
+      carregarEscritorio()
+    } finally {
+      setSalvandoEscritorio(false)
+    }
+  }
+
+  async function enviarLogo(arquivo: File) {
+    setMensagemEscritorio(null)
+    setEnviandoLogo(true)
+    try {
+      const png = await redimensionarLogoParaPng(arquivo)
+      const form = new FormData()
+      form.append('logo', png, 'logo.png')
+      const res = await fetch('/api/rt/escritorio/logo', { method: 'POST', body: form })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setMensagemEscritorio({ tipo: 'erro', texto: body.error ?? 'Erro ao enviar a logo.' })
+        return
+      }
+      setLogoUrl(body.logoUrl ?? null)
+      setMensagemEscritorio({ tipo: 'sucesso', texto: 'Logo atualizada com sucesso.' })
+    } catch (e) {
+      setMensagemEscritorio({ tipo: 'erro', texto: e instanceof Error ? e.message : 'Erro ao processar a imagem.' })
+    } finally {
+      setEnviandoLogo(false)
+      if (logoInputRef.current) logoInputRef.current.value = ''
+    }
+  }
+
+  async function removerLogo() {
+    if (!confirm('Remover a logo do escritório? O relatório do contador passará a exibir apenas o nome do escritório.')) return
+    setEnviandoLogo(true)
+    try {
+      const res = await fetch('/api/rt/escritorio/logo', { method: 'DELETE' })
+      if (res.ok) setLogoUrl(null)
+    } finally {
+      setEnviandoLogo(false)
+    }
+  }
 
   async function adicionarMembro(e: React.FormEvent) {
     e.preventDefault()
@@ -253,6 +361,169 @@ export default function ConfiguracoesPage() {
         ) : (
           <div style={{ color: 'var(--af-muted)', fontSize: 13 }}>Carregando...</div>
         )}
+      </section>
+
+      {/* Dados do escritório para relatórios (versão do contador) */}
+      <section style={cardStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
+          <FileBadge size={18} style={{ color: 'rgba(39,199,216,0.8)' }} />
+          <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0, color: 'var(--af-text)' }}>Dados do escritório para relatórios</h2>
+        </div>
+        <p style={{ fontSize: 12.5, color: 'var(--af-muted)', margin: '0 0 20px', lineHeight: 1.5 }}>
+          Usados exclusivamente na versão do contador do relatório de IBS/CBS (não afeta a versão empresarial, que continua
+          com os dados da Enfokus). Nada aqui é preenchido automaticamente — cadastre apenas os dados do seu escritório.
+        </p>
+
+        {org && org.papel !== 'admin' && (
+          <div style={{ marginBottom: 16, fontSize: 12.5, color: 'var(--af-muted)' }}>
+            Somente administradores do escritório podem alterar esses dados. Você ainda pode gerar relatórios com a
+            identidade já cadastrada.
+          </div>
+        )}
+
+        {mensagemEscritorio && (
+          <div style={{
+            marginBottom: 16, padding: '9px 14px', borderRadius: 8, fontSize: 13,
+            background: mensagemEscritorio.tipo === 'erro' ? 'rgba(239,68,68,0.1)' : 'rgba(34,197,94,0.1)',
+            border: `1px solid ${mensagemEscritorio.tipo === 'erro' ? 'rgba(239,68,68,0.3)' : 'rgba(34,197,94,0.3)'}`,
+            color: mensagemEscritorio.tipo === 'erro' ? '#b91c1c' : '#15803d',
+          }}>
+            {mensagemEscritorio.texto}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
+          <div style={{
+            width: 96, height: 56, borderRadius: 8, border: '1px dashed var(--af-border)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flexShrink: 0,
+            background: 'var(--af-surface-2)',
+          }}>
+            {logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={logoUrl} alt="Logo do escritório" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+            ) : (
+              <ImageOff size={20} style={{ color: 'var(--af-muted)' }} />
+            )}
+          </div>
+          {org?.papel === 'admin' && (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                ref={logoInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                hidden
+                onChange={e => { const f = e.target.files?.[0]; if (f) enviarLogo(f) }}
+              />
+              <button
+                type="button"
+                onClick={() => logoInputRef.current?.click()}
+                disabled={enviandoLogo}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 7, padding: '8px 13px',
+                  background: 'rgba(39,199,216,0.12)', border: '1px solid rgba(39,199,216,0.28)', borderRadius: 8,
+                  color: 'rgba(39,199,216,0.95)', fontSize: 12, fontWeight: 600, cursor: enviandoLogo ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {enviandoLogo ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Upload size={13} />}
+                {logoUrl ? 'Substituir logo' : 'Enviar logo'}
+              </button>
+              {logoUrl && (
+                <button
+                  type="button"
+                  onClick={removerLogo}
+                  disabled={enviandoLogo}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px',
+                    background: 'none', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 8,
+                    color: 'rgba(239,68,68,0.75)', fontSize: 12, fontWeight: 600, cursor: enviandoLogo ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  <Trash2 size={13} /> Remover
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        <form onSubmit={salvarEscritorio} style={{ display: 'grid', gap: 12, opacity: org?.papel === 'admin' ? 1 : 0.6, pointerEvents: org?.papel === 'admin' ? 'auto' : 'none' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 11, marginBottom: 4, color: 'var(--af-muted)' }}>Nome do escritório *</label>
+              <input required value={escritorioForm.nome} onChange={e => setEscritorioForm({ ...escritorioForm, nome: e.target.value })} style={{ ...inputStyle, width: '100%' }} />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 11, marginBottom: 4, color: 'var(--af-muted)' }}>Razão social</label>
+              <input value={escritorioForm.razaoSocial} onChange={e => setEscritorioForm({ ...escritorioForm, razaoSocial: e.target.value })} style={{ ...inputStyle, width: '100%' }} />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 100px', gap: 12 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 11, marginBottom: 4, color: 'var(--af-muted)' }}>CNPJ</label>
+              <input value={escritorioForm.cnpj} onChange={e => setEscritorioForm({ ...escritorioForm, cnpj: e.target.value })} style={{ ...inputStyle, width: '100%' }} />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 11, marginBottom: 4, color: 'var(--af-muted)' }}>Contador responsável</label>
+              <input value={escritorioForm.contadorResponsavel} onChange={e => setEscritorioForm({ ...escritorioForm, contadorResponsavel: e.target.value })} style={{ ...inputStyle, width: '100%' }} />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 11, marginBottom: 4, color: 'var(--af-muted)' }}>CRC</label>
+              <input value={escritorioForm.crc} onChange={e => setEscritorioForm({ ...escritorioForm, crc: e.target.value })} style={{ ...inputStyle, width: '100%' }} />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 11, marginBottom: 4, color: 'var(--af-muted)' }}>Telefone</label>
+              <input value={escritorioForm.telefone} onChange={e => setEscritorioForm({ ...escritorioForm, telefone: e.target.value })} style={{ ...inputStyle, width: '100%' }} />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 11, marginBottom: 4, color: 'var(--af-muted)' }}>WhatsApp</label>
+              <input value={escritorioForm.whatsapp} onChange={e => setEscritorioForm({ ...escritorioForm, whatsapp: e.target.value })} style={{ ...inputStyle, width: '100%' }} />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 11, marginBottom: 4, color: 'var(--af-muted)' }}>E-mail</label>
+              <input type="email" value={escritorioForm.email} onChange={e => setEscritorioForm({ ...escritorioForm, email: e.target.value })} style={{ ...inputStyle, width: '100%' }} />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 11, marginBottom: 4, color: 'var(--af-muted)' }}>Site</label>
+              <input value={escritorioForm.site} onChange={e => setEscritorioForm({ ...escritorioForm, site: e.target.value })} style={{ ...inputStyle, width: '100%' }} />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px 140px', gap: 12 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 11, marginBottom: 4, color: 'var(--af-muted)' }}>Cidade</label>
+              <input value={escritorioForm.cidade} onChange={e => setEscritorioForm({ ...escritorioForm, cidade: e.target.value })} style={{ ...inputStyle, width: '100%' }} />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 11, marginBottom: 4, color: 'var(--af-muted)' }}>UF</label>
+              <input maxLength={2} value={escritorioForm.estado} onChange={e => setEscritorioForm({ ...escritorioForm, estado: e.target.value.toUpperCase() })} style={{ ...inputStyle, width: '100%' }} />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 11, marginBottom: 4, color: 'var(--af-muted)' }}>Cor principal</label>
+              <input type="color" value={escritorioForm.corPrincipal || '#27c7d8'} onChange={e => setEscritorioForm({ ...escritorioForm, corPrincipal: e.target.value })} style={{ ...inputStyle, width: '100%', padding: 4, height: 36 }} />
+            </div>
+          </div>
+
+          <div>
+            <button
+              type="submit"
+              disabled={salvandoEscritorio}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 7, padding: '9px 18px',
+                background: 'rgba(39,199,216,0.15)', border: '1px solid rgba(39,199,216,0.3)', borderRadius: 8,
+                color: 'rgba(39,199,216,0.9)', fontSize: 13, fontWeight: 600, cursor: salvandoEscritorio ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {salvandoEscritorio ? 'Salvando...' : 'Salvar dados do escritório'}
+            </button>
+          </div>
+        </form>
+        <style>{`@keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}</style>
       </section>
 
       {/* Membros */}

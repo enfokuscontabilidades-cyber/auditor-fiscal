@@ -23,6 +23,7 @@ export type EventoDiagnosticoReforma =
   | 'reforma_resultado_atencao'
   | 'reforma_resultado_critico'
   | 'reforma_clique_whatsapp'
+  | 'reforma_clique_plano_pago'
   | 'reforma_nova_analise'
   | 'reforma_pdf_solicitado'
   | 'reforma_pdf_gerado'

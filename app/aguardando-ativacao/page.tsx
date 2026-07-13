@@ -5,10 +5,15 @@ export const dynamic = 'force-dynamic'
 import { Suspense, useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { getPlanoReformaTributaria, formatarPrecoCentavos, formatarLimite } from '@/lib/planos/reformaTributariaPlanos'
 
 function AguardandoConteudo() {
   const searchParams = useSearchParams()
   const paymentSuccess = searchParams.get('payment') === 'success'
+  const produto = searchParams.get('produto')
+  const planoCodigo = searchParams.get('plano')
+  const ehReformaTributaria = produto === 'reforma_tributaria'
+  const planoRt = ehReformaTributaria ? getPlanoReformaTributaria(planoCodigo) : undefined
   const [carregando, setCarregando] = useState(false)
   const [erro, setErro] = useState('')
 
@@ -17,22 +22,35 @@ function AguardandoConteudo() {
     let tentativas = 0
     const intervalo = setInterval(async () => {
       tentativas++
-      const res = await fetch('/api/organizacoes')
-      const org = await res.json()
-      if (org?.plano && org.plano !== 'pendente') {
-        clearInterval(intervalo)
-        window.location.href = '/'
+      if (ehReformaTributaria) {
+        const res = await fetch('/api/rt/assinatura')
+        const dados = await res.json()
+        if (dados?.assinatura?.status === 'active' || dados?.assinatura?.status === 'manual') {
+          clearInterval(intervalo)
+          window.location.href = '/'
+        }
+      } else {
+        const res = await fetch('/api/organizacoes')
+        const org = await res.json()
+        if (org?.plano && org.plano !== 'pendente') {
+          clearInterval(intervalo)
+          window.location.href = '/'
+        }
       }
       if (tentativas >= 10) clearInterval(intervalo)
     }, 2000)
     return () => clearInterval(intervalo)
-  }, [paymentSuccess])
+  }, [paymentSuccess, ehReformaTributaria])
 
   async function assinar() {
     setCarregando(true)
     setErro('')
     try {
-      const res = await fetch('/api/stripe/checkout', { method: 'POST' })
+      const res = await fetch('/api/stripe/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: ehReformaTributaria ? JSON.stringify({ produto: 'reforma_tributaria', planoCodigo }) : undefined,
+      })
       if (!res.ok) {
         const d = await res.json().catch(() => ({}))
         setErro(d.error ?? 'Erro ao iniciar pagamento')
@@ -107,21 +125,36 @@ function AguardandoConteudo() {
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: '#f1f5f9' }}>Founder Access</div>
-            <div style={{ fontSize: 12, color: 'rgba(148,163,184,0.6)', marginTop: 2 }}>Acesso completo à plataforma</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#f1f5f9' }}>
+              {ehReformaTributaria ? `Reforma Tributária — ${planoRt?.nome ?? 'plano'}` : 'Founder Access'}
+            </div>
+            <div style={{ fontSize: 12, color: 'rgba(148,163,184,0.6)', marginTop: 2 }}>
+              {ehReformaTributaria ? 'Acesso exclusivo à Reforma Tributária' : 'Acesso completo à plataforma'}
+            </div>
           </div>
           <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 22, fontWeight: 800, color: 'rgba(39,199,216,0.9)' }}>R$&nbsp;XXX</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: 'rgba(39,199,216,0.9)' }}>
+              {ehReformaTributaria && planoRt ? formatarPrecoCentavos(planoRt.precoCentavos) : 'R$ XXX'}
+            </div>
             <div style={{ fontSize: 11, color: 'rgba(148,163,184,0.5)' }}>/mês</div>
           </div>
         </div>
-        {[
-          'Auditoria SPED Fiscal ilimitada',
-          'Validação de NF-e',
-          'Simples Nacional (PGDAS-D)',
-          'Planejamento tributário',
-          'Múltiplos usuários por escritório',
-        ].map(item => (
+        {(ehReformaTributaria && planoRt
+          ? [
+            formatarLimite(planoRt.limiteCnpj, 'CNPJ'),
+            planoRt.limiteXmlPorCiclo === null ? 'XMLs sem limite mensal comercial' : `Até ${planoRt.limiteXmlPorCiclo} XMLs por mês`,
+            'Análise de IBS e CBS',
+            'Histórico de análises',
+            'Relatório em PDF',
+          ]
+          : [
+            'Auditoria SPED Fiscal ilimitada',
+            'Validação de NF-e',
+            'Simples Nacional (PGDAS-D)',
+            'Planejamento tributário',
+            'Múltiplos usuários por escritório',
+          ]
+        ).map(item => (
           <div key={item} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
             <span style={{ color: 'rgba(39,199,216,0.8)', fontSize: 14 }}>✓</span>
             <span style={{ fontSize: 13, color: 'rgba(203,213,225,0.7)' }}>{item}</span>

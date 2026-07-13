@@ -35,10 +35,10 @@ export default function PageHeader({ title, subtitle, badge, actions, style }: P
       flexWrap: 'wrap',
     },
     title: {
-      fontSize: 22,
-      fontWeight: 800,
+      fontSize: 21,
+      fontWeight: 700,
       margin: 0,
-      letterSpacing: '-0.02em',
+      letterSpacing: 0,
       color: 'var(--af-text)',
       lineHeight: 1.2,
     },

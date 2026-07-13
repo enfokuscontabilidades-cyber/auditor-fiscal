@@ -21,7 +21,7 @@ export default function GlassCard({
     card: {
       background: 'var(--af-surface)',
       border: '1px solid var(--af-border)',
-      borderRadius: 18,
+      borderRadius: 14,
       boxShadow: 'var(--af-shadow-sm)',
       overflow: 'hidden',
       backdropFilter: 'var(--af-glass-blur)',
@@ -29,7 +29,7 @@ export default function GlassCard({
       ...style,
     },
     header: {
-      padding: '14px 20px',
+      padding: '12px 16px',
       borderBottom: '1px solid var(--af-border)',
       display: 'flex',
       alignItems: 'center',
@@ -38,7 +38,7 @@ export default function GlassCard({
     },
     headerTitle: {
       margin: 0,
-      fontSize: 14,
+      fontSize: 13.5,
       fontWeight: 700,
       color: 'var(--af-text)',
     },

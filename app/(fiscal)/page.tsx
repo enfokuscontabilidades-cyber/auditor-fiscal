@@ -18,6 +18,7 @@ import GlassCard from '@/components/ui/GlassCard'
 import MetricCard from '@/components/ui/MetricCard'
 import EmptyState from '@/components/ui/EmptyState'
 import ModalCnpj, { type CnpjDados } from '@/components/ModalCnpj'
+import DashboardReformaTributariaRestrito from './_components/DashboardReformaTributariaRestrito'
 
 // ─── Tipos locais ──────────────────────────────────────────────────────────────
 
@@ -113,6 +114,14 @@ export default function DashboardPage() {
   const [cnpjErro,    setCnpjErro]    = useState('')
   const [cnpjModal,   setCnpjModal]   = useState(false)
 
+  const [produtoEscopo, setProdutoEscopo] = useState<'full_platform' | 'tax_reform_only' | null>(null)
+  useEffect(() => {
+    fetch('/api/organizacoes')
+      .then(r => r.json())
+      .then((d: { produto_escopo?: string }) => setProdutoEscopo(d?.produto_escopo === 'tax_reform_only' ? 'tax_reform_only' : 'full_platform'))
+      .catch(() => setProdutoEscopo('full_platform'))
+  }, [])
+
   const carregarDados = useCallback(async (empresaId: string) => {
     setLoading(true)
     try {
@@ -154,6 +163,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
+      if (produtoEscopo !== 'full_platform') return
       if (!empresaAtiva?.id) {
         setDadosMensais([]); setTopProdutos([]); setTopFornecedores([])
         setTopCfops([]); setAlertas([]); setSessoes([])
@@ -162,7 +172,7 @@ export default function DashboardPage() {
       void carregarDados(empresaAtiva.id)
     }, 0)
     return () => window.clearTimeout(timer)
-  }, [empresaAtiva?.id, carregarDados])
+  }, [empresaAtiva?.id, carregarDados, produtoEscopo])
 
   // ── Handlers de consulta CNPJ ────────────────────────────────────────────────
   function handleCnpjChange(v: string) {
@@ -221,6 +231,21 @@ export default function DashboardPage() {
     quick:     { display: 'flex', alignItems: 'center', gap: 12, padding: '13px 14px', border: '1px solid var(--af-border)', borderRadius: 12, textDecoration: 'none', color: 'var(--af-text)', background: 'var(--af-surface-2)', transition: 'all .15s' },
     quickGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 },
     sectionRow:{ display: 'flex', gap: 18, marginBottom: 20 },
+  }
+
+  if (produtoEscopo === null) {
+    return (
+      <div className="af-page">
+        <PageHeader title="Dashboard" subtitle="Carregando seu ambiente..." />
+        <GlassCard>
+          <div className="af-dashboard-loading">Preparando o dashboard da Reforma Tributaria.</div>
+        </GlassCard>
+      </div>
+    )
+  }
+
+  if (produtoEscopo === 'tax_reform_only') {
+    return <DashboardReformaTributariaRestrito />
   }
 
   // ── Sem empresa selecionada ──────────────────────────────────────────────────

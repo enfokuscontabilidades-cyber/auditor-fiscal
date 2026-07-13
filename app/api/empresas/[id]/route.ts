@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { MENSAGENS_RT } from '@/lib/planos/acessoReformaTributaria'
 import { NextResponse } from 'next/server'
 
 export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -22,6 +23,16 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   const cnpjLimpo = cnpj ? cnpj.replace(/\D/g, '') : null
   if (!cnpjLimpo || cnpjLimpo.length !== 14) {
     return NextResponse.json({ error: 'CNPJ invalido: informe exatamente 14 digitos numericos' }, { status: 400 })
+  }
+
+  const { data: slot } = await supabase
+    .from('rt_cnpj_slots')
+    .select('cnpj_normalizado')
+    .eq('empresa_id', id)
+    .maybeSingle()
+
+  if (slot && slot.cnpj_normalizado !== cnpjLimpo) {
+    return NextResponse.json({ error: MENSAGENS_RT.cnpjNaoPodeSerAlterado }, { status: 403 })
   }
 
   const { data, error } = await supabase

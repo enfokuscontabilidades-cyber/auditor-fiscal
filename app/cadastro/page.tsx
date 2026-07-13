@@ -2,9 +2,10 @@
 
 export const dynamic = 'force-dynamic'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { getPlanoReformaTributaria } from '@/lib/planos/reformaTributariaPlanos'
 
 export default function CadastroPage() {
   const [email, setEmail] = useState('')
@@ -13,6 +14,19 @@ export default function CadastroPage() {
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [sucesso, setSucesso] = useState(false)
+  const [produto, setProduto] = useState<string | null>(null)
+  const [plano, setPlano] = useState<string | null>(null)
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    setProduto(params.get('produto'))
+    setPlano(params.get('plano'))
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const destinoOnboarding = produto === 'reforma_tributaria'
+    ? `/configuracoes/novo-escritorio?produto=reforma_tributaria&plano=${plano ?? ''}`
+    : '/configuracoes/novo-escritorio'
+
   async function handleCadastro(e: React.FormEvent) {
     e.preventDefault()
     setErro(null)
@@ -33,7 +47,7 @@ export default function CadastroPage() {
         email,
         password,
         options: {
-          emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`,
+          emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback?next=${encodeURIComponent(destinoOnboarding)}`,
         },
       })
 
@@ -47,7 +61,7 @@ export default function CadastroPage() {
 
       if (data.session) {
         sessionStorage.setItem('session_active', '1')
-        window.location.href = '/configuracoes/novo-escritorio'
+        window.location.href = destinoOnboarding
       } else {
         setSucesso(true)
       }
@@ -110,9 +124,13 @@ export default function CadastroPage() {
           <div style={{ fontSize: 12, color: 'rgba(226,232,240,0.55)' }}>Enfokus Contabilidade</div>
         </aside>
         <main style={S.card}>
-          <div style={S.eyebrow}>Founder Access</div>
+          <div style={S.eyebrow}>{produto === 'reforma_tributaria' ? 'Reforma Tributária' : 'Founder Access'}</div>
           <h2 style={S.title}>Criar conta</h2>
-          <p style={S.subtitle}>Crie sua conta gratuita. O acesso será liberado após análise.</p>
+          <p style={S.subtitle}>
+            {produto === 'reforma_tributaria'
+              ? `Crie sua conta para assinar o plano ${getPlanoReformaTributaria(plano ?? undefined)?.nome ?? ''}.`
+              : 'Crie sua conta gratuita. O acesso será liberado após análise.'}
+          </p>
           <form onSubmit={handleCadastro}>
             {erro && <div style={S.erro}>{erro}</div>}
             <label style={S.label} htmlFor="email">E-mail</label>
