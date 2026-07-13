@@ -48,17 +48,25 @@ export async function POST(request: Request) {
     cancelUrl = `${origin}/aguardando-ativacao?produto=reforma_tributaria&plano=${plano.codigo}`
   }
 
-  const session = await stripe.checkout.sessions.create({
-    mode: 'subscription',
-    payment_method_types: ['card'],
-    line_items: [{ price: priceId, quantity: 1 }],
-    metadata,
-    subscription_data: { metadata },
-    customer_email: user.email,
-    success_url: successUrl,
-    cancel_url: cancelUrl,
-    locale: 'pt-BR',
-  })
+  try {
+    const session = await stripe.checkout.sessions.create({
+      mode: 'subscription',
+      payment_method_types: ['card'],
+      line_items: [{ price: priceId, quantity: 1 }],
+      metadata,
+      subscription_data: { metadata },
+      customer_email: user.email,
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+      locale: 'pt-BR',
+    })
 
-  return NextResponse.json({ url: session.url })
+    return NextResponse.json({ url: session.url })
+  } catch (error) {
+    console.error('Erro ao criar sessão de checkout do Stripe:', error)
+    const mensagem = error instanceof Stripe.errors.StripeError
+      ? error.message
+      : 'Não foi possível iniciar o pagamento. Tente novamente em instantes.'
+    return NextResponse.json({ error: mensagem }, { status: 502 })
+  }
 }
