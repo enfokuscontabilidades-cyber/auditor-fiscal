@@ -6,7 +6,7 @@ import type { SituacaoReforma } from '@/lib/fiscal/analiseReformaTributaria'
 import BotaoRelatorioPdf from './BotaoRelatorioPdf'
 
 interface ItemResultado {
-  itemNumero: number
+  itemNumero: string
   descricao: string
   ncm: string
   cfop: string

@@ -51,7 +51,7 @@ export interface DocumentoAfetado {
   serieDocumento: string
   tipoDocumento: string
   /** Números dos itens afetados neste documento (vazio quando a regra é do documento como um todo, ex.: totalizador). */
-  itensAfetados: number[]
+  itensAfetados: string[]
   valorEncontrado: string
 }
 
@@ -193,7 +193,7 @@ interface OcorrenciaBruta {
   numeroDocumento: string
   serieDocumento: string
   tipoDocumento: string
-  itemNumero?: number
+  itemNumero?: string
   valorEncontrado: string
   valorEsperado: string
 }
@@ -341,7 +341,7 @@ export function montarDivergencias(resultados: ResultadoArquivoDiagnostico[]): D
       numeroDocumento: ocorrenciasDoDoc[0].numeroDocumento,
       serieDocumento: ocorrenciasDoDoc[0].serieDocumento,
       tipoDocumento: ocorrenciasDoDoc[0].tipoDocumento,
-      itensAfetados: ocorrenciasDoDoc.map(o => o.itemNumero).filter((n): n is number => n != null),
+      itensAfetados: ocorrenciasDoDoc.map(o => o.itemNumero).filter((n): n is string => n != null),
       valorEncontrado: ocorrenciasDoDoc[0].valorEncontrado,
     }))
 

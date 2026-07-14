@@ -56,7 +56,7 @@ export interface Verificacao {
   status: StatusVerificacao
   arquivoId: string
   arquivo: string
-  itemNumero?: number
+  itemNumero?: string
   descricao: string
 }
 

@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createHash, randomBytes } from 'node:crypto'
-import { lerXmlDiagnostico, type ItemXmlDiagnostico } from '@/lib/fiscal/lerXmlDiagnostico'
+import { lerXmlDiagnostico, type ItemXmlDiagnostico, type MotivoFalhaXmlDiagnostico } from '@/lib/fiscal/lerXmlDiagnostico'
 import { montarLinha, type SituacaoReforma } from '@/lib/fiscal/analiseReformaTributaria'
 import { mascararCnpjParcial } from '@/lib/validacao/documentos'
 import { verificarRateLimit, obterIpRequisicao } from '@/lib/security/rateLimit'
@@ -29,7 +29,7 @@ const MENSAGENS_FALHA: Record<MotivoFalha, string> = {
   vazio: 'O arquivo está vazio.',
   estrutura_suspeita: 'O arquivo contém uma declaração de estrutura não permitida (DOCTYPE/ENTITY) e foi recusado por segurança.',
   nao_xml: 'O conteúdo não parece ser um XML válido.',
-  documento_nao_suportado: 'Não localizamos a estrutura de uma NF-e (infNFe) neste arquivo.',
+  documento_nao_suportado: 'Nao localizamos uma estrutura suportada de NF-e, NFC-e ou NFS-e neste arquivo.',
   malformado: 'O XML está malformado ou excede o tamanho permitido.',
   duplicado: 'Este arquivo já foi enviado nesta mesma análise.',
   muito_grande: 'O arquivo excede 5 MB.',
@@ -82,6 +82,19 @@ function recomendacoesPara(situacao: SituacaoReforma): string[] {
     'O sistema emissor provavelmente precisa de atualização ou configuração para gerar os grupos de IBS e CBS.',
     'Consulte o suporte do seu sistema de emissão antes das novas validações entrarem em vigor.',
   ]
+}
+
+function motivoLeituraParaFalha(motivo: MotivoFalhaXmlDiagnostico): MotivoFalha {
+  const mapa: Record<MotivoFalhaXmlDiagnostico, MotivoFalha> = {
+    arquivo_vazio: 'vazio',
+    arquivo_grande: 'muito_grande',
+    xml_invalido: 'nao_xml',
+    xml_perigoso: 'estrutura_suspeita',
+    documento_nao_suportado: 'documento_nao_suportado',
+    sem_itens: 'malformado',
+  }
+
+  return mapa[motivo]
 }
 
 export async function POST(request: NextRequest) {
@@ -137,7 +150,8 @@ export async function POST(request: NextRequest) {
 
     const leitura = lerXmlDiagnostico(conteudo)
     if (!leitura.ok) {
-      resultados.push({ id, arquivo: arquivo.name, ok: false, motivoFalha: leitura.motivo, mensagemFalha: MENSAGENS_FALHA[leitura.motivo] })
+      const motivoFalha = motivoLeituraParaFalha(leitura.motivo)
+      resultados.push({ id, arquivo: arquivo.name, ok: false, motivoFalha, mensagemFalha: MENSAGENS_FALHA[motivoFalha] })
       continue
     }
 

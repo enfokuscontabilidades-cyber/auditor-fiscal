@@ -1,15 +1,5 @@
-// Leitura server-side de XML de NF-e para o diagnóstico público de IBS/CBS.
-// Extração por regex escopada em blocos (nunca por um parser XML genérico com
-// suporte a DTD/entidades) — não existe, neste módulo, qualquer código capaz
-// de interpretar <!DOCTYPE> ou <!ENTITY>, então XXE é estruturalmente
-// impossível aqui, não apenas mitigado. Documentos com essas declarações são
-// rejeitados antes de qualquer extração, como camada extra de defesa.
-//
-// Este módulo é independente de lib/nfe/parseNfe.ts (que depende de
-// DOMParser de browser e serve à persistência interna em fa_documentos_fiscais).
-
 export interface ItemXmlDiagnostico {
-  itemNumero: number
+  itemNumero: string
   descricao: string
   ncm: string
   cfop: string
@@ -30,174 +20,427 @@ export interface DocumentoXmlDiagnostico {
   tipoDocumento: string
   numero: string
   serie: string
-  dataEmissao: string | null
+  dataEmissao: string
   emitenteCnpj: string
   emitenteNome: string
   chaveAcesso: string | null
-  /**
-   * Totalizador de IBS/CBS da nota (grupo IBSCBSTot, irmão de ICMSTot dentro
-   * de <total>), usado apenas para conferir consistência com a soma dos
-   * itens. `null` quando o grupo não foi encontrado no XML — nesse caso a
-   * verificação de consistência deve ser marcada como "não validada", nunca
-   * como divergência.
-   */
   totalizadorIbs: number | null
   totalizadorCbs: number | null
   itens: ItemXmlDiagnostico[]
 }
 
+export type MotivoFalhaXmlDiagnostico =
+  | 'arquivo_vazio'
+  | 'arquivo_grande'
+  | 'xml_invalido'
+  | 'xml_perigoso'
+  | 'documento_nao_suportado'
+  | 'sem_itens'
+
 export type LeituraXmlResultado =
   | { ok: true; documento: DocumentoXmlDiagnostico }
-  | { ok: false; motivo: 'vazio' | 'estrutura_suspeita' | 'nao_xml' | 'documento_nao_suportado' | 'malformado' }
+  | { ok: false; motivo: MotivoFalhaXmlDiagnostico }
 
-const TAMANHO_MAX_BYTES = 5 * 1024 * 1024
+type LeituraXmlFalha = Extract<LeituraXmlResultado, { ok: false }>
 
-function textoEntre(bloco: string, tag: string): string {
-  const m = bloco.match(new RegExp(`<${tag}(?:\\s[^>]*)?>([^<]*)<\\/${tag}>`, 'i'))
-  return m ? decodeEntidadesBasicas(m[1].trim()) : ''
+const TAMANHO_MAXIMO_XML = 5 * 1024 * 1024
+
+function escaparRegex(valor: string) {
+  return valor.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-/** Diferencia tag ausente de tag presente com valor vazio/zero. */
-function existeTag(bloco: string, tag: string): boolean {
-  return new RegExp(`<${tag}(?:\\s[^>]*)?>[^<]*<\\/${tag}>`, 'i').test(bloco)
+function padraoTag(nome: string) {
+  return `(?:[\\w.-]+:)?${escaparRegex(nome)}`
 }
 
-function blocoEntre(bloco: string, tag: string): string | null {
-  const m = bloco.match(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, 'i'))
-  return m ? m[1] : null
+function textoEntre(xml: string, tag: string): string {
+  const tagPattern = padraoTag(tag)
+  const match = new RegExp(`<${tagPattern}\\b[^>]*>([\\s\\S]*?)<\\/${tagPattern}>`, 'i').exec(xml)
+  return decodeEntidadesBasicas(match?.[1]?.trim() ?? '')
 }
 
-function todosBlocosEntre(bloco: string, tag: string): string[] {
-  const regex = new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, 'gi')
-  const resultado: string[] = []
-  let m: RegExpExecArray | null
-  while ((m = regex.exec(bloco)) !== null) resultado.push(m[1])
-  return resultado
+function existeTag(xml: string, tag: string): boolean {
+  return new RegExp(`<${padraoTag(tag)}\\b`, 'i').test(xml)
 }
 
-/**
- * Lê um atributo da TAG DE ABERTURA de um elemento (ex.: Id="NFe...") — ao
- * contrário de `blocoEntre`, que descarta a tag de abertura e retorna só o
- * conteúdo interno. Tolerante a prefixo de namespace (ex.: <nfe:infNFe>).
- */
-function atributoDaTagAbertura(xml: string, tag: string, atributo: string): string | null {
-  const aberturaMatch = xml.match(new RegExp(`<(?:\\w+:)?${tag}\\b[^>]*>`, 'i'))
-  if (!aberturaMatch) return null
-  const valorMatch = aberturaMatch[0].match(new RegExp(`\\b${atributo}\\s*=\\s*"([^"]*)"`, 'i'))
-  return valorMatch ? valorMatch[1] : null
+function blocoEntre(xml: string, tag: string): string {
+  const tagPattern = padraoTag(tag)
+  const match = new RegExp(`<${tagPattern}\\b[^>]*>([\\s\\S]*?)<\\/${tagPattern}>`, 'i').exec(xml)
+  return match?.[1] ?? ''
 }
 
-/** Remove somente o prefixo "NFe" (quando presente) e valida os 44 dígitos restantes. */
-function extrairChaveDoAtributoId(idAttr: string | null): string | null {
-  if (!idAttr) return null
-  const semPrefixo = /^nfe/i.test(idAttr) ? idAttr.slice(3) : idAttr
-  return /^\d{44}$/.test(semPrefixo) ? semPrefixo : null
+function todosBlocosEntre(xml: string, tag: string): string[] {
+  const tagPattern = padraoTag(tag)
+  const regex = new RegExp(`<${tagPattern}\\b[^>]*>([\\s\\S]*?)<\\/${tagPattern}>`, 'gi')
+  const blocos: string[] = []
+  let match: RegExpExecArray | null
+
+  while ((match = regex.exec(xml)) !== null) {
+    blocos.push(match[1])
+  }
+
+  return blocos
 }
 
-// Apenas as 5 entidades XML predefinidas — nunca entidades customizadas/externas.
-function decodeEntidadesBasicas(texto: string): string {
-  return texto
+function atributoDaTagAbertura(xml: string, tag: string, atributo: string): string {
+  const tagPattern = padraoTag(tag)
+  const abertura = new RegExp(`<${tagPattern}\\b([^>]*)>`, 'i').exec(xml)?.[1] ?? ''
+  const attr = new RegExp(`${escaparRegex(atributo)}\\s*=\\s*["']([^"']+)["']`, 'i').exec(abertura)
+  return attr?.[1] ?? ''
+}
+
+function extrairChaveDoAtributoId(id: string): string | null {
+  const chave = id.replace(/^NFe/i, '').replace(/\D/g, '')
+  return chave.length >= 40 ? chave : null
+}
+
+function decodeEntidadesBasicas(valor: string): string {
+  return valor
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&amp;/g, '&')
-    .replace(/&apos;/g, "'")
     .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
 }
 
 function numero(valor: string): number {
-  const n = Number(valor.replace(',', '.'))
+  const limpo = valor
+    .replace(/R\$/gi, '')
+    .replace(/\s/g, '')
+    .trim()
+
+  if (!limpo) return 0
+
+  const normalizado = limpo.includes(',')
+    ? limpo.replace(/\./g, '').replace(',', '.')
+    : limpo
+
+  const n = Number(normalizado)
   return Number.isFinite(n) ? n : 0
 }
 
-/** Verifica se o conteúdo declara DOCTYPE/ENTITY — se sim, o arquivo é rejeitado sem leitura adicional. */
-function contemDeclaracaoPerigosa(texto: string): boolean {
-  return /<!DOCTYPE/i.test(texto) || /<!ENTITY/i.test(texto)
+function contemDeclaracaoPerigosa(xml: string): boolean {
+  return /<!DOCTYPE|<!ENTITY/i.test(xml)
 }
 
-export function lerXmlDiagnostico(conteudo: string): LeituraXmlResultado {
-  if (!conteudo || !conteudo.trim()) return { ok: false, motivo: 'vazio' }
-  if (Buffer.byteLength(conteudo, 'utf8') > TAMANHO_MAX_BYTES) return { ok: false, motivo: 'malformado' }
+function textoPrimeiro(xml: string, tags: string[]): string {
+  for (const tag of tags) {
+    const valor = textoEntre(xml, tag)
+    if (valor) return valor
+  }
 
-  const semBom = conteudo.replace(/^﻿/, '').trim()
-  if (!semBom.startsWith('<')) return { ok: false, motivo: 'nao_xml' }
-  if (contemDeclaracaoPerigosa(semBom)) return { ok: false, motivo: 'estrutura_suspeita' }
+  return ''
+}
 
-  const infNFe = blocoEntre(semBom, 'infNFe')
-  if (!infNFe) return { ok: false, motivo: 'documento_nao_suportado' }
+function blocoPrimeiro(xml: string, tags: string[]): string {
+  for (const tag of tags) {
+    const bloco = blocoEntre(xml, tag)
+    if (bloco) return bloco
+  }
 
-  const ide = blocoEntre(infNFe, 'ide')
-  const emit = blocoEntre(infNFe, 'emit')
-  if (!ide) return { ok: false, motivo: 'malformado' }
+  return ''
+}
 
-  // O atributo Id fica na TAG DE ABERTURA de infNFe (ex.: <infNFe Id="NFe5226...">),
-  // não no conteúdo interno — por isso a leitura busca na tag de abertura do
-  // XML completo, e não dentro da variável `infNFe` (que já é só o miolo).
-  const idAttr = atributoDaTagAbertura(semBom, 'infNFe', 'Id')
+function apenasDigitos(valor: string): string {
+  return valor.replace(/\D/g, '')
+}
+
+function dataPrimeira(xml: string, tags: string[]): string {
+  const valor = textoPrimeiro(xml, tags)
+  if (!valor) return ''
+
+  const iso = valor.match(/\d{4}-\d{2}-\d{2}/)?.[0]
+  if (iso) return iso
+
+  const compacta = valor.match(/^(\d{4})(\d{2})(\d{2})/)
+  if (compacta) return `${compacta[1]}-${compacta[2]}-${compacta[3]}`
+
+  const brasileira = valor.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
+  if (brasileira) return `${brasileira[3]}-${brasileira[2]}-${brasileira[1]}`
+
+  return valor
+}
+
+function valorNumericoPrimeiro(xml: string, tags: string[]): number {
+  for (const tag of tags) {
+    const valor = textoEntre(xml, tag)
+    if (valor) return numero(valor)
+  }
+
+  return 0
+}
+
+function cnpjOuCpfPrimeiro(xml: string, tags: string[]): string {
+  for (const tag of tags) {
+    const valor = apenasDigitos(textoEntre(xml, tag))
+    if (valor) return valor
+  }
+
+  return ''
+}
+
+function totalizadorOpcional(xml: string, tag: string): number | null {
+  return existeTag(xml, tag) ? numero(textoEntre(xml, tag)) : null
+}
+
+function leituraFalhou(resultado: LeituraXmlResultado): resultado is LeituraXmlFalha {
+  return !resultado.ok
+}
+
+function primeiroNumero(...valores: Array<number | null | undefined>): number {
+  for (const valor of valores) {
+    if (typeof valor === 'number' && Number.isFinite(valor) && valor !== 0) return valor
+  }
+
+  return 0
+}
+
+function primeiroTexto(...valores: string[]): string {
+  return valores.find(valor => valor.trim()) || ''
+}
+
+function lerNfeDiagnostico(xml: string): LeituraXmlResultado {
+  const infNfe = blocoEntre(xml, 'infNFe')
+
+  if (!infNfe) {
+    return { ok: false, motivo: 'documento_nao_suportado' }
+  }
+
+  const ide = blocoEntre(infNfe, 'ide')
+  const emit = blocoEntre(infNfe, 'emit')
+  const mod = textoEntre(ide, 'mod')
+  const idAttr = atributoDaTagAbertura(xml, 'infNFe', 'Id')
   const chaveAcesso = extrairChaveDoAtributoId(idAttr)
 
-  const numeroDoc = textoEntre(ide, 'nNF')
-  const serie = textoEntre(ide, 'serie')
-  const mod = textoEntre(ide, 'mod') || '55'
-  const dhEmi = textoEntre(ide, 'dhEmi') || textoEntre(ide, 'dEmi')
-  const dataEmissao = dhEmi.length >= 10 && /^\d{4}-\d{2}-\d{2}/.test(dhEmi) ? dhEmi.slice(0, 10) : null
+  const detBlocos = todosBlocosEntre(infNfe, 'det')
 
-  const emitenteCnpj = (textoEntre(emit || '', 'CNPJ') || textoEntre(emit || '', 'CPF')).replace(/\D/g, '')
-  const emitenteNome = textoEntre(emit || '', 'xNome')
+  if (detBlocos.length === 0) {
+    return { ok: false, motivo: 'sem_itens' }
+  }
 
-  const detBlocos = todosBlocosEntre(infNFe, 'det')
-  const itens: ItemXmlDiagnostico[] = detBlocos.map((det, i) => {
-    const prod = blocoEntre(det, 'prod') || ''
-    const imposto = blocoEntre(det, 'imposto') || ''
-    const ibscbsGrp = blocoEntre(imposto, 'IBSCBS')
-    const gIbsCbs = ibscbsGrp ? blocoEntre(ibscbsGrp, 'gIBSCBS') : null
-    const gIbsUf = gIbsCbs ? blocoEntre(gIbsCbs, 'gIBSUF') : null
-    const gIbsMun = gIbsCbs ? blocoEntre(gIbsCbs, 'gIBSMun') : null
-    const gCbs = gIbsCbs ? blocoEntre(gIbsCbs, 'gCBS') : null
-
-    const valorIbsUf = numero(textoEntre(gIbsUf || '', 'vIBSUF'))
-    const valorIbsMun = numero(textoEntre(gIbsMun || '', 'vIBSMun'))
-    const valorIbsDireto = numero(textoEntre(gIbsCbs || '', 'vIBS'))
+  const itens = detBlocos.map((det, indice): ItemXmlDiagnostico => {
+    const prod = blocoEntre(det, 'prod')
+    const imposto = blocoEntre(det, 'imposto')
+    const ibscbs = blocoEntre(imposto, 'IBSCBS')
+    const gIbsCbs = blocoEntre(ibscbs, 'gIBSCBS')
+    const gIbsUf = blocoEntre(gIbsCbs, 'gIBSUF')
+    const gIbsMun = blocoEntre(gIbsCbs, 'gIBSMun')
+    const gCbs = blocoEntre(ibscbs, 'gCBS')
+    const valorIbsUf = numero(textoEntre(gIbsUf, 'vIBSUF'))
+    const valorIbsMun = numero(textoEntre(gIbsMun, 'vIBSMun'))
 
     return {
-      itemNumero: i + 1,
+      itemNumero: String(indice + 1),
       descricao: textoEntre(prod, 'xProd'),
       ncm: textoEntre(prod, 'NCM'),
       cfop: textoEntre(prod, 'CFOP'),
       valorItem: numero(textoEntre(prod, 'vProd')),
-      cst: (ibscbsGrp ? textoEntre(ibscbsGrp, 'CST') : '') || '-',
-      cclass: (ibscbsGrp ? textoEntre(ibscbsGrp, 'cClassTrib') : '') || '-',
-      base: numero(textoEntre(gIbsCbs || '', 'vBC')),
-      aliquotaIbsUf: numero(textoEntre(gIbsUf || '', 'pIBSUF')),
+      cst: textoEntre(ibscbs, 'CST'),
+      cclass: textoEntre(ibscbs, 'cClassTrib'),
+      base: numero(textoEntre(gIbsCbs, 'vBC')),
+      aliquotaIbsUf: numero(textoEntre(gIbsUf, 'pIBSUF')),
       valorIbsUf,
-      aliquotaIbsMun: numero(textoEntre(gIbsMun || '', 'pIBSMun')),
+      aliquotaIbsMun: numero(textoEntre(gIbsMun, 'pIBSMun')),
       valorIbsMun,
-      valorIbs: valorIbsDireto || valorIbsUf + valorIbsMun,
-      aliquotaCbs: numero(textoEntre(gCbs || '', 'pCBS')),
-      valorCbs: numero(textoEntre(gCbs || '', 'vCBS')),
+      valorIbs: valorIbsUf + valorIbsMun,
+      aliquotaCbs: numero(textoEntre(gCbs, 'pCBS')),
+      valorCbs: numero(textoEntre(gCbs, 'vCBS')),
     }
   })
 
-  // Totalizador de IBS/CBS da nota (grupo IBSCBSTot, irmão de ICMSTot dentro
-  // de <total>) — best effort: nem todo XML do período de transição traz
-  // esse grupo. Ausência não é erro, apenas fica null (ver comentário no tipo).
-  const totalBloco = blocoEntre(infNFe, 'total')
-  const ibsCbsTot = totalBloco ? blocoEntre(totalBloco, 'IBSCBSTot') : null
-  const totalizadorIbs = ibsCbsTot && existeTag(ibsCbsTot, 'vIBS') ? numero(textoEntre(ibsCbsTot, 'vIBS')) : null
-  const totalizadorCbs = ibsCbsTot && existeTag(ibsCbsTot, 'vCBS') ? numero(textoEntre(ibsCbsTot, 'vCBS')) : null
+  const total = blocoEntre(infNfe, 'total')
+  const ibscbsTotal = blocoEntre(total, 'IBSCBSTot')
 
   return {
     ok: true,
     documento: {
       tipoDocumento: mod === '65' ? 'NFC-e' : 'NF-e',
-      numero: numeroDoc,
-      serie,
-      dataEmissao,
-      emitenteCnpj,
-      emitenteNome,
+      numero: textoEntre(ide, 'nNF') || '-',
+      serie: textoEntre(ide, 'serie') || '-',
+      dataEmissao: (textoEntre(ide, 'dhEmi') || textoEntre(ide, 'dEmi')).slice(0, 10),
+      emitenteCnpj: textoEntre(emit, 'CNPJ') || textoEntre(emit, 'CPF'),
+      emitenteNome: textoEntre(emit, 'xNome'),
       chaveAcesso,
-      totalizadorIbs,
-      totalizadorCbs,
+      totalizadorIbs: totalizadorOpcional(ibscbsTotal, 'vIBS'),
+      totalizadorCbs: totalizadorOpcional(ibscbsTotal, 'vCBS'),
       itens,
     },
   }
+}
+
+function lerNfseDiagnostico(xml: string): LeituraXmlResultado {
+  const infNfse =
+    blocoPrimeiro(xml, ['infNFSe', 'InfNFSe', 'infNfse', 'InfNfse', 'infDPS', 'InfDPS', 'InfDeclaracaoPrestacaoServico']) ||
+    (existeTag(xml, 'Nfse') || existeTag(xml, 'NFSe') ? xml : '')
+
+  if (!infNfse) {
+    return { ok: false, motivo: 'documento_nao_suportado' }
+  }
+
+  const declaracao = blocoPrimeiro(infNfse, ['infDPS', 'InfDPS', 'InfDeclaracaoPrestacaoServico']) || infNfse
+  const servico = blocoPrimeiro(declaracao, ['serv', 'Servico', 'DadosServico', 'cServ']) || blocoPrimeiro(infNfse, ['serv', 'Servico', 'DadosServico', 'cServ']) || infNfse
+  const valoresServico =
+    blocoPrimeiro(servico, ['Valores', 'valores', 'vServPrest']) ||
+    blocoPrimeiro(infNfse, ['ValoresNfse', 'valores', 'Valores']) ||
+    servico
+  const prestadorDados =
+    blocoPrimeiro(infNfse, ['PrestadorServico', 'DadosPrestador', 'IdentificacaoPrestador', 'emit', 'prest']) ||
+    blocoPrimeiro(declaracao, ['Prestador', 'PrestadorServico', 'DadosPrestador', 'IdentificacaoPrestador']) ||
+    infNfse
+  const prestadorIdentificacao =
+    blocoPrimeiro(declaracao, ['Prestador', 'PrestadorServico', 'DadosPrestador', 'IdentificacaoPrestador']) ||
+    prestadorDados
+
+  const numeroDocumento = textoPrimeiro(infNfse, [
+    'nNFSe',
+    'nNFS-e',
+    'NumeroNfse',
+    'NumeroNFSe',
+    'Numero',
+    'NumeroNota',
+    'NumeroNotaFiscal',
+    'nDFSe',
+    'nDPS',
+  ])
+
+  const emitenteCnpj = primeiroTexto(
+    cnpjOuCpfPrimeiro(prestadorDados, [
+      'CNPJPrestador',
+      'CnpjPrestador',
+      'CpfCnpjPrestador',
+      'CPFCNPJPrestador',
+      'CNPJ',
+      'Cnpj',
+      'CPF',
+      'Cpf',
+    ]),
+    cnpjOuCpfPrimeiro(prestadorIdentificacao, [
+    'CNPJPrestador',
+    'CnpjPrestador',
+    'CpfCnpjPrestador',
+    'CPFCNPJPrestador',
+    'CNPJ',
+    'Cnpj',
+    'CPF',
+    'Cpf',
+    ]),
+  )
+
+  if (!numeroDocumento && !emitenteCnpj) {
+    return { ok: false, motivo: 'documento_nao_suportado' }
+  }
+
+  const ibscbsNota = blocoEntre(infNfse, 'IBSCBS')
+  const ibscbsDeclaracao = blocoEntre(declaracao, 'IBSCBS')
+  const ibscbs = ibscbsNota || ibscbsDeclaracao
+  const valoresIbscbs = blocoPrimeiro(ibscbsNota || ibscbsDeclaracao, ['valores', 'Valores']) || ibscbs
+  const tribIbscbs = blocoEntre(valoresIbscbs, 'trib') || valoresIbscbs
+  const gIbsCbsDeclaracao = blocoEntre(ibscbsDeclaracao, 'gIBSCBS')
+  const gIbsCbsValores = blocoEntre(tribIbscbs, 'gIBSCBS') || blocoEntre(valoresIbscbs, 'gIBSCBS') || tribIbscbs
+  const totCibs = blocoEntre(ibscbsNota, 'totCIBS')
+  const gIbsTotal = blocoEntre(totCibs, 'gIBS')
+  const gIbsUf = blocoEntre(gIbsCbsValores, 'gIBSUF') || blocoEntre(valoresIbscbs, 'uf') || blocoEntre(gIbsTotal, 'gIBSUFTot')
+  const gIbsMun = blocoEntre(gIbsCbsValores, 'gIBSMun') || blocoEntre(valoresIbscbs, 'mun') || blocoEntre(gIbsTotal, 'gIBSMunTot')
+  const gCbsAliquota = blocoEntre(valoresIbscbs, 'fed') || blocoEntre(gIbsCbsValores, 'gCBS') || blocoEntre(ibscbs, 'gCBS')
+  const gCbsValor = blocoEntre(totCibs, 'gCBS') || blocoEntre(ibscbs, 'gCBS') || gCbsAliquota
+  const valorIbsUf = primeiroNumero(numero(textoEntre(gIbsUf, 'vIBSUF')), numero(textoEntre(gIbsTotal, 'vIBSUF')))
+  const valorIbsMun = primeiroNumero(numero(textoEntre(gIbsMun, 'vIBSMun')), numero(textoEntre(gIbsTotal, 'vIBSMun')))
+  const valorIbsTotal = primeiroNumero(numero(textoEntre(gIbsTotal, 'vIBSTot')), valorIbsUf + valorIbsMun)
+  const valorCbs = numero(textoEntre(gCbsValor, 'vCBS'))
+  const valorServico = valorNumericoPrimeiro(valoresServico, [
+    'ValorServicos',
+    'ValorServico',
+    'ValorTotalServicos',
+    'ValorLiquidoNfse',
+    'BaseCalculo',
+    'vServ',
+    'vBC',
+    'vReceb',
+    'vLiq',
+  ])
+  const base = primeiroNumero(numero(textoEntre(valoresIbscbs, 'vBC')), numero(textoEntre(gIbsCbsValores, 'vBC')), numero(textoEntre(gCbsValor, 'vBC')), valorServico)
+  const cst = textoEntre(gIbsCbsDeclaracao, 'CST') || textoEntre(gIbsCbsValores, 'CST') || textoEntre(ibscbs, 'CST')
+  const cclass = textoEntre(gIbsCbsDeclaracao, 'cClassTrib') || textoEntre(gIbsCbsValores, 'cClassTrib') || textoEntre(ibscbs, 'cClassTrib')
+  const descricao =
+    textoPrimeiro(servico, ['Discriminacao', 'DescricaoServico', 'Descricao', 'xDescServ', 'xTribMun', 'xTribNac']) ||
+    'Prestacao de servico'
+  const chaveAcesso =
+    textoPrimeiro(infNfse, ['chNFSe', 'ChaveNFe', 'ChaveAcesso', 'CodigoVerificacao', 'CodVerificacao']) ||
+    atributoDaTagAbertura(xml, 'infNFSe', 'Id') ||
+    atributoDaTagAbertura(xml, 'InfNFSe', 'Id') ||
+    atributoDaTagAbertura(xml, 'InfNfse', 'Id') ||
+    null
+
+  return {
+    ok: true,
+    documento: {
+      tipoDocumento: 'NFS-e',
+      numero: numeroDocumento || '-',
+      serie: textoPrimeiro(infNfse, ['serie', 'Serie', 'serieDPS', 'SerieDPS']) || '-',
+      dataEmissao: dataPrimeira(infNfse, [
+        'DataEmissao',
+        'DataEmissaoNfse',
+        'DataEmissaoNFSe',
+        'dhEmi',
+        'dEmi',
+        'dhProc',
+        'dCompet',
+      ]),
+      emitenteCnpj,
+      emitenteNome: textoPrimeiro(prestadorDados, ['RazaoSocial', 'NomeFantasia', 'xNome', 'Nome']) || '-',
+      chaveAcesso,
+      totalizadorIbs: existeTag(gIbsTotal, 'vIBSTot') ? numero(textoEntre(gIbsTotal, 'vIBSTot')) : null,
+      totalizadorCbs: existeTag(gCbsValor, 'vCBS') ? valorCbs : null,
+      itens: [
+        {
+          itemNumero: '1',
+          descricao,
+          ncm: '',
+          cfop: '',
+          valorItem: valorServico,
+          cst,
+          cclass,
+          base,
+          aliquotaIbsUf: numero(textoEntre(gIbsUf, 'pIBSUF')),
+          valorIbsUf,
+          aliquotaIbsMun: numero(textoEntre(gIbsMun, 'pIBSMun')),
+          valorIbsMun,
+          valorIbs: valorIbsTotal,
+          aliquotaCbs: numero(textoEntre(gCbsAliquota, 'pCBS')),
+          valorCbs,
+        },
+      ],
+    },
+  }
+}
+
+export function lerXmlDiagnostico(conteudo: string): LeituraXmlResultado {
+  if (!conteudo.trim()) {
+    return { ok: false, motivo: 'arquivo_vazio' }
+  }
+
+  if (new Blob([conteudo]).size > TAMANHO_MAXIMO_XML) {
+    return { ok: false, motivo: 'arquivo_grande' }
+  }
+
+  const xml = conteudo.replace(/^\uFEFF/, '').trim()
+
+  if (!xml.startsWith('<')) {
+    return { ok: false, motivo: 'xml_invalido' }
+  }
+
+  if (contemDeclaracaoPerigosa(xml)) {
+    return { ok: false, motivo: 'xml_perigoso' }
+  }
+
+  const nfe = lerNfeDiagnostico(xml)
+  if (nfe.ok) {
+    return nfe
+  }
+
+  if (leituraFalhou(nfe) && nfe.motivo !== 'documento_nao_suportado') {
+    return nfe
+  }
+
+  return lerNfseDiagnostico(xml)
 }
