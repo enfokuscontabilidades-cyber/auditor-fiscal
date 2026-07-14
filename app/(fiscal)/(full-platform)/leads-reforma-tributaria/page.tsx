@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import * as XLSX from 'xlsx'
-import { Download, Lock, Search, X } from 'lucide-react'
+import { Download, FileText, Lock, Mail, MessageCircle, Search, X } from 'lucide-react'
 import { useTheme } from '@/components/ThemeProvider'
 import { formatarCnpj, formatarTelefoneBr } from '@/lib/validacao/documentos'
 
@@ -39,6 +39,13 @@ type Lead = {
   observacoes: string | null
   consentimento_contato: boolean
   created_at: string
+  diagnostico_relatorio: {
+    token: string
+    criado_em: string
+    relatorio_gerado_em: string | null
+    downloads_count: number
+    status: string
+  } | null
 }
 
 const STATUS_OPCOES = [
@@ -57,6 +64,23 @@ function statusLabel(status: string) {
 
 function dataHoraBr(iso: string) {
   try { return new Date(iso).toLocaleString('pt-BR') } catch { return iso }
+}
+
+function linkRelatorioPdf(token: string) {
+  return `/api/diagnostico-reforma-tributaria/relatorio/${token}`
+}
+
+function linkWhatsappLead(lead: Lead) {
+  const telefone = lead.telefone.replace(/\D/g, '')
+  const numero = telefone.startsWith('55') ? telefone : `55${telefone}`
+  const mensagem = `Olá, ${lead.nome}! Aqui é da Enfokus Contabilidade. Vi que você fez o diagnóstico de IBS/CBS da Reforma Tributária para a empresa ${lead.empresa}${lead.codigo_diagnostico ? ` (código ${lead.codigo_diagnostico})` : ''} e gostaria de conversar sobre o resultado.`
+  return `https://wa.me/${numero}?text=${encodeURIComponent(mensagem)}`
+}
+
+function linkEmailLead(lead: Lead) {
+  const assunto = `Diagnóstico IBS/CBS - ${lead.empresa}`
+  const corpo = `Olá, ${lead.nome}.\n\nAqui é da Enfokus Contabilidade. Vi que você realizou o diagnóstico de IBS/CBS da Reforma Tributária para a empresa ${lead.empresa}${lead.codigo_diagnostico ? `, código ${lead.codigo_diagnostico}` : ''}.\n\nGostaria de conversar sobre o resultado e os próximos passos.\n\nAtenciosamente,\nEnfokus Contabilidade`
+  return `mailto:${lead.email}?subject=${encodeURIComponent(assunto)}&body=${encodeURIComponent(corpo)}`
 }
 
 export default function LeadsReformaTributariaPage() {
@@ -110,7 +134,9 @@ export default function LeadsReformaTributariaPage() {
   }
 
   useEffect(() => {
-    if (permitido) carregar()
+    if (!permitido) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void carregar()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [permitido])
 
@@ -172,6 +198,8 @@ export default function LeadsReformaTributariaPage() {
       Codigo_Diagnostico: l.codigo_diagnostico,
       Qtd_XMLs: l.quantidade_xmls,
       Situacao_Diagnostico: l.resumo_analise?.situacao_geral || '',
+      Relatorio_PDF: l.diagnostico_relatorio ? 'Disponível' : 'Indisponível',
+      Downloads_PDF: l.diagnostico_relatorio?.downloads_count ?? '',
       Autoriza_Contato: l.consentimento_contato ? 'Sim' : 'Não',
       Observacoes: l.observacoes,
     })))
@@ -308,12 +336,27 @@ export default function LeadsReformaTributariaPage() {
                       </select>
                     </td>
                     <td style={{ padding: '11px 12px', whiteSpace: 'nowrap' }}>
-                      {lead.codigo_diagnostico || '-'}{lead.quantidade_xmls ? ` · ${lead.quantidade_xmls} XML(s)` : ''}
+                      <div>{lead.codigo_diagnostico || '-'}{lead.quantidade_xmls ? ` · ${lead.quantidade_xmls} XML(s)` : ''}</div>
+                      {lead.diagnostico_relatorio && (
+                        <a
+                          href={linkRelatorioPdf(lead.diagnostico_relatorio.token)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ marginTop: 5, display: 'inline-flex', alignItems: 'center', gap: 5, color: cor.ciano, textDecoration: 'none', fontSize: 11.5, fontWeight: 800 }}
+                        >
+                          <FileText size={12} /> PDF
+                        </a>
+                      )}
                     </td>
                     <td style={{ padding: '11px 12px' }}>
-                      <button type="button" onClick={() => abrirDetalhes(lead)} style={{ border: `1px solid ${cor.bordaForte}`, background: 'transparent', color: cor.ciano, borderRadius: 8, padding: '6px 10px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}>
-                        Detalhes
-                      </button>
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <a href={linkWhatsappLead(lead)} target="_blank" rel="noopener noreferrer" title="Chamar no WhatsApp" style={{ border: `1px solid ${cor.bordaForte}`, color: cor.ciano, borderRadius: 8, padding: 6, display: 'inline-flex' }}>
+                          <MessageCircle size={13} />
+                        </a>
+                        <button type="button" onClick={() => abrirDetalhes(lead)} style={{ border: `1px solid ${cor.bordaForte}`, background: 'transparent', color: cor.ciano, borderRadius: 8, padding: '6px 10px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}>
+                          Detalhes
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -358,7 +401,30 @@ export default function LeadsReformaTributariaPage() {
                   {' · '}CBS {money.format(selecionado.resumo_analise.total_cbs || 0)}
                 </div>
               )}
+              {selecionado.diagnostico_relatorio && (
+                <div>
+                  <strong>Relatório PDF:</strong>{' '}
+                  <a href={linkRelatorioPdf(selecionado.diagnostico_relatorio.token)} target="_blank" rel="noopener noreferrer" style={{ color: cor.ciano, fontWeight: 800, textDecoration: 'none' }}>
+                    Baixar PDF gerado
+                  </a>
+                  {' · '}downloads: {selecionado.diagnostico_relatorio.downloads_count}
+                </div>
+              )}
               <div><strong>Cadastrado em:</strong> {dataHoraBr(selecionado.created_at)}</div>
+            </div>
+
+            <div style={{ marginTop: 18, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <a href={linkWhatsappLead(selecionado)} target="_blank" rel="noopener noreferrer" style={{ border: 0, borderRadius: 9, padding: '9px 12px', background: 'linear-gradient(90deg, #0ea5e9, #06b6d4)', color: '#fff', fontWeight: 800, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12.5 }}>
+                <MessageCircle size={14} /> WhatsApp
+              </a>
+              <a href={linkEmailLead(selecionado)} style={{ border: `1px solid ${cor.bordaForte}`, borderRadius: 9, padding: '9px 12px', color: cor.texto, fontWeight: 800, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12.5 }}>
+                <Mail size={14} /> E-mail
+              </a>
+              {selecionado.diagnostico_relatorio && (
+                <a href={linkRelatorioPdf(selecionado.diagnostico_relatorio.token)} target="_blank" rel="noopener noreferrer" style={{ border: `1px solid ${cor.bordaForte}`, borderRadius: 9, padding: '9px 12px', color: cor.ciano, fontWeight: 800, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12.5 }}>
+                  <FileText size={14} /> PDF
+                </a>
+              )}
             </div>
 
             <div style={{ marginTop: 18 }}>

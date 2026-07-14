@@ -16,6 +16,7 @@ import {
   Scale,
   Users,
   CreditCard,
+  HelpCircle,
   Lock,
   ShieldCheck,
 } from 'lucide-react'
@@ -35,6 +36,7 @@ const LINKS: { href: string; label: string; icon: typeof LayoutDashboard; modulo
   { href: '/planejamento', label: 'Planejamento Tributário', icon: Calculator, modulo: 'planejamento' },
   { href: '/obrigacoes', label: 'Obrigações', icon: ClipboardList, modulo: 'obrigacoes' },
   { href: '/assinatura', label: 'Assinatura', icon: CreditCard, modulo: 'assinatura' },
+  { href: '/suporte', label: 'Suporte', icon: HelpCircle, modulo: 'suporte' },
 ]
 
 const LINK_LEADS_ADMIN = { href: '/leads-reforma-tributaria', label: 'Leads Reforma', icon: Users, modulo: 'leads_reforma_tributaria' as ModuloFiscal }

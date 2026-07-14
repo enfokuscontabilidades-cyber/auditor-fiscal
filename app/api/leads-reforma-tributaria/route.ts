@@ -10,6 +10,15 @@ async function exigirAcesso() {
   return user
 }
 
+type DiagnosticoLeadResumo = {
+  lead_id: string | null
+  token: string
+  criado_em: string
+  relatorio_gerado_em: string | null
+  downloads_count: number
+  status: string
+}
+
 export async function GET(request: NextRequest) {
   const user = await exigirAcesso()
   if (!user) return NextResponse.json({ error: 'Acesso não autorizado.' }, { status: 403 })
@@ -53,5 +62,28 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Não foi possível carregar os leads.' }, { status: 500 })
   }
 
-  return NextResponse.json(data ?? [])
+  const leads = data ?? []
+  const leadIds = leads
+    .map(lead => typeof lead.id === 'string' ? lead.id : '')
+    .filter(Boolean)
+
+  if (leadIds.length === 0) return NextResponse.json(leads)
+
+  const { data: diagnosticos } = await admin
+    .from('diagnosticos_reforma_tributaria')
+    .select('lead_id, token, criado_em, relatorio_gerado_em, downloads_count, status')
+    .in('lead_id', leadIds)
+    .order('criado_em', { ascending: false })
+
+  const diagnosticoPorLead = new Map<string, DiagnosticoLeadResumo>()
+  for (const diagnostico of (diagnosticos ?? []) as DiagnosticoLeadResumo[]) {
+    if (diagnostico.lead_id && !diagnosticoPorLead.has(diagnostico.lead_id)) {
+      diagnosticoPorLead.set(diagnostico.lead_id, diagnostico)
+    }
+  }
+
+  return NextResponse.json(leads.map(lead => ({
+    ...lead,
+    diagnostico_relatorio: diagnosticoPorLead.get(lead.id) ?? null,
+  })))
 }

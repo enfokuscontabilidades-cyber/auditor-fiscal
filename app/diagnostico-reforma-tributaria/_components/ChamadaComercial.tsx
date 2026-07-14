@@ -2,9 +2,10 @@
 
 import { MessageCircle } from 'lucide-react'
 import { rastrearEvento } from '@/lib/analytics/track'
+import { ENFOKUS_CONTABILIDADE } from '@/lib/institucional/enfokusContabilidade'
 import { cor, cardBase, botaoPrimario } from './tokens'
 
-const WHATSAPP_NUMERO = (process.env.NEXT_PUBLIC_WHATSAPP_ENFOKUS_CONTABILIDADE || '').replace(/\D/g, '')
+const WHATSAPP_NUMERO = (process.env.NEXT_PUBLIC_WHATSAPP_ENFOKUS_CONTABILIDADE || ENFOKUS_CONTABILIDADE.whatsapp).replace(/\D/g, '')
 
 export default function ChamadaComercial({ codigoDiagnostico }: { codigoDiagnostico: string }) {
   const mensagem = `Olá! Fiz o diagnóstico de IBS e CBS no site da Enfokus Contabilidade e gostaria de receber orientação. Meu código de análise é ${codigoDiagnostico || '-'}.`
