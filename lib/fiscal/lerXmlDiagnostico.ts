@@ -23,6 +23,8 @@ export interface DocumentoXmlDiagnostico {
   dataEmissao: string
   emitenteCnpj: string
   emitenteNome: string
+  destinatarioCnpj: string
+  destinatarioNome: string
   chaveAcesso: string | null
   totalizadorIbs: number | null
   totalizadorCbs: number | null
@@ -208,6 +210,7 @@ function lerNfeDiagnostico(xml: string): LeituraXmlResultado {
 
   const ide = blocoEntre(infNfe, 'ide')
   const emit = blocoEntre(infNfe, 'emit')
+  const dest = blocoEntre(infNfe, 'dest')
   const mod = textoEntre(ide, 'mod')
   const idAttr = atributoDaTagAbertura(xml, 'infNFe', 'Id')
   const chaveAcesso = extrairChaveDoAtributoId(idAttr)
@@ -260,6 +263,8 @@ function lerNfeDiagnostico(xml: string): LeituraXmlResultado {
       dataEmissao: (textoEntre(ide, 'dhEmi') || textoEntre(ide, 'dEmi')).slice(0, 10),
       emitenteCnpj: textoEntre(emit, 'CNPJ') || textoEntre(emit, 'CPF'),
       emitenteNome: textoEntre(emit, 'xNome'),
+      destinatarioCnpj: textoEntre(dest, 'CNPJ') || textoEntre(dest, 'CPF'),
+      destinatarioNome: textoEntre(dest, 'xNome'),
       chaveAcesso,
       totalizadorIbs: totalizadorOpcional(ibscbsTotal, 'vIBS'),
       totalizadorCbs: totalizadorOpcional(ibscbsTotal, 'vCBS'),
@@ -290,6 +295,10 @@ function lerNfseDiagnostico(xml: string): LeituraXmlResultado {
   const prestadorIdentificacao =
     blocoPrimeiro(declaracao, ['Prestador', 'PrestadorServico', 'DadosPrestador', 'IdentificacaoPrestador']) ||
     prestadorDados
+  const tomadorDados =
+    blocoPrimeiro(declaracao, ['TomadorServico', 'Tomador', 'DadosTomador', 'IdentificacaoTomador', 'toma']) ||
+    blocoPrimeiro(infNfse, ['TomadorServico', 'Tomador', 'DadosTomador', 'IdentificacaoTomador', 'toma']) ||
+    ''
 
   const numeroDocumento = textoPrimeiro(infNfse, [
     'nNFSe',
@@ -388,6 +397,17 @@ function lerNfseDiagnostico(xml: string): LeituraXmlResultado {
       ]),
       emitenteCnpj,
       emitenteNome: textoPrimeiro(prestadorDados, ['RazaoSocial', 'NomeFantasia', 'xNome', 'Nome']) || '-',
+      destinatarioCnpj: cnpjOuCpfPrimeiro(tomadorDados, [
+        'CNPJTomador',
+        'CnpjTomador',
+        'CpfCnpjTomador',
+        'CPFCNPJTomador',
+        'CNPJ',
+        'Cnpj',
+        'CPF',
+        'Cpf',
+      ]),
+      destinatarioNome: textoPrimeiro(tomadorDados, ['RazaoSocial', 'NomeRazaoSocial', 'NomeTomador', 'xNome', 'Nome']),
       chaveAcesso,
       totalizadorIbs: existeTag(gIbsTotal, 'vIBSTot') ? numero(textoEntre(gIbsTotal, 'vIBSTot')) : null,
       totalizadorCbs: existeTag(gCbsValor, 'vCBS') ? valorCbs : null,

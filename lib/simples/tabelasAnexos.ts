@@ -95,11 +95,11 @@ export const TABELA_ANEXO_III: FaixaSimples[] = [
 ]
 
 export const DISTRIBUICAO_ANEXO_III: Record<number, DistribuicaoSimples> = {
-  1: { IRPJ: 10.00, CSLL: 7.50, COFINS: 14.10, PIS: 3.05, CPP: 43.40, ICMS: 0, ISS: 21.95, IPI: 0 },
-  2: { IRPJ: 10.00, CSLL: 7.50, COFINS: 14.10, PIS: 3.05, CPP: 43.40, ICMS: 0, ISS: 21.95, IPI: 0 },
-  3: { IRPJ: 10.00, CSLL: 7.50, COFINS: 14.10, PIS: 3.05, CPP: 43.40, ICMS: 0, ISS: 21.95, IPI: 0 },
-  4: { IRPJ: 10.00, CSLL: 7.50, COFINS: 14.10, PIS: 3.05, CPP: 43.40, ICMS: 0, ISS: 21.95, IPI: 0 },
-  5: { IRPJ: 10.00, CSLL: 7.50, COFINS: 14.10, PIS: 3.05, CPP: 43.40, ICMS: 0, ISS: 21.95, IPI: 0 },
+  1: { IRPJ: 4.00, CSLL: 3.50, COFINS: 12.82, PIS: 2.78, CPP: 43.40, ICMS: 0, ISS: 33.50, IPI: 0 },
+  2: { IRPJ: 4.00, CSLL: 3.50, COFINS: 14.05, PIS: 3.05, CPP: 43.40, ICMS: 0, ISS: 32.00, IPI: 0 },
+  3: { IRPJ: 4.00, CSLL: 3.50, COFINS: 13.64, PIS: 2.96, CPP: 43.40, ICMS: 0, ISS: 32.50, IPI: 0 },
+  4: { IRPJ: 4.00, CSLL: 3.50, COFINS: 13.64, PIS: 2.96, CPP: 43.40, ICMS: 0, ISS: 32.50, IPI: 0 },
+  5: { IRPJ: 4.00, CSLL: 3.50, COFINS: 12.82, PIS: 2.78, CPP: 43.40, ICMS: 0, ISS: 33.50, IPI: 0 },
   6: { IRPJ: 35.00, CSLL: 15.00, COFINS: 16.03, PIS: 3.47, CPP: 30.50, ICMS: 0, ISS: 0, IPI: 0 },
 }
 
@@ -119,10 +119,10 @@ export const TABELA_ANEXO_IV: FaixaSimples[] = [
 export const DISTRIBUICAO_ANEXO_IV: Record<number, DistribuicaoSimples> = {
   // CPP = 0 neste anexo — INSS patronal recolhido separadamente
   1: { IRPJ: 18.80, CSLL: 15.20, COFINS: 17.67, PIS: 3.83, CPP: 0, ICMS: 0, ISS: 44.50, IPI: 0 },
-  2: { IRPJ: 18.80, CSLL: 15.20, COFINS: 17.67, PIS: 3.83, CPP: 0, ICMS: 0, ISS: 44.50, IPI: 0 },
-  3: { IRPJ: 18.80, CSLL: 15.20, COFINS: 17.67, PIS: 3.83, CPP: 0, ICMS: 0, ISS: 44.50, IPI: 0 },
-  4: { IRPJ: 18.80, CSLL: 15.20, COFINS: 17.67, PIS: 3.83, CPP: 0, ICMS: 0, ISS: 44.50, IPI: 0 },
-  5: { IRPJ: 18.80, CSLL: 15.20, COFINS: 17.67, PIS: 3.83, CPP: 0, ICMS: 0, ISS: 44.50, IPI: 0 },
+  2: { IRPJ: 19.80, CSLL: 15.20, COFINS: 20.55, PIS: 4.45, CPP: 0, ICMS: 0, ISS: 40.00, IPI: 0 },
+  3: { IRPJ: 20.80, CSLL: 15.20, COFINS: 19.73, PIS: 4.27, CPP: 0, ICMS: 0, ISS: 40.00, IPI: 0 },
+  4: { IRPJ: 17.80, CSLL: 19.20, COFINS: 18.90, PIS: 4.10, CPP: 0, ICMS: 0, ISS: 40.00, IPI: 0 },
+  5: { IRPJ: 18.80, CSLL: 19.20, COFINS: 18.08, PIS: 3.92, CPP: 0, ICMS: 0, ISS: 40.00, IPI: 0 },
   6: { IRPJ: 53.50, CSLL: 21.50, COFINS: 20.55, PIS: 4.45, CPP: 0, ICMS: 0, ISS: 0, IPI: 0 },
 }
 
@@ -140,11 +140,11 @@ export const TABELA_ANEXO_V: FaixaSimples[] = [
 
 export const DISTRIBUICAO_ANEXO_V: Record<number, DistribuicaoSimples> = {
   1: { IRPJ: 25.00, CSLL: 15.00, COFINS: 14.10, PIS: 3.05, CPP: 28.85, ICMS: 0, ISS: 14.00, IPI: 0 },
-  2: { IRPJ: 25.00, CSLL: 15.00, COFINS: 14.10, PIS: 3.05, CPP: 28.85, ICMS: 0, ISS: 14.00, IPI: 0 },
-  3: { IRPJ: 25.00, CSLL: 15.00, COFINS: 14.10, PIS: 3.05, CPP: 28.85, ICMS: 0, ISS: 14.00, IPI: 0 },
-  4: { IRPJ: 25.00, CSLL: 15.00, COFINS: 14.10, PIS: 3.05, CPP: 28.85, ICMS: 0, ISS: 14.00, IPI: 0 },
-  5: { IRPJ: 25.00, CSLL: 15.00, COFINS: 14.10, PIS: 3.05, CPP: 28.85, ICMS: 0, ISS: 14.00, IPI: 0 },
-  6: { IRPJ: 21.00, CSLL: 15.00, COFINS: 16.03, PIS: 3.47, CPP: 37.00, ICMS: 0, ISS: 7.50, IPI: 0 },
+  2: { IRPJ: 23.00, CSLL: 15.00, COFINS: 14.10, PIS: 3.05, CPP: 27.85, ICMS: 0, ISS: 17.00, IPI: 0 },
+  3: { IRPJ: 24.00, CSLL: 15.00, COFINS: 14.92, PIS: 3.23, CPP: 23.85, ICMS: 0, ISS: 19.00, IPI: 0 },
+  4: { IRPJ: 21.00, CSLL: 15.00, COFINS: 15.74, PIS: 3.41, CPP: 23.85, ICMS: 0, ISS: 21.00, IPI: 0 },
+  5: { IRPJ: 23.00, CSLL: 12.50, COFINS: 14.10, PIS: 3.05, CPP: 23.85, ICMS: 0, ISS: 23.50, IPI: 0 },
+  6: { IRPJ: 35.00, CSLL: 15.50, COFINS: 16.44, PIS: 3.56, CPP: 29.50, ICMS: 0, ISS: 0, IPI: 0 },
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -221,15 +221,15 @@ export const FAIXAS_COMPLETAS: FaixaCompleta[] = [
 
   // ── Anexo III — Serviços (Fator R ≥ 28%) ───────────────────────────────
   { anexo: 'III', faixa: 1, receitaInicial: 0, receitaFinal: 180_000, aliquotaNominal: 6.00, parcelaDeduzir: 0,
-    reparticao: { IRPJ: 10.00, CSLL: 7.50, COFINS: 14.10, PIS: 3.05, CPP: 43.40, ISS: 21.95 } },
+    reparticao: { IRPJ: 4.00, CSLL: 3.50, COFINS: 12.82, PIS: 2.78, CPP: 43.40, ISS: 33.50 } },
   { anexo: 'III', faixa: 2, receitaInicial: 180_000.01, receitaFinal: 360_000, aliquotaNominal: 11.20, parcelaDeduzir: 9_360,
-    reparticao: { IRPJ: 10.00, CSLL: 7.50, COFINS: 14.10, PIS: 3.05, CPP: 43.40, ISS: 21.95 } },
+    reparticao: { IRPJ: 4.00, CSLL: 3.50, COFINS: 14.05, PIS: 3.05, CPP: 43.40, ISS: 32.00 } },
   { anexo: 'III', faixa: 3, receitaInicial: 360_000.01, receitaFinal: 720_000, aliquotaNominal: 13.50, parcelaDeduzir: 17_640,
-    reparticao: { IRPJ: 10.00, CSLL: 7.50, COFINS: 14.10, PIS: 3.05, CPP: 43.40, ISS: 21.95 } },
+    reparticao: { IRPJ: 4.00, CSLL: 3.50, COFINS: 13.64, PIS: 2.96, CPP: 43.40, ISS: 32.50 } },
   { anexo: 'III', faixa: 4, receitaInicial: 720_000.01, receitaFinal: 1_800_000, aliquotaNominal: 16.00, parcelaDeduzir: 35_640,
-    reparticao: { IRPJ: 10.00, CSLL: 7.50, COFINS: 14.10, PIS: 3.05, CPP: 43.40, ISS: 21.95 } },
+    reparticao: { IRPJ: 4.00, CSLL: 3.50, COFINS: 13.64, PIS: 2.96, CPP: 43.40, ISS: 32.50 } },
   { anexo: 'III', faixa: 5, receitaInicial: 1_800_000.01, receitaFinal: 3_600_000, aliquotaNominal: 21.00, parcelaDeduzir: 125_640,
-    reparticao: { IRPJ: 10.00, CSLL: 7.50, COFINS: 14.10, PIS: 3.05, CPP: 43.40, ISS: 21.95 } },
+    reparticao: { IRPJ: 4.00, CSLL: 3.50, COFINS: 12.82, PIS: 2.78, CPP: 43.40, ISS: 33.50 } },
   { anexo: 'III', faixa: 6, receitaInicial: 3_600_000.01, receitaFinal: 4_800_000, aliquotaNominal: 33.00, parcelaDeduzir: 648_000,
     reparticao: { IRPJ: 35.00, CSLL: 15.00, COFINS: 16.03, PIS: 3.47, CPP: 30.50 } },
 
@@ -237,13 +237,13 @@ export const FAIXAS_COMPLETAS: FaixaCompleta[] = [
   { anexo: 'IV', faixa: 1, receitaInicial: 0, receitaFinal: 180_000, aliquotaNominal: 4.50, parcelaDeduzir: 0,
     reparticao: { IRPJ: 18.80, CSLL: 15.20, COFINS: 17.67, PIS: 3.83, ISS: 44.50 } },
   { anexo: 'IV', faixa: 2, receitaInicial: 180_000.01, receitaFinal: 360_000, aliquotaNominal: 9.00, parcelaDeduzir: 8_100,
-    reparticao: { IRPJ: 18.80, CSLL: 15.20, COFINS: 17.67, PIS: 3.83, ISS: 44.50 } },
+    reparticao: { IRPJ: 19.80, CSLL: 15.20, COFINS: 20.55, PIS: 4.45, ISS: 40.00 } },
   { anexo: 'IV', faixa: 3, receitaInicial: 360_000.01, receitaFinal: 720_000, aliquotaNominal: 10.20, parcelaDeduzir: 12_420,
-    reparticao: { IRPJ: 18.80, CSLL: 15.20, COFINS: 17.67, PIS: 3.83, ISS: 44.50 } },
+    reparticao: { IRPJ: 20.80, CSLL: 15.20, COFINS: 19.73, PIS: 4.27, ISS: 40.00 } },
   { anexo: 'IV', faixa: 4, receitaInicial: 720_000.01, receitaFinal: 1_800_000, aliquotaNominal: 14.00, parcelaDeduzir: 39_780,
-    reparticao: { IRPJ: 18.80, CSLL: 15.20, COFINS: 17.67, PIS: 3.83, ISS: 44.50 } },
+    reparticao: { IRPJ: 17.80, CSLL: 19.20, COFINS: 18.90, PIS: 4.10, ISS: 40.00 } },
   { anexo: 'IV', faixa: 5, receitaInicial: 1_800_000.01, receitaFinal: 3_600_000, aliquotaNominal: 22.00, parcelaDeduzir: 183_780,
-    reparticao: { IRPJ: 18.80, CSLL: 15.20, COFINS: 17.67, PIS: 3.83, ISS: 44.50 } },
+    reparticao: { IRPJ: 18.80, CSLL: 19.20, COFINS: 18.08, PIS: 3.92, ISS: 40.00 } },
   { anexo: 'IV', faixa: 6, receitaInicial: 3_600_000.01, receitaFinal: 4_800_000, aliquotaNominal: 33.00, parcelaDeduzir: 828_000,
     reparticao: { IRPJ: 53.50, CSLL: 21.50, COFINS: 20.55, PIS: 4.45 } },
 
@@ -251,13 +251,13 @@ export const FAIXAS_COMPLETAS: FaixaCompleta[] = [
   { anexo: 'V', faixa: 1, receitaInicial: 0, receitaFinal: 180_000, aliquotaNominal: 15.50, parcelaDeduzir: 0,
     reparticao: { IRPJ: 25.00, CSLL: 15.00, COFINS: 14.10, PIS: 3.05, CPP: 28.85, ISS: 14.00 } },
   { anexo: 'V', faixa: 2, receitaInicial: 180_000.01, receitaFinal: 360_000, aliquotaNominal: 18.00, parcelaDeduzir: 4_500,
-    reparticao: { IRPJ: 25.00, CSLL: 15.00, COFINS: 14.10, PIS: 3.05, CPP: 28.85, ISS: 14.00 } },
+    reparticao: { IRPJ: 23.00, CSLL: 15.00, COFINS: 14.10, PIS: 3.05, CPP: 27.85, ISS: 17.00 } },
   { anexo: 'V', faixa: 3, receitaInicial: 360_000.01, receitaFinal: 720_000, aliquotaNominal: 19.50, parcelaDeduzir: 9_900,
-    reparticao: { IRPJ: 25.00, CSLL: 15.00, COFINS: 14.10, PIS: 3.05, CPP: 28.85, ISS: 14.00 } },
+    reparticao: { IRPJ: 24.00, CSLL: 15.00, COFINS: 14.92, PIS: 3.23, CPP: 23.85, ISS: 19.00 } },
   { anexo: 'V', faixa: 4, receitaInicial: 720_000.01, receitaFinal: 1_800_000, aliquotaNominal: 20.50, parcelaDeduzir: 17_100,
-    reparticao: { IRPJ: 25.00, CSLL: 15.00, COFINS: 14.10, PIS: 3.05, CPP: 28.85, ISS: 14.00 } },
+    reparticao: { IRPJ: 21.00, CSLL: 15.00, COFINS: 15.74, PIS: 3.41, CPP: 23.85, ISS: 21.00 } },
   { anexo: 'V', faixa: 5, receitaInicial: 1_800_000.01, receitaFinal: 3_600_000, aliquotaNominal: 23.00, parcelaDeduzir: 62_100,
-    reparticao: { IRPJ: 25.00, CSLL: 15.00, COFINS: 14.10, PIS: 3.05, CPP: 28.85, ISS: 14.00 } },
+    reparticao: { IRPJ: 23.00, CSLL: 12.50, COFINS: 14.10, PIS: 3.05, CPP: 23.85, ISS: 23.50 } },
   { anexo: 'V', faixa: 6, receitaInicial: 3_600_000.01, receitaFinal: 4_800_000, aliquotaNominal: 30.50, parcelaDeduzir: 540_000,
-    reparticao: { IRPJ: 21.00, CSLL: 15.00, COFINS: 16.03, PIS: 3.47, CPP: 37.00, ISS: 7.50 } },
+    reparticao: { IRPJ: 35.00, CSLL: 15.50, COFINS: 16.44, PIS: 3.56, CPP: 29.50 } },
 ]

@@ -4,7 +4,8 @@ import { getOrgId } from '@/lib/supabase/org'
 import { validarEmpresaDaOrg, respostaForbidden } from '@/lib/supabase/validation'
 import { normalizarCompetencia } from '@/lib/fiscal/competencia'
 import { fetchAll } from '@/lib/supabase/fetchAll'
-import { cfopEhDevolucaoVenda, cfopEhFaturamento } from '@/lib/simples/cfopReceita'
+import { cfopEhDevolucaoVenda } from '@/lib/simples/cfopReceita'
+import { carregarOverridesCfop, resolverFaturamentoCfop } from '@/lib/simples/cfopFaturamentoConfig'
 import type { DocumentoFiscal, DocumentoFiscalItem } from '@/lib/types'
 
 type DocumentoComItens = DocumentoFiscal & {
@@ -19,9 +20,9 @@ function legacyDocId(chave: string | null | undefined, numero: string | null | u
   return `legacy-${chave || numero || index}`
 }
 
-function impactoPorCfop(cfop: string | null | undefined) {
+function impactoPorCfop(cfop: string | null | undefined, overrides: Map<string, boolean>) {
   if (cfop && cfopEhDevolucaoVenda(cfop)) return 'reduz_receita' as const
-  if (cfop && cfopEhFaturamento(cfop)) return 'soma_receita' as const
+  if (cfop && resolverFaturamentoCfop(cfop, overrides)) return 'soma_receita' as const
   return 'sem_impacto' as const
 }
 
@@ -90,6 +91,8 @@ export async function GET(request: Request) {
     return respostaForbidden('empresa_id')
   }
 
+  const overrides = await carregarOverridesCfop(supabase, empresaId)
+
   const documentos = await fetchAll<DocumentoComItens>((from, to) =>
     supabase
       .from('fa_documentos_fiscais')
@@ -119,7 +122,7 @@ export async function GET(request: Request) {
     if (impacto && impacto !== 'pendente_revisao') return impacto
     if (cfop) {
       if (cfopEhDevolucaoVenda(cfop)) return 'reduz_receita'
-      if (cfopEhFaturamento(cfop)) return 'soma_receita'
+      if (resolverFaturamentoCfop(cfop, overrides)) return 'soma_receita'
     }
     if (tipoMov === 'saida') return 'soma_receita'
     if (tipoMov === 'devolucao_venda') return 'reduz_receita'
@@ -151,7 +154,7 @@ export async function GET(request: Request) {
   let fonte = 'fa_documentos_fiscais'
 
   if (docsValidos.length === 0) {
-    const xmlRows = await fetchAll<XmlFallbackRow>((from, to) =>
+    const xmlRowsBrutas = await fetchAll<XmlFallbackRow>((from, to) =>
       supabase
         .from('fa_arquivos_xml')
         .select('id, chave_nfe, numero_nf, data_emissao, emitente_cnpj, emitente_nome, destinatario_cnpj, destinatario_nome, tipo_operacao, valor_total, status, parsed_data, created_at')
@@ -160,8 +163,26 @@ export async function GET(request: Request) {
         .range(from, to)
     )
 
+    // Deduplica ANTES de gerar itens: sem isso, duas linhas legadas com a mesma chave_nfe
+    // (acumuladas por reimportação, antes do índice único existir) geram o mesmo
+    // legacyDocId mas cada uma empurra seus próprios itens para itensFallback — dobrando
+    // o valor da nota. Mantém a linha mais recente por chave_nfe (ou, na ausência de
+    // chave, por numero_nf+emitente_cnpj+data_emissao).
+    const maisRecentePorChave = new Map<string, XmlFallbackRow>()
+    for (const row of xmlRowsBrutas) {
+      const chave = row.chave_nfe?.trim()
+      const dedupeKey = chave && chave.length >= 40
+        ? chave
+        : `${row.numero_nf ?? ''}_${row.emitente_cnpj ?? ''}_${row.data_emissao ?? ''}`
+      const existente = maisRecentePorChave.get(dedupeKey)
+      if (!existente || (row.created_at ?? '') > (existente.created_at ?? '')) {
+        maisRecentePorChave.set(dedupeKey, row)
+      }
+    }
+    const xmlRows = Array.from(maisRecentePorChave.values())
+
     const xmlDaCompetencia = xmlRows.filter(row =>
-      row.status !== 'cancelada' && dataParaCompetencia(row.data_emissao) === competencia
+      row.status !== 'cancelada' && row.data_emissao != null && dataParaCompetencia(row.data_emissao) === competencia
     )
 
     const itensFallback: DocumentoFiscalItem[] = []
@@ -179,7 +200,7 @@ export async function GET(request: Request) {
         })),
       ].filter(item => !item.cancelada)
 
-      const impactos = itensRow.map(item => impactoPorCfop(item.cfop))
+      const impactos = itensRow.map(item => impactoPorCfop(item.cfop, overrides))
       const impacto = impactos.includes('reduz_receita')
         ? 'reduz_receita'
         : impactos.includes('soma_receita') || row.tipo_operacao === 'saida'
@@ -187,7 +208,7 @@ export async function GET(request: Request) {
           : 'sem_impacto'
 
       itensRow.forEach((item, itemIndex) => {
-        const itemImpacto = impactoPorCfop(item.cfop)
+        const itemImpacto = impactoPorCfop(item.cfop, overrides)
         const valorTotal = numero(item.valor_contabil ?? item.valor_total)
         const qtd = quantidade(item.quantidade)
         itensFallback.push({

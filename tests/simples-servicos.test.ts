@@ -2,7 +2,7 @@
  * Testes planejados para apuracao de servicos no Simples Nacional.
  */
 
-import { apurarSimples } from '../lib/simples/calcularSimples'
+import { apurarSimples, calcularDas } from '../lib/simples/calcularSimples'
 import type { DocumentoFiscal, DocumentoFiscalItem } from '../lib/types'
 
 function docServico(): DocumentoFiscal {
@@ -131,5 +131,87 @@ describe('Simples Nacional - servicos', () => {
     })
     expect(result.por_anexo.I.receita).toBe(5000)
     expect(result.por_anexo.III.receita).toBe(10000)
+  })
+
+  test('reproduz a partilha do Anexo III da declaracao PGDAS de 06/2026', () => {
+    const semRetencao = calcularDas(14208, 57481.02, 'III')!
+    const comRetencao = calcularDas(760, 57481.02, 'III', { excluirIss: true })!
+
+    expect(semRetencao.distribuicao).toMatchObject({
+      IRPJ: 4,
+      CSLL: 3.5,
+      COFINS: 12.82,
+      PIS: 2.78,
+      CPP: 43.4,
+      ISS: 33.5,
+    })
+    expect(semRetencao.breakdown).toMatchObject({
+      IRPJ: 34.10,
+      CSLL: 29.84,
+      COFINS: 109.29,
+      PIS: 23.70,
+      CPP: 369.98,
+      ISS: 285.58,
+    })
+    expect(semRetencao.valorDas).toBe(852.49)
+    expect(comRetencao.breakdown).toMatchObject({
+      IRPJ: 1.82,
+      CSLL: 1.60,
+      COFINS: 5.85,
+      PIS: 1.27,
+      CPP: 19.79,
+      ISS: 0,
+    })
+    expect(comRetencao.valorDas).toBe(30.33)
+  })
+
+  test('segrega serviço com ISS retido e exclui somente a parcela de ISS do DAS', () => {
+    const retida = {
+      ...docServico(),
+      parsed_data: { metadados: { iss_retido: true, valor_iss: 300 } },
+    }
+    const semRetencao = {
+      ...docServico(),
+      id: 'doc-nfse-2',
+      chave_acesso: 'NFSE:123:5208707:2:DEF',
+      numero: '2',
+      parsed_data: { metadados: { iss_retido: false, valor_iss: 300 } },
+    }
+    const itemRetido = itemServico()
+    const itemSemRetencao = {
+      ...itemServico(),
+      id: 'item-2',
+      documento_id: semRetencao.id,
+    }
+
+    const result = apurarSimples({
+      documentos: [retida, semRetencao],
+      itens: [itemRetido, itemSemRetencao],
+      rbt12: 240000,
+      origem_rbt12: 'manual',
+      cnpjEmpresa: '12345678000190',
+      competencia: '05/2026',
+      anexoServico: 'III',
+    })
+    const issEsperado = calcularDas(10000, 240000, 'III')!.breakdown.ISS
+
+    expect(result.receita_servicos_com_iss_retido).toBe(10000)
+    expect(result.receita_servicos_sem_iss_retido).toBe(10000)
+    expect(result.total_iss_retido).toBe(300)
+    expect(result.valor_iss_excluido_das).toBe(issEsperado)
+    expect(result.valor_das_a_pagar).toBeCloseTo(result.valor_das_total - issEsperado, 2)
+    expect(result.valor_das_a_pagar).not.toBeCloseTo(result.valor_das_total - 300, 2)
+    expect(result.por_anexo.III.segregacaoIss).toMatchObject({
+      receitaComRetencao: 10000,
+      receitaSemRetencao: 10000,
+      valorIssExcluido: issEsperado,
+      semRetencao: {
+        receita: 10000,
+      },
+      comRetencao: {
+        receita: 10000,
+        breakdown: { ISS: 0 },
+      },
+    })
   })
 })

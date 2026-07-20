@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
+import { CLASSIFICACAO_ITEM_VALORES, SITUACAO_CLASSIFICACAO_VALORES } from '@/lib/types'
 
 export async function PATCH(
   request: Request,
@@ -12,8 +13,16 @@ export async function PATCH(
   const { id } = await params
   const body = await request.json()
 
+  if ('classificacao' in body && body.classificacao !== null && !(CLASSIFICACAO_ITEM_VALORES as readonly string[]).includes(body.classificacao)) {
+    return NextResponse.json({ error: `classificacao inválida: ${body.classificacao}` }, { status: 400 })
+  }
+  if ('situacao_classificacao' in body && body.situacao_classificacao !== null && !(SITUACAO_CLASSIFICACAO_VALORES as readonly string[]).includes(body.situacao_classificacao)) {
+    return NextResponse.json({ error: `situacao_classificacao inválida: ${body.situacao_classificacao}` }, { status: 400 })
+  }
+
   const campos_permitidos = [
     'classificacao',
+    'situacao_classificacao',
     'natureza_receita_simples',
     'anexo_sugerido',
     'impacto_receita',

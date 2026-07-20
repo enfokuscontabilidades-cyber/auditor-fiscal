@@ -10,14 +10,16 @@ import type { AnexoSimples } from './tabelasAnexos'
 
 // Vendas de mercadorias (comércio/revenda) — Anexo I
 const CFOP_VENDA_COMERCIO = new Set([
-  '5101','5102','5111','5113','5114','5115','5116','5117','5118','5119',
-  '6101','6102','6111','6113','6114','6115','6116','6117','6118','6119',
-  '5120','5122','5123','5124','5125','6120','6122','6123','6124','6125',
+  '5102','5104','5106','5110','5112','5114','5115','5117','5119','5120','5123',
+  '6102','6104','6106','6108','6110','6112','6114','6115','6117','6119','6120','6123',
 ])
 
-// Vendas de produtos industrializados — Anexo II (quando empresa é indústria)
+// Vendas de produção própria / industrialização — Anexo II.
+// Uma indústria também pode revender mercadorias de terceiros (Anexo I),
+// portanto a operação prevalece sobre o CNAE ao definir o anexo da receita.
 const CFOP_VENDA_INDUSTRIA = new Set([
-  '5101','5102','6101','6102',
+  '5101','5103','5105','5107','5109','5111','5113','5116','5118','5122','5124','5125',
+  '6101','6103','6105','6107','6109','6111','6113','6116','6118','6122','6124','6125',
 ])
 
 // Vendas com substituição tributária — receita ST (excluída da base Simples)
@@ -84,6 +86,17 @@ export interface ClassificacaoCfop {
   origem_devolucao: OrigemDevolucao
   anexo_sugerido: AnexoSimples | null
   regra_aplicada: string
+}
+
+/**
+ * Define o anexo da receita quando o próprio CFOP distingue revenda de
+ * terceiros (Anexo I) de produção do estabelecimento (Anexo II).
+ */
+export function anexoVendaMercadoriaPorCfop(cfop: string): 'I' | 'II' | null {
+  const cfop4 = cfop.replace(/\D/g, '').slice(0, 4)
+  if (CFOP_VENDA_COMERCIO.has(cfop4)) return 'I'
+  if (CFOP_VENDA_INDUSTRIA.has(cfop4)) return 'II'
+  return null
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -221,16 +234,16 @@ export function classificarCfop(
     }
   }
 
-  // Vendas de mercadorias/produtos
-  if (CFOP_VENDA_COMERCIO.has(cfop4) || CFOP_VENDA_INDUSTRIA.has(cfop4)) {
-    const anexo: AnexoSimples = ehIndustrial ? 'II' : 'I'
+  // O CFOP define se a receita é de revenda (I) ou produção própria (II).
+  const anexoVenda = anexoVendaMercadoriaPorCfop(cfop4)
+  if (anexoVenda) {
     return {
       tipo_movimento: 'saida',
       impacto_receita: 'soma_receita',
       natureza_receita_simples: 'tributada',
       origem_devolucao: 'nao_aplicavel',
-      anexo_sugerido: anexo,
-      regra_aplicada: `Venda de ${ehIndustrial ? 'produto industrializado' : 'mercadoria'} (CFOP ${cfop4}) — Anexo ${anexo}`,
+      anexo_sugerido: anexoVenda,
+      regra_aplicada: `Venda de ${anexoVenda === 'II' ? 'produção do estabelecimento' : 'mercadoria adquirida de terceiros'} (CFOP ${cfop4}) — Anexo ${anexoVenda}`,
     }
   }
 
@@ -267,6 +280,19 @@ export function classificarCfop(
     regra_aplicada: `CFOP ${cfop4} não reconhecido`,
   }
 }
+
+// Lista padrão de CFOPs considerados faturamento, com descrição resumida — usada como
+// ponto de partida editável na configuração por empresa (fa_cfop_faturamento_config).
+// Não é regra absoluta: o usuário pode desmarcar/adicionar CFOPs por empresa.
+export const CFOP_FATURAMENTO_PADRAO: { cfop: string; descricao: string }[] = [
+  ...Array.from(CFOP_VENDA_COMERCIO).map(cfop => ({ cfop, descricao: 'Venda de mercadoria' })),
+  ...Array.from(CFOP_VENDA_INDUSTRIA).map(cfop => ({ cfop, descricao: 'Venda de produto industrializado' })),
+  ...Array.from(CFOP_VENDA_ST).map(cfop => ({ cfop, descricao: 'Venda com substituição tributária' })),
+  ...Array.from(CFOP_SERVICO).map(cfop => ({ cfop, descricao: 'Prestação de serviço' })),
+  ...Array.from(CFOP_EXPORTACAO).map(cfop => ({ cfop, descricao: 'Exportação' })),
+]
+  .filter((row, idx, arr) => arr.findIndex(r => r.cfop === row.cfop) === idx)
+  .sort((a, b) => a.cfop.localeCompare(b.cfop))
 
 // Retorna true se o CFOP representa uma saída de vendas/faturamento
 export function cfopEhFaturamento(cfop: string): boolean {

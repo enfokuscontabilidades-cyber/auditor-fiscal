@@ -14,7 +14,13 @@ import PageHeader from "@/components/ui/PageHeader";
 import PaginationControls, { getPageItems } from "@/components/ui/PaginationControls";
 import { extrairXmlsDeArquivos } from "@/lib/fiscal/xmlArchive";
 import { parseNfseAbrasf } from "@/lib/nfse/parseNfseAbrasf";
+import { parseNfeParaDocumento, type NfeParseResult } from "@/lib/nfe/parseNfe";
 import { useNotifications } from "@/components/notifications/NotificationProvider";
+import {
+  type ClassificacaoManualItem as ClassificacaoManual,
+  separarClassificacaoManual,
+  combinarClassificacaoManual,
+} from "@/lib/types";
 
 // ══════════════════════════════════════════════════════════════════════════════
 // TIPOS
@@ -22,9 +28,6 @@ import { useNotifications } from "@/components/notifications/NotificationProvide
 
 type StatusValidacao = "OK" | "ALERTA";
 type PerfilEmpresa = "geral" | "supermercado" | "restaurante" | "construcao";
-type ClassificacaoManual =
-  | "revenda" | "insumo" | "uso_consumo" | "imobilizado" | "combustivel"
-  | "desconhece" | "nao_recebido" | "servico" | null;
 
 type AnaliseSugestao = {
   tipo: "uso_consumo" | "imobilizado" | "combustivel" | null;
@@ -133,6 +136,8 @@ type LinhaNfse = {
   valorServicos: number;
   valorDeducoes: number;
   valorIss: number;
+  valorIssRetido: number;
+  issRetido: boolean;
   valorLiquido: number;
   itemListaServico: string;
   codigoTributacaoMunicipio: string;
@@ -165,6 +170,9 @@ type XmlPendente = {
   destinatarioNome: string;
   tipoOperacao: string;
   valorTotal: number;
+  cancelada?: boolean;
+  persistencia?: NfeParseResult;
+  cancelamentosRelacionados?: string[];
 };
 
 type TipoImportacaoXml = "terceiro" | "proprio" | "nfse";
@@ -1513,6 +1521,12 @@ type XmlMetadata = {
   ref_nfe?: string; // chave da NF referenciada (NFref > refNFe) — devoluções e complementares
 };
 
+type XmlMetadataImportacao = XmlMetadata & {
+  cancelada: boolean;
+  persistencia: NfeParseResult | undefined;
+  cancelamentosRelacionados: string[];
+};
+
 function extrairMetadataXml(txt: string): XmlMetadata | null {
   try {
     const doc = new DOMParser().parseFromString(txt, "text/xml");
@@ -2022,13 +2036,15 @@ type DocumentoFiscalDb = {
       numero?: string; codigo_verificacao?: string; data_emissao?: string; competencia?: string;
       prestador_cnpj?: string; tomador_cnpj?: string; tomador_nome?: string; municipio_codigo?: string;
       discriminacao?: string; item_lista_servico?: string; codigo_tributacao_municipio?: string;
-      valor_servicos?: number; valor_deducoes?: number; valor_iss?: number; valor_liquido?: number; cancelada?: boolean;
+      valor_servicos?: number; valor_deducoes?: number; desconto_incondicionado?: number;
+      valor_iss?: number; valor_iss_retido?: number; iss_retido?: boolean; tipo_retencao_iss?: string;
+      valor_liquido?: number; cancelada?: boolean;
     };
   } | null;
   fa_documentos_itens?: Array<{
     id: string; codigo_produto?: string; descricao?: string; ncm?: string; cfop?: string;
     quantidade: number; valor_unitario: number; valor_total: number;
-    valor_desconto: number; valor_frete: number; valor_ipi: number;
+    valor_desconto: number; valor_frete: number; valor_seguro?: number; valor_outras_despesas?: number; valor_ipi: number;
     cst_icms?: string; csosn?: string; valor_bc_icms: number; aliquota_icms: number; valor_icms: number;
     valor_bc_st: number; valor_st: number;
     cst_pis?: string; valor_bc_pis: number; aliquota_pis: number; valor_pis: number;
@@ -2036,6 +2052,7 @@ type DocumentoFiscalDb = {
     cst_ibs_cbs?: string; cclass_trib?: string; valor_bc_ibs_cbs?: number;
     aliquota_ibs_uf?: number; valor_ibs_uf?: number; aliquota_ibs_mun?: number; valor_ibs_mun?: number;
     valor_ibs?: number; aliquota_cbs?: number; valor_cbs?: number;
+    classificacao?: string; classificacao_manual?: boolean; situacao_classificacao?: string | null;
   }>;
 };
 
@@ -2098,6 +2115,9 @@ export default function ValidadorPage() {
   const [cfopEntradaNovo,setCfopEntradaNovo]=useState("");
   const [periodoInicio,setPeriodoInicio]=useState("");
   const [carregandoPeriodo,setCarregandoPeriodo]=useState(false);
+  const [diagnosticoDocs,setDiagnosticoDocs]=useState<Array<{numero:string;parceiro:string;tipo_movimento:string;qtd_itens:number;chave_final:string;status:string}>|null>(null);
+  const [carregandoDiagnostico,setCarregandoDiagnostico]=useState(false);
+  const [erroDiagnostico,setErroDiagnostico]=useState("");
   const [limpezaInicio,setLimpezaInicio]=useState("");
   const [limpezaFim,setLimpezaFim]=useState("");
   const [limpezaTipos,setLimpezaTipos]=useState<Record<LimpezaTipo, boolean>>({
@@ -2109,7 +2129,7 @@ export default function ValidadorPage() {
   const pendingNe=useRef<LinhaEntrada[]>([]);
   const pendingNs=useRef<LinhaSaida[]>([]);
   const pendingQtdCanc=useRef(0);
-  const pendingMeta=useRef<XmlMetadata[]>([]);
+  const pendingMeta=useRef<XmlMetadataImportacao[]>([]);
   const pendingDevRefs=useRef<Set<string>>(new Set());
   const pendingImportReport=useRef<ImportacaoXmlReport | null>(null);
   const empresaAnteriorRef=useRef<string|null>(null);
@@ -2278,8 +2298,10 @@ export default function ValidadorPage() {
       municipioCodigo: meta.municipio_codigo || "",
       cfop: cfopServicoNfse(meta.municipio_codigo),
       valorServicos: meta.cancelada ? 0 : (meta.valor_servicos || nfse.documento.valor_servicos || 0),
-      valorDeducoes: meta.cancelada ? 0 : (meta.valor_deducoes || nfse.documento.valor_desconto || 0),
+      valorDeducoes: meta.cancelada ? 0 : meta.valor_deducoes,
       valorIss: meta.cancelada ? 0 : (meta.valor_iss || 0),
+      valorIssRetido: meta.cancelada ? 0 : meta.valor_iss_retido,
+      issRetido: !meta.cancelada && meta.iss_retido,
       valorLiquido: meta.cancelada ? 0 : (meta.valor_liquido || nfse.documento.valor_total || meta.valor_servicos || 0),
       itemListaServico: meta.item_lista_servico || "",
       codigoTributacaoMunicipio: meta.codigo_tributacao_municipio || "",
@@ -2307,6 +2329,8 @@ export default function ValidadorPage() {
       valorServicos: (meta?.cancelada || doc.status === "cancelada") ? 0 : Number(meta?.valor_servicos ?? doc.valor_servicos ?? item?.valor_total ?? 0),
       valorDeducoes: (meta?.cancelada || doc.status === "cancelada") ? 0 : Number(meta?.valor_deducoes ?? doc.valor_desconto ?? item?.valor_desconto ?? 0),
       valorIss: (meta?.cancelada || doc.status === "cancelada") ? 0 : Number(meta?.valor_iss ?? doc.valor_icms ?? 0),
+      valorIssRetido: (meta?.cancelada || doc.status === "cancelada") ? 0 : Number(meta?.valor_iss_retido ?? (meta?.iss_retido ? meta.valor_iss : 0) ?? 0),
+      issRetido: !(meta?.cancelada || doc.status === "cancelada") && Boolean(meta?.iss_retido),
       valorLiquido: (meta?.cancelada || doc.status === "cancelada") ? 0 : Number(meta?.valor_liquido ?? doc.valor_total ?? doc.valor_servicos ?? item?.valor_total ?? 0),
       itemListaServico: meta?.item_lista_servico ?? item?.codigo_produto ?? "",
       codigoTributacaoMunicipio: meta?.codigo_tributacao_municipio ?? "",
@@ -2325,7 +2349,7 @@ export default function ValidadorPage() {
     if(!res.ok) { setErro('Falha ao marcar NFS-e como cancelada.'); return; }
     setNfses(prev => prev.map(n =>
       n.id === nfse.id
-        ? { ...n, status: 'cancelada' as const, valorServicos: 0, valorIss: 0, valorLiquido: 0, valorDeducoes: 0 }
+        ? { ...n, status: 'cancelada' as const, valorServicos: 0, valorIss: 0, valorIssRetido: 0, issRetido: false, valorLiquido: 0, valorDeducoes: 0 }
         : n
     ));
   }
@@ -2343,7 +2367,18 @@ export default function ValidadorPage() {
       const itens = doc.fa_documentos_itens ?? [];
       for(const item of itens){
         const cfopStr = item.cfop ?? "";
-        const isSaida = doc.tipo_movimento === "saida" || cfopStr.startsWith("5") || cfopStr.startsWith("6");
+        // O CFOP gravado no XML reflete sempre a perspectiva de quem EMITIU a nota —
+        // uma compra de fornecedor (entrada, tpNF=0) normalmente carrega CFOP 5xxx/6xxx
+        // (venda do fornecedor), então "cfopStr.startsWith('5'/'6')" NÃO pode decidir a
+        // direção da nota. doc.tipo_movimento já foi calculado corretamente na
+        // importação a partir do tpNF do XML (ver salvarXmlsDaSessao) — é a fonte de
+        // verdade. O prefixo do CFOP só é usado como fallback quando tipo_movimento
+        // não define claramente a direção (remessa/transferência/outros/ausente).
+        const isSaida = doc.tipo_movimento === "entrada" || doc.tipo_movimento === "devolucao_venda"
+          ? false
+          : doc.tipo_movimento === "saida" || doc.tipo_movimento === "devolucao_compra"
+            ? true
+            : cfopStr.startsWith("5") || cfopStr.startsWith("6");
         if(isSaida){
           mappedSaidas.push({
             id: item.id,
@@ -2357,11 +2392,11 @@ export default function ValidadorPage() {
             cst_icms: item.cst_icms ?? item.csosn ?? "",
             cst_pis: item.cst_pis ?? "",
             cst_cofins: item.cst_cofins ?? "",
-            valor_contabil: item.valor_total,
+            valor_contabil: item.valor_total + (item.valor_frete ?? 0) + (item.valor_seguro ?? 0) + (item.valor_outras_despesas ?? 0) + (item.valor_ipi ?? 0) - (item.valor_desconto ?? 0),
             valor_produto: item.valor_total,
             valor_desconto: item.valor_desconto ?? 0,
             valor_frete: item.valor_frete ?? 0,
-            valor_despesas: 0,
+            valor_despesas: (item.valor_seguro ?? 0) + (item.valor_outras_despesas ?? 0),
             valor_ipi_item: item.valor_ipi ?? 0,
             base_icms: item.valor_bc_icms, aliquota_icms: item.aliquota_icms, valor_icms: item.valor_icms,
             base_st: item.valor_bc_st, valor_st: item.valor_st, valor_ipi: item.valor_ipi ?? 0,
@@ -2386,16 +2421,17 @@ export default function ValidadorPage() {
             ncm: item.ncm ?? "",
             descricao: item.descricao ?? "",
             cfop: cfopStr,
-            valor_contabil: item.valor_total,
+            valor_contabil: item.valor_total + (item.valor_frete ?? 0) + (item.valor_seguro ?? 0) + (item.valor_outras_despesas ?? 0) + (item.valor_ipi ?? 0) - (item.valor_desconto ?? 0),
             base_icms: item.valor_bc_icms, aliquota_icms: item.aliquota_icms, valor_icms: item.valor_icms,
             valor_produto: item.valor_total,
             valor_desconto: item.valor_desconto ?? 0,
             valor_frete: item.valor_frete ?? 0,
-            valor_despesas: 0,
+            valor_despesas: (item.valor_seguro ?? 0) + (item.valor_outras_despesas ?? 0),
             valor_ipi_item: item.valor_ipi ?? 0,
             status: "OK", avisos: [],
             sugestao: { tipo: null, motivo: "", confianca: null },
-            classificacao: null,
+            classificacao: combinarClassificacaoManual(item.classificacao, item.situacao_classificacao),
+            classificacaoManual: item.classificacao_manual ?? false,
             fonte: "xml",
             tipo_nfe: "terceiro",
           });
@@ -2406,7 +2442,7 @@ export default function ValidadorPage() {
     return { mappedEntradas, mappedSaidas, mappedNfses };
   }
 
-  async function carregarSessaoAnterior(sessao: SessaoSalva) {
+  async function carregarSessaoAnterior(sessao: SessaoSalva, opts?: { preservarErroFalha?: boolean }) {
     setSessaoExpandida(false);
     try {
       const res = await fetch(`/api/arquivos-xml?sessao_id=${sessao.id}&incluir_dados=true`);
@@ -2432,7 +2468,9 @@ export default function ValidadorPage() {
       setSessaoAtual({ sessaoId: sessao.id, empresaId: empresa!.id, empresaNome: empresa!.razao_social, competencia: sessao.competencia });
       const mesSessao = competenciaParaMonth(sessao.competencia);
       setPeriodoInicio(mesSessao);
-      setErro("");
+      // Nunca apaga um erro de gravação real que acabou de ser exibido (ex.: chamado
+      // logo após uma falha em salvarXmlsDaSessao) — só limpa erro em recargas normais.
+      if (!opts?.preservarErroFalha) setErro("");
 
       if(novasLinhas.length > 0 || novasSaidas.length > 0){
         setLinhas(novasLinhas);
@@ -2452,7 +2490,7 @@ export default function ValidadorPage() {
               fa_documentos_itens?: Array<{
                 id: string; codigo_produto?: string; descricao?: string; ncm?: string; cfop?: string;
                 quantidade: number; valor_unitario: number; valor_total: number;
-                valor_desconto: number; valor_frete: number; valor_ipi: number;
+                valor_desconto: number; valor_frete: number; valor_seguro?: number; valor_outras_despesas?: number; valor_ipi: number;
                 cst_icms?: string; csosn?: string; valor_bc_icms: number; aliquota_icms: number; valor_icms: number;
                 valor_bc_st: number; valor_st: number;
                 cst_pis?: string; valor_bc_pis: number; aliquota_pis: number; valor_pis: number;
@@ -2460,6 +2498,7 @@ export default function ValidadorPage() {
                 cst_ibs_cbs?: string; cclass_trib?: string; valor_bc_ibs_cbs?: number;
                 aliquota_ibs_uf?: number; valor_ibs_uf?: number; aliquota_ibs_mun?: number; valor_ibs_mun?: number;
                 valor_ibs?: number; aliquota_cbs?: number; valor_cbs?: number;
+                classificacao?: string; classificacao_manual?: boolean; situacao_classificacao?: string | null;
               }>;
             }> = await resDb.json();
 
@@ -2484,11 +2523,11 @@ export default function ValidadorPage() {
                     cst_icms: item.cst_icms ?? item.csosn ?? '',
                     cst_pis: item.cst_pis ?? '',
                     cst_cofins: item.cst_cofins ?? '',
-                    valor_contabil: item.valor_total,
+                    valor_contabil: item.valor_total + (item.valor_frete ?? 0) + (item.valor_seguro ?? 0) + (item.valor_outras_despesas ?? 0) + (item.valor_ipi ?? 0) - (item.valor_desconto ?? 0),
                     valor_produto: item.valor_total,
                     valor_desconto: item.valor_desconto ?? 0,
                     valor_frete: item.valor_frete ?? 0,
-                    valor_despesas: 0,
+                    valor_despesas: (item.valor_seguro ?? 0) + (item.valor_outras_despesas ?? 0),
                     valor_ipi_item: item.valor_ipi ?? 0,
                     base_icms: item.valor_bc_icms, aliquota_icms: item.aliquota_icms, valor_icms: item.valor_icms,
                     base_st: item.valor_bc_st, valor_st: item.valor_st, valor_ipi: item.valor_ipi ?? 0,
@@ -2513,16 +2552,17 @@ export default function ValidadorPage() {
                     ncm: item.ncm ?? '',
                     descricao: item.descricao ?? '',
                     cfop: cfopStr,
-                    valor_contabil: item.valor_total,
+                    valor_contabil: item.valor_total + (item.valor_frete ?? 0) + (item.valor_seguro ?? 0) + (item.valor_outras_despesas ?? 0) + (item.valor_ipi ?? 0) - (item.valor_desconto ?? 0),
                     base_icms: item.valor_bc_icms, aliquota_icms: item.aliquota_icms, valor_icms: item.valor_icms,
                     valor_produto: item.valor_total,
                     valor_desconto: item.valor_desconto ?? 0,
                     valor_frete: item.valor_frete ?? 0,
-                    valor_despesas: 0,
+                    valor_despesas: (item.valor_seguro ?? 0) + (item.valor_outras_despesas ?? 0),
                     valor_ipi_item: item.valor_ipi ?? 0,
                     status: 'OK', avisos: [],
                     sugestao: { tipo: null, motivo: '', confianca: null },
-                    classificacao: null,
+                    classificacao: combinarClassificacaoManual(item.classificacao, item.situacao_classificacao),
+                    classificacaoManual: item.classificacao_manual ?? false,
                     fonte: 'xml',
                     tipo_nfe: 'terceiro',
                   });
@@ -2649,6 +2689,7 @@ export default function ValidadorPage() {
     let qtdCanc = 0;
     const rejeitadosCnpj: string[] = [];
     const avisosDevolucao: string[] = [];
+    const xmlsRejeitadosPersistencia = new Set<string>();
     if (empresa?.cnpj && !cnpjValido14(empresa.cnpj)) {
       setErro("CNPJ da empresa ativa invalido. Corrija o cadastro com exatamente 14 digitos numericos antes de importar XMLs.");
       return { entradas: [], saidas: [], canceladosIgnorados: 0, rejeitados: 0, avisos: ["CNPJ da empresa ativa invalido."] };
@@ -2668,10 +2709,12 @@ export default function ValidadorPage() {
           const destCnpj = cnpjDigitos(meta.destinatario_cnpj);
           if(forceTipo === "terceiro" && destCnpj && destCnpj !== empresaCnpj){
             rejeitadosCnpj.push(`${nome}: destinatario ${destCnpj} != empresa em analise`);
+            xmlsRejeitadosPersistencia.add(txt);
             continue;
           }
           if(forceTipo === "proprio" && emitCnpj && emitCnpj !== empresaCnpj && !ehDevolucaoVenda){
             rejeitadosCnpj.push(`${nome}: emitente ${emitCnpj} != empresa em analise`);
+            xmlsRejeitadosPersistencia.add(txt);
             continue;
           }
         }
@@ -2693,6 +2736,7 @@ export default function ValidadorPage() {
             msg = `NF ${nf} - ${forn}: nota de entrada do fornecedor. Nao importada - verifique se e uma devolucao ou se o arquivo esta correto.`;
           }
           avisosDevolucao.push(msg);
+          xmlsRejeitadosPersistencia.add(txt);
           continue;
         }
       }
@@ -2772,11 +2816,34 @@ export default function ValidadorPage() {
     }
 
     const metadados = txts
-      .filter(({txt}) => !detectarCancelamento(txt))
-      .map(({txt}) => extrairMetadataXml(txt))
-      .filter((m): m is XmlMetadata => m !== null);
+      .filter(({txt}) => !detectarCancelamento(txt) && !xmlsRejeitadosPersistencia.has(txt))
+      .map(({nome, txt}) => {
+        const metadata = extrairMetadataXml(txt);
+        if (!metadata) return null;
+        const persistencia = parseNfeParaDocumento(txt, empresaCnpj, ehIndustrial, nome) ?? undefined;
+        return {
+          ...metadata,
+          cancelada: !!metadata.chave_nfe && chavesCanceladas.has(metadata.chave_nfe),
+          persistencia,
+          cancelamentosRelacionados: Array.from(chavesCanceladas),
+        };
+      })
+      .filter((m): m is XmlMetadataImportacao => m !== null);
 
     if(!ne.length&&!ns.length){
+      if(chavesCanceladas.size>0){
+        const resultados=await Promise.all(Array.from(chavesCanceladas).map(async chave=>{
+          const res=await fetch("/api/documentos-fiscais/importar-nfe",{
+            method:"PATCH",headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({empresa_id:empresa!.id,chave_acesso:chave}),
+          });
+          return res.ok;
+        }));
+        const aplicados=resultados.filter(Boolean).length;
+        setInfoCanc(`${aplicados} evento(s) de cancelamento processado(s).`);
+        if(aplicados!==resultados.length) setErro(`${resultados.length-aplicados} cancelamento(s) não puderam ser aplicados.`);
+        return;
+      }
       notificarImportacaoXml({
         tipo: forceTipo,
         arquivos: txts.length,
@@ -2841,7 +2908,7 @@ export default function ValidadorPage() {
     }
   }
 
-  function finalizarImportacao(ne: LinhaEntrada[], ns: LinhaSaida[], metadados: XmlMetadata[], devRefs: Set<string> = new Set(), report?: ImportacaoXmlReport) {
+  function finalizarImportacao(ne: LinhaEntrada[], ns: LinhaSaida[], metadados: XmlMetadataImportacao[], devRefs: Set<string> = new Set(), report?: ImportacaoXmlReport) {
     if(ne.length>0){
       const AVISO_DEV = "Ha uma nota de entrada do fornecedor referenciando esta NF. Verifique se a operacao realmente aconteceu ou se foi cancelada/devolvida.";
       setLinhas(prev=>{
@@ -2867,18 +2934,39 @@ export default function ValidadorPage() {
         || metadados.find(m => m.tipo_operacao === "entrada")?.destinatario_cnpj
         || metadados[0].destinatario_cnpj;
       void cnpjDest;
-      setXmlsPendentes(metadados.map(m => ({
-        chaveNfe: m.chave_nfe ?? "",
-        numeroNf: m.numero_nf,
-        dataEmissao: m.data_emissao,
-        competencia: competenciaDaDataIso(m.data_emissao),
-        emitenteCnpj: m.emitente_cnpj,
-        emitenteNome: m.emitente_nome,
-        destinatarioCnpj: m.destinatario_cnpj,
-        destinatarioNome: m.destinatario_nome,
-        tipoOperacao: m.tipo_operacao ?? "",
-        valorTotal: m.valor_total,
-      })));
+      setXmlsPendentes(metadados.map(m => {
+        const chave=m.chave_nfe??"";
+        const itensUiEntrada=ne.filter(item=>chave?item.chave_nfe===chave:item.numero_nota===m.numero_nf);
+        const persistencia=m.persistencia?{
+          ...m.persistencia,
+          itens:m.persistencia.itens.map((item,i)=>{
+            const ui=itensUiEntrada[i];
+            if(!ui) return item;
+            const separada=separarClassificacaoManual(ui.classificacao);
+            return {
+              ...item,
+              classificacao:separada.classificacao??"outros" as const,
+              situacao_classificacao:separada.situacao_classificacao,
+              classificacao_manual:ui.classificacaoManual??false,
+            };
+          }),
+        }:undefined;
+        return {
+          chaveNfe: chave,
+          numeroNf: m.numero_nf,
+          dataEmissao: m.data_emissao,
+          competencia: competenciaDaDataIso(m.data_emissao),
+          emitenteCnpj: m.emitente_cnpj,
+          emitenteNome: m.emitente_nome,
+          destinatarioCnpj: m.destinatario_cnpj,
+          destinatarioNome: m.destinatario_nome,
+          tipoOperacao: m.tipo_operacao ?? "",
+          valorTotal: m.valor_total,
+          cancelada: m.cancelada,
+          persistencia,
+          cancelamentosRelacionados: m.cancelamentosRelacionados,
+        };
+      }));
       setModalAberto(true);
     }
     if(report) notificarImportacaoXml(report);
@@ -3052,51 +3140,62 @@ export default function ValidadorPage() {
     return saidas.filter(s => x.chaveNfe ? s.chave_nfe === x.chaveNfe : s.numero_nota === x.numeroNf);
   }
 
-  async function salvarXmlsDaSessao(dados: DadosSessao, pendentes: XmlPendente[]) {
-    if (pendentes.length === 0) return;
+  /**
+   * Grava os XMLs pendentes numa ÚNICA chamada atômica (fa_documentos_fiscais +
+   * fa_documentos_itens + fa_arquivos_xml gravados juntos via RPC no servidor —
+   * ver /api/documentos-fiscais/importar-nfe e fa_importar_lote_nfe). Antes disso
+   * eram duas chamadas HTTP independentes, a segunda sem checagem de resultado,
+   * permitindo "importação concluída" com o banco parcialmente gravado.
+   */
+  async function salvarXmlsDaSessao(dados: DadosSessao, pendentes: XmlPendente[]): Promise<{ salvos: number; erros: string[]; falhas: string[] }> {
+    if (pendentes.length === 0) return { salvos: 0, erros: [], falhas: [] };
 
-    const res = await fetch("/api/arquivos-xml", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sessao_id: dados.sessaoId,
-        empresa_id: dados.empresaId,
-        competencia: dados.competencia,
-        xmls: pendentes.map(x => {
-          const itensEntrada = itensEntradaDoXml(x);
-          const itensSaida = itensSaidaDoXml(x);
-          return {
-            chave_nfe: x.chaveNfe || null,
-            numero_nf: x.numeroNf,
-            data_emissao: x.dataEmissao,
-            emitente_cnpj: x.emitenteCnpj,
-            emitente_nome: x.emitenteNome,
-            destinatario_cnpj: x.destinatarioCnpj,
-            destinatario_nome: x.destinatarioNome,
-            tipo_operacao: x.tipoOperacao || null,
-            valor_total: x.valorTotal,
-            parsed_data: (itensEntrada.length > 0 || itensSaida.length > 0)
-              ? {
-                  ...(itensEntrada.length > 0 ? { itens_entrada: itensEntrada } : {}),
-                  ...(itensSaida.length > 0 ? { itens_saida: itensSaida } : {}),
-                }
-              : null,
-          };
-        }),
-      }),
-    });
-    if (!res.ok) throw new Error("Erro ao salvar XMLs.");
+    // A direção real de cada documento é definida por ONDE os itens efetivamente
+    // ficaram durante o parse (linhas=entrada vs saidas=saída) — que já aplica
+    // corretamente o "forceEntrada" do modo "terceiro" (nota de fornecedor sempre
+    // vira entrada, mesmo com tpNF=1 do lado de quem emitiu) — e não pelo tpNF
+    // bruto do XML (x.tipoOperacao). Usar x.tipoOperacao sozinho fazia com que toda
+    // nota de fornecedor (tpNF=1 do emitente) fosse salva como "saida" com itens
+    // vazios (porque os itens reais estavam em `linhas`, não em `saidas`).
+    function ehSaidaReal(x: XmlPendente, itensEntrada: LinhaEntrada[], itensSaida: LinhaSaida[]): boolean {
+      if (itensSaida.length > 0 && itensEntrada.length === 0) return true;
+      if (itensEntrada.length > 0) return false;
+      if (x.persistencia?.documento.tipo_movimento === "entrada" || x.persistencia?.documento.tipo_movimento === "devolucao_venda") return false;
+      if (x.persistencia?.documento.tipo_movimento === "saida" || x.persistencia?.documento.tipo_movimento === "devolucao_compra") return true;
+      return x.tipoOperacao === "saida";
+    }
+
+    const legado: Record<string, { tipo_operacao: string | null; parsed_data: unknown }> = {};
+    for (const x of pendentes) {
+      const chave = x.chaveNfe || x.numeroNf;
+      const itensEntrada = itensEntradaDoXml(x);
+      const itensSaida = itensSaidaDoXml(x);
+      legado[chave] = {
+        tipo_operacao: ehSaidaReal(x, itensEntrada, itensSaida) ? "saida" : "entrada",
+        parsed_data: (itensEntrada.length > 0 || itensSaida.length > 0)
+          ? {
+              ...(itensEntrada.length > 0 ? { itens_entrada: itensEntrada } : {}),
+              ...(itensSaida.length > 0 ? { itens_saida: itensSaida } : {}),
+            }
+          : null,
+      };
+    }
 
     const documentos = pendentes.map(x => {
       const itensEntrada = itensEntradaDoXml(x);
-      const ehDevolucaoVenda = x.tipoOperacao === "entrada" && itensEntrada.some(item => cfopEhDevolucaoVendaSimples(item.cfop_entrada_sugerido || item.cfop));
+      const itensSaida = itensSaidaDoXml(x);
+      const saidaReal = ehSaidaReal(x, itensEntrada, itensSaida);
+      const ehDevolucaoVenda = !saidaReal && (
+        x.persistencia?.documento.tipo_movimento === "devolucao_venda"
+        || itensEntrada.some(item => cfopEhDevolucaoVendaSimples(item.cfop_entrada_sugerido || item.cfop))
+      );
+      const documentoCanonico = x.persistencia?.documento;
       return {
+        ...documentoCanonico,
         tipo_documento: "nfe",
         origem: "xml_nfe",
         chave_acesso: x.chaveNfe || null,
         numero: x.numeroNf,
-        serie: null,
-        modelo: "55",
         data_emissao: x.dataEmissao,
         data_competencia: dados.competencia,
         emitente_cnpj: x.emitenteCnpj,
@@ -3104,27 +3203,64 @@ export default function ValidadorPage() {
         destinatario_cnpj: x.destinatarioCnpj,
         destinatario_nome: x.destinatarioNome,
         valor_total: x.valorTotal,
-        valor_produtos: 0,
-        tipo_movimento: ehDevolucaoVenda ? "devolucao_venda" : x.tipoOperacao === "saida" ? "saida" : "entrada",
-        impacto_receita: ehDevolucaoVenda ? "reduz_receita" : x.tipoOperacao === "saida" ? "soma_receita" : "sem_impacto",
+        tipo_movimento: ehDevolucaoVenda ? "devolucao_venda" : saidaReal ? "saida" : "entrada",
+        impacto_receita: x.cancelada ? "sem_impacto" : ehDevolucaoVenda ? "reduz_receita" : saidaReal ? "soma_receita" : "sem_impacto",
         origem_devolucao: ehDevolucaoVenda ? "emitida_terceiro" : "nao_aplicavel",
-        status: "ok",
+        status: x.cancelada ? "cancelada" : "ok",
+        cancelada_em: x.cancelada ? new Date().toISOString().slice(0, 10) : undefined,
+        parsed_data: {
+          tipo: "nfe",
+          metadados: x.persistencia?.metadados ?? null,
+          cancelada: x.cancelada ?? false,
+        },
       };
     });
 
     const itensMap: Record<string, unknown[]> = {};
     for (const x of pendentes) {
       const chave = x.chaveNfe || x.numeroNf;
-      if (x.tipoOperacao === "saida") {
-        itensMap[chave] = itensSaidaDoXml(x)
-          .filter(s => !s.cancelada)
+      const itensEntradaX = itensEntradaDoXml(x);
+      const itensSaidaX = itensSaidaDoXml(x);
+      const itensCanonicos = x.persistencia?.itens ?? [];
+      const saidaReal = ehSaidaReal(x, itensEntradaX, itensSaidaX);
+
+      if (itensCanonicos.length > 0) {
+        const documentoEhDevolucao = x.persistencia?.documento.tipo_movimento === "devolucao_venda";
+        itensMap[chave] = itensCanonicos.map((item, i) => {
+          if (saidaReal) {
+            return {
+              ...item,
+              tipo_movimento: item.tipo_movimento === "devolucao_compra" ? "devolucao_compra" : "saida",
+              impacto_receita: x.cancelada ? "sem_impacto" : item.impacto_receita,
+              natureza_receita_simples: x.cancelada ? "nao_receita" : item.natureza_receita_simples,
+            };
+          }
+
+          const itemUi = itensEntradaX[i];
+          const classificacao = itemUi
+            ? separarClassificacaoManual(itemUi.classificacao)
+            : { classificacao: item.classificacao, situacao_classificacao: item.situacao_classificacao ?? null };
+          return {
+            ...item,
+            tipo_movimento: documentoEhDevolucao ? "devolucao_venda" : "entrada",
+            impacto_receita: x.cancelada ? "sem_impacto" : documentoEhDevolucao ? "reduz_receita" : "sem_impacto",
+            natureza_receita_simples: x.cancelada ? "nao_receita" : documentoEhDevolucao ? "devolucao" : "pendente",
+            ...classificacao,
+            classificacao_manual: itemUi?.classificacaoManual ?? item.classificacao_manual,
+          };
+        });
+        continue;
+      }
+
+      if (saidaReal) {
+        itensMap[chave] = itensSaidaX
           .map((s, i) => ({
             item_numero: i + 1,
             codigo_produto: s.codigo_produto,
             descricao: s.descricao,
             ncm: s.ncm,
             cfop: s.cfop,
-            valor_total: s.valor_contabil,
+            valor_total: s.valor_produto,
             valor_desconto: s.valor_desconto,
             valor_frete: s.valor_frete,
             cst_icms: s.cst_icms,
@@ -3159,8 +3295,7 @@ export default function ValidadorPage() {
             classificacao_manual: false,
           }));
       } else {
-        itensMap[chave] = itensEntradaDoXml(x)
-          .filter(l => !l.cancelada)
+        itensMap[chave] = itensEntradaX
           .map((l, i) => {
             const ehDevolucaoVenda = cfopEhDevolucaoVendaSimples(l.cfop_entrada_sugerido || l.cfop);
             return {
@@ -3169,7 +3304,7 @@ export default function ValidadorPage() {
               descricao: l.descricao,
               ncm: l.ncm,
               cfop: l.cfop,
-              valor_total: l.valor_contabil,
+              valor_total: l.valor_produto,
               valor_desconto: l.valor_desconto,
               valor_frete: l.valor_frete,
               cst_icms: l.cst_icms,
@@ -3180,20 +3315,50 @@ export default function ValidadorPage() {
               tipo_movimento: ehDevolucaoVenda ? "devolucao_venda" : "entrada",
               impacto_receita: ehDevolucaoVenda ? "reduz_receita" : "sem_impacto",
               natureza_receita_simples: ehDevolucaoVenda ? "devolucao" : "pendente",
-              classificacao: l.classificacao || "outros",
+              ...separarClassificacaoManual(l.classificacao),
               classificacao_manual: l.classificacaoManual || false,
             };
           });
       }
     }
 
-    if (documentos.length > 0) {
-      await fetch("/api/documentos-fiscais/importar-nfe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ empresa_id: dados.empresaId, documentos, itens: itensMap }),
-      });
+    if (documentos.length === 0) return { salvos: 0, erros: [], falhas: [] };
+
+    const res = await fetch("/api/documentos-fiscais/importar-nfe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        empresa_id: dados.empresaId,
+        sessao_id: dados.sessaoId,
+        documentos,
+        itens: itensMap,
+        legado,
+        cancelamentos: Array.from(new Set(pendentes.flatMap(x=>x.cancelamentosRelacionados??[]))),
+      }),
+    });
+
+    let corpo: {
+      salvos?: number;
+      erros?: string[];
+      resultados?: Array<{chave_acesso?:string|null;numero?:string|null;status?:string}>;
+    } = {};
+    try { corpo = await res.json(); } catch { /* resposta sem corpo JSON */ }
+    const salvos = corpo.salvos ?? 0;
+    const erros = corpo.erros ?? [];
+    const chavesSalvas=new Set((corpo.resultados??[])
+      .filter(r=>r.status==="importado"||r.status==="atualizado")
+      .map(r=>r.chave_acesso||r.numero||""));
+    const falhas=pendentes
+      .map(x=>x.chaveNfe||x.numeroNf)
+      .filter(chave=>!chavesSalvas.has(chave));
+
+    if (!res.ok && salvos === 0) {
+      throw new Error(erros.length > 0 ? erros.join(" ") : `Erro ao salvar XMLs (HTTP ${res.status}).`);
     }
+    if (salvos === 0 && documentos.length > 0) {
+      throw new Error(erros.length > 0 ? erros.join(" ") : "Nenhum documento foi persistido.");
+    }
+    return { salvos, erros, falhas };
   }
 
   async function onConfirmarSessaoXmlNovo(dados: DadosSessao) {
@@ -3201,40 +3366,58 @@ export default function ValidadorPage() {
     const mesSessao = competenciaParaMonth(dados.competencia);
     setPeriodoInicio(mesSessao);
     setErroSalvar("");
+    setErro("");
     setSalvouComSucesso(false);
-    let salvouOk = false;
+    let falhaCritica = false;
     try {
-      await salvarXmlsDaSessao(dados, xmlsPendentes);
-      salvouOk = true;
-      setSalvouComSucesso(true);
+      const { salvos, erros, falhas } = await salvarXmlsDaSessao(dados, xmlsPendentes);
+      setSalvouComSucesso(falhas.length===0);
+      if (erros.length > 0) {
+        setErroSalvar(`${salvos} documento(s) salvo(s) com ${erros.length} aviso(s): ${erros.join(" ")}`);
+      }
+      setXmlsPendentes(prev=>prev.filter(x=>falhas.includes(x.chaveNfe||x.numeroNf)));
+      setModalAberto(falhas.length>0);
       if(empresa) fetch(`/api/sessoes?empresa_id=${empresa.id}`).then(r=>r.json()).then((lista: SessaoSalva[])=>{ if(Array.isArray(lista)) setSessoesSalvas(lista); }).catch(()=>{});
-    } catch {
-      setErroSalvar("XMLs não foram salvos no banco. Os dados estão disponíveis localmente.");
+    } catch (err) {
+      falhaCritica = true;
+      setErro(
+        `Falha ao salvar no banco: ${err instanceof Error ? err.message : "erro desconhecido"}. ` +
+        `A tela vai recarregar o que está realmente gravado — pode não incluir o que você acabou de importar.`
+      );
     }
-    setXmlsPendentes([]);
-    setModalAberto(false);
-    // Recarrega do banco para sincronizar filtro de período com o que foi salvo
-    if(salvouOk) {
-      setCarregandoPeriodo(true);
-      try { await selecionarPeriodo(mesSessao); } finally { setCarregandoPeriodo(false); }
+    if(falhaCritica){
+      // Mantém os arquivos estruturados em memória para permitir nova tentativa.
+      setModalAberto(true);
     }
+    // Recarrega do banco SEMPRE (sucesso ou falha) — a tela nunca deve continuar
+    // mostrando dados locais não persistidos como se tivessem sido salvos. Quando
+    // houve falha, preserva a mensagem de erro real (não deixa a recarga substituí-la
+    // por um "sessão restaurada" silencioso — ver preservarErroFalha).
+    setCarregandoPeriodo(true);
+    try { await selecionarPeriodo(mesSessao, { preservarErroFalha: falhaCritica }); } finally { setCarregandoPeriodo(false); }
   }
 
   async function onConfirmarSessaoXmlLote(dados: DadosSessaoLote) {
     setErroSalvar("");
+    setErro("");
     setSalvouComSucesso(false);
     let totalSalvo = 0;
+    let falhaCritica = false;
+    const errosLote: string[] = [];
+    const falhasLote = new Set<string>();
     try {
       for (const sessao of dados.sessoes) {
         const pendentes = xmlsPendentes.filter(x => x.competencia === sessao.competencia);
         if (pendentes.length === 0) continue;
-        await salvarXmlsDaSessao({
+        const { salvos, erros, falhas } = await salvarXmlsDaSessao({
           sessaoId: sessao.sessaoId,
           empresaId: dados.empresaId,
           empresaNome: dados.empresaNome,
           competencia: sessao.competencia,
         }, pendentes);
-        totalSalvo += pendentes.length;
+        totalSalvo += salvos;
+        errosLote.push(...erros);
+        falhas.forEach(chave=>falhasLote.add(chave));
       }
       const ultima = dados.sessoes[dados.sessoes.length - 1];
       if (ultima) {
@@ -3242,187 +3425,61 @@ export default function ValidadorPage() {
         const mesSessao = competenciaParaMonth(ultima.competencia);
         setPeriodoInicio(mesSessao);
       }
-      setSalvouComSucesso(true);
+      setSalvouComSucesso(falhasLote.size===0);
       setInfoCanc(prev => {
         const msg = `${totalSalvo} XML(s) salvo(s) em ${dados.sessoes.length} competência(s).`;
         return prev ? `${prev}\n${msg}` : msg;
       });
+      if (errosLote.length > 0) setErroSalvar(`${errosLote.length} aviso(s) na importação: ${errosLote.join(" ")}`);
+      setXmlsPendentes(prev=>prev.filter(x=>falhasLote.has(x.chaveNfe||x.numeroNf)));
+      setModalAberto(falhasLote.size>0);
       if(empresa) fetch(`/api/sessoes?empresa_id=${empresa.id}`).then(r=>r.json()).then((lista: SessaoSalva[])=>{ if(Array.isArray(lista)) setSessoesSalvas(lista); }).catch(()=>{});
-    } catch {
-      setErroSalvar("Nem todos os XMLs foram salvos no banco. Confira as competências e tente novamente.");
+    } catch (err) {
+      falhaCritica = true;
+      setErro(
+        `Falha ao salvar no banco: ${err instanceof Error ? err.message : "erro desconhecido"}. ` +
+        `A tela vai recarregar o que está realmente gravado — pode não incluir o que você acabou de importar.`
+      );
     }
-    setXmlsPendentes([]);
-    setModalAberto(false);
-    // Recarrega a última competência do banco para sincronizar filtro de período
+    if(falhaCritica) setModalAberto(true);
+    // Recarrega a última competência do banco (sucesso ou falha) para a tela nunca
+    // mostrar dados locais não persistidos como se tivessem sido salvos. Quando houve
+    // falha, preserva a mensagem de erro real (ver preservarErroFalha).
     const ultimaLote = dados.sessoes[dados.sessoes.length - 1];
     if(ultimaLote) {
       const mesSessao = competenciaParaMonth(ultimaLote.competencia);
       setCarregandoPeriodo(true);
-      try { await selecionarPeriodo(mesSessao); } finally { setCarregandoPeriodo(false); }
+      try { await selecionarPeriodo(mesSessao, { preservarErroFalha: falhaCritica }); } finally { setCarregandoPeriodo(false); }
     }
   }
 
-  async function onConfirmarSessaoXml(dados: DadosSessao) {
-    setSessaoAtual(dados);
-    const mesSessao = competenciaParaMonth(dados.competencia);
-    setPeriodoInicio(mesSessao);
-    setErroSalvar("");
-    setSalvouComSucesso(false);
-    try {
-      const res = await fetch("/api/arquivos-xml", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessao_id: dados.sessaoId,
-          empresa_id: dados.empresaId,
-          competencia: dados.competencia,
-          xmls: xmlsPendentes.map(x => {
-            const itensEntrada = linhas.filter(l => l.numero_nota === x.numeroNf && (l.fonte === "xml" || l.fonte === "xml_proprio"));
-            const itensSaida = saidas.filter(s => s.numero_nota === x.numeroNf);
-            return {
-              chave_nfe: x.chaveNfe || null,
-              numero_nf: x.numeroNf,
-              data_emissao: x.dataEmissao,
-              emitente_cnpj: x.emitenteCnpj,
-              emitente_nome: x.emitenteNome,
-              destinatario_cnpj: x.destinatarioCnpj,
-              destinatario_nome: x.destinatarioNome,
-              tipo_operacao: x.tipoOperacao || null,
-              valor_total: x.valorTotal,
-              parsed_data: (itensEntrada.length > 0 || itensSaida.length > 0)
-                ? {
-                    ...(itensEntrada.length > 0 ? { itens_entrada: itensEntrada } : {}),
-                    ...(itensSaida.length > 0 ? { itens_saida: itensSaida } : {}),
-                  }
-                : null,
-            };
-          }),
-        }),
-      });
-      if (!res.ok) throw new Error("Erro ao salvar XMLs.");
-      setSalvouComSucesso(true);
-    } catch {
-      setErroSalvar("XMLs não foram salvos no banco. Os dados estão disponíveis localmente.");
+  const UUID_RE=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  async function persistirClassificacaoItem(id:string,cl:ClassificacaoManual){
+    if(!UUID_RE.test(id)) return;
+    const separada=separarClassificacaoManual(cl);
+    const res=await fetch(`/api/documentos-fiscais/itens/${id}`,{
+      method:"PATCH",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({
+        classificacao:separada.classificacao??"outros",
+        situacao_classificacao:separada.situacao_classificacao,
+      }),
+    });
+    if(!res.ok){
+      const body=await res.json().catch(()=>({})) as {error?:string};
+      throw new Error(body.error||`HTTP ${res.status}`);
     }
-
-    // Também populamos fa_documentos_fiscais (base fiscal central) para alimentar
-    // o módulo Simples Nacional (confronto + apuração) sem necessidade de reimportar
-    try {
-      const documentos = xmlsPendentes.map(x => {
-        const itensEntrada = linhas.filter(l => l.numero_nota === x.numeroNf && (l.fonte === "xml" || l.fonte === "xml_proprio"));
-        const ehDevolucaoVenda = x.tipoOperacao === "entrada" && itensEntrada.some(item => cfopEhDevolucaoVendaSimples(item.cfop_entrada_sugerido || item.cfop));
-        return {
-        tipo_documento: "nfe",
-        origem: "xml_nfe",
-        chave_acesso: x.chaveNfe || null,
-        numero: x.numeroNf,
-        serie: null,
-        modelo: "55",
-        data_emissao: x.dataEmissao,
-        data_competencia: dados.competencia,
-        emitente_cnpj: x.emitenteCnpj,
-        emitente_nome: x.emitenteNome,
-        destinatario_cnpj: x.destinatarioCnpj,
-        destinatario_nome: x.destinatarioNome,
-        valor_total: x.valorTotal,
-        valor_produtos: 0,
-        tipo_movimento: ehDevolucaoVenda ? "devolucao_venda" : x.tipoOperacao === "saida" ? "saida" : "entrada",
-        impacto_receita: ehDevolucaoVenda ? "reduz_receita" : x.tipoOperacao === "saida" ? "soma_receita" : "sem_impacto",
-        origem_devolucao: ehDevolucaoVenda ? "emitida_terceiro" : "nao_aplicavel",
-        status: "ok",
-        }
-      });
-      const itensMap: Record<string, unknown[]> = {};
-      for (const x of xmlsPendentes) {
-        const chave = x.chaveNfe || x.numeroNf;
-        if (x.tipoOperacao === "saida") {
-          itensMap[chave] = saidas
-            .filter(s => s.numero_nota === x.numeroNf && !s.cancelada)
-            .map((s, i) => ({
-              item_numero: i + 1,
-              codigo_produto: s.codigo_produto,
-              descricao: s.descricao,
-              ncm: s.ncm,
-              cfop: s.cfop,
-              valor_total: s.valor_contabil,
-              valor_desconto: s.valor_desconto,
-              valor_frete: s.valor_frete,
-              cst_icms: s.cst_icms,
-              valor_bc_icms: s.base_icms,
-              aliquota_icms: s.aliquota_icms,
-              valor_icms: s.valor_icms,
-              valor_bc_st: s.base_st,
-              valor_st: s.valor_st,
-              cst_pis: s.cst_pis,
-              valor_bc_pis: s.base_pis,
-              aliquota_pis: s.aliquota_pis,
-              valor_pis: s.valor_pis,
-              cst_cofins: s.cst_cofins,
-              valor_bc_cofins: s.base_cofins,
-              aliquota_cofins: s.aliquota_cofins,
-              valor_cofins: s.valor_cofins,
-              cst_ibs_cbs: s.cst_ibs_cbs,
-              cclass_trib: s.cclass_trib,
-              valor_bc_ibs_cbs: s.base_ibs_cbs ?? 0,
-              aliquota_ibs_uf: s.aliquota_ibs_uf ?? 0,
-              valor_ibs_uf: s.valor_ibs_uf ?? 0,
-              aliquota_ibs_mun: s.aliquota_ibs_mun ?? 0,
-              valor_ibs_mun: s.valor_ibs_mun ?? 0,
-              valor_ibs: s.valor_ibs,
-              aliquota_cbs: s.aliquota_cbs ?? 0,
-              valor_cbs: s.valor_cbs,
-              valor_ipi: s.valor_ipi,
-              tipo_movimento: "saida",
-              impacto_receita: "soma_receita",
-              natureza_receita_simples: "pendente",
-              classificacao: "outros",
-              classificacao_manual: false,
-            }));
-        } else {
-          itensMap[chave] = linhas
-            .filter(l => l.numero_nota === x.numeroNf && (l.fonte === "xml" || l.fonte === "xml_proprio") && !l.cancelada)
-            .map((l, i) => {
-              const ehDevolucaoVenda = cfopEhDevolucaoVendaSimples(l.cfop_entrada_sugerido || l.cfop);
-              return {
-              item_numero: i + 1,
-              codigo_produto: l.codigo_produto,
-              descricao: l.descricao,
-              ncm: l.ncm,
-              cfop: l.cfop,
-              valor_total: l.valor_contabil,
-              valor_desconto: l.valor_desconto,
-              valor_frete: l.valor_frete,
-              cst_icms: l.cst_icms,
-              valor_bc_icms: l.base_icms,
-              aliquota_icms: l.aliquota_icms,
-              valor_icms: l.valor_icms,
-              valor_ipi: l.valor_ipi_item,
-              tipo_movimento: ehDevolucaoVenda ? "devolucao_venda" : "entrada",
-              impacto_receita: ehDevolucaoVenda ? "reduz_receita" : "sem_impacto",
-              natureza_receita_simples: ehDevolucaoVenda ? "devolucao" : "pendente",
-              classificacao: l.classificacao || "outros",
-              classificacao_manual: l.classificacaoManual || false,
-              };
-            });
-        }
-      }
-      if (documentos.length > 0) {
-        await fetch("/api/documentos-fiscais/importar-nfe", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ empresa_id: dados.empresaId, documentos, itens: itensMap }),
-        });
-      }
-    } catch {
-      // Silencioso — não bloqueia o fluxo principal do validador
-    }
-
-    setXmlsPendentes([]);
-    setModalAberto(false);
   }
-
-  function setClass(id:string,cl:ClassificacaoManual){setLinhas(p=>p.map(l=>l.id===id?{...l,classificacao:cl,classificacaoManual:true}:l));}
-  function setClassNota(chave:string,cl:ClassificacaoManual){const[n,...rf]=chave.split("__");const forn=rf.join("__");setLinhas(p=>p.map(l=>l.numero_nota===n&&l.fornecedor===forn?{...l,classificacao:cl,classificacaoManual:true}:l));}
+  function setClass(id:string,cl:ClassificacaoManual){
+    setLinhas(p=>p.map(l=>l.id===id?{...l,classificacao:cl,classificacaoManual:true}:l));
+    void persistirClassificacaoItem(id,cl).catch(err=>setErroSalvar(`Classificação alterada na tela, mas não foi salva: ${err instanceof Error?err.message:String(err)}`));
+  }
+  function setClassNota(chave:string,cl:ClassificacaoManual){
+    const[n,...rf]=chave.split("__");const forn=rf.join("__");
+    const ids=linhas.filter(l=>l.numero_nota===n&&l.fornecedor===forn).map(l=>l.id);
+    setLinhas(p=>p.map(l=>l.numero_nota===n&&l.fornecedor===forn?{...l,classificacao:cl,classificacaoManual:true}:l));
+    void Promise.all(ids.map(id=>persistirClassificacaoItem(id,cl))).catch(err=>setErroSalvar(`Classificação da nota alterada na tela, mas não foi salva: ${err instanceof Error?err.message:String(err)}`));
+  }
   function setCfopEntrada(id:string,cfop:string){setLinhas(p=>p.map(l=>l.id===id?{...l,cfop_entrada_sugerido:cfop}:l));}
   function limpar(){setLinhas([]);setSaidas([]);setNfses([]);setErro("");setInfoCanc("");setPerfil("geral");setExpandidas(new Set());setExpandidasS(new Set());setExpandidasNfse(new Set());setFiltros({somenteAlertas:false,cfop:"",ncm:"",busca:"",classificacao:""});if(refXmlTerceiros.current)refXmlTerceiros.current.value="";if(refXmlProprio.current)refXmlProprio.current.value="";if(refXmlUnificado.current)refXmlUnificado.current.value="";setSalvouComSucesso(false);}
   async function limparCompetenciaDb(){
@@ -3438,7 +3495,7 @@ export default function ValidadorPage() {
     finally{setLimpandoDb(false);}
   }
 
-  async function selecionarPeriodo(month: string) {
+  async function selecionarPeriodo(month: string, opts?: { preservarErroFalha?: boolean }) {
     const competencia = monthParaCompetencia(month);
     if(!competencia || !empresa) return;
 
@@ -3448,11 +3505,15 @@ export default function ValidadorPage() {
       setNfses(servs);
       setCompetenciaXml(competencia);
       setSessaoAtual({ sessaoId, empresaId: empresa!.id, empresaNome: empresa!.razao_social, competencia });
-      setErro("");
+      // Nunca apaga um erro de gravação real que acabou de ser exibido (ex.: chamado
+      // logo após uma falha em salvarXmlsDaSessao) — só limpa erro em recargas normais.
+      if (!opts?.preservarErroFalha) setErro("");
       setInfoCanc(`${competencia} — ${ents.length} it. entrada / ${sais.length} it. saída`);
       const mesSessao = competenciaParaMonth(competencia);
       setPeriodoInicio(mesSessao);
     }
+
+    const falhas: string[] = [];
 
     // 1) fa_documentos_fiscais — fonte principal (itens estruturados)
     try {
@@ -3467,8 +3528,12 @@ export default function ValidadorPage() {
           aplicarDados(mappedEntradas, mappedSaidas, mappedNfses, sessao?.id ?? `periodo-${month}`);
           return;
         }
+      } else {
+        falhas.push(`fa_documentos_fiscais (HTTP ${resDb.status})`);
       }
-    } catch { /* tenta próxima fonte */ }
+    } catch (err) {
+      falhas.push(`fa_documentos_fiscais (${err instanceof Error ? err.message : "falha de rede"})`);
+    }
 
     // 2) fa_arquivos_xml — parsed_data (bypassa sessoesSalvas, funciona imediatamente após import)
     try {
@@ -3479,9 +3544,11 @@ export default function ValidadorPage() {
         type XmlReg = { chave_nfe?: string|null; id: string; sessao_id?: string|null; data_emissao?: string|null; parsed_data: { itens_entrada?: LinhaEntrada[]; itens_saida?: LinhaSaida[] } | null };
         const registros: XmlReg[] = await resXml.json();
         if(Array.isArray(registros) && registros.length > 0) {
-          // Filtra por competência via data_emissao (proteção contra fallback do route que retorna todos)
+          // Filtra por competência via data_emissao. Registros sem data_emissao são
+          // excluídos (não incluídos "por segurança" em toda competência) — sem data,
+          // não há como saber a que período pertencem.
           const registrosDaComp = registros.filter(r => {
-            if(!r.data_emissao) return true;
+            if(!r.data_emissao) return false;
             return competenciaDaDataIso(r.data_emissao) === competencia;
           });
           const seenChaves = new Set<string>();
@@ -3502,17 +3569,27 @@ export default function ValidadorPage() {
             return;
           }
         }
+      } else {
+        falhas.push(`fa_arquivos_xml (HTTP ${resXml.status})`);
       }
-    } catch { /* tenta próxima fonte */ }
+    } catch (err) {
+      falhas.push(`fa_arquivos_xml (${err instanceof Error ? err.message : "falha de rede"})`);
+    }
 
     // 3) carregarSessaoAnterior — via sessoesSalvas (caso parsed_data exista mas competencia seja null)
     const sessao = sessoesSalvas.find(s=>s.competencia===competencia);
     if(sessao) {
-      await carregarSessaoAnterior(sessao);
+      await carregarSessaoAnterior(sessao, opts);
       return;
     }
 
-    setInfoCanc(`Período ${competencia} ainda não possui importação para esta empresa.`);
+    if (falhas.length > 0) {
+      setErro(`Falha ao consultar ${competencia}: ${falhas.join("; ")}. Os dados exibidos podem estar desatualizados — tente novamente.`);
+      return;
+    }
+    if (!opts?.preservarErroFalha) {
+      setInfoCanc(`Período ${competencia} ainda não possui importação para esta empresa.`);
+    }
   }
 
   async function selecionarPeriodoUnico(month: string) {
@@ -3523,6 +3600,37 @@ export default function ValidadorPage() {
       await selecionarPeriodo(month);
     } finally {
       setCarregandoPeriodo(false);
+    }
+  }
+  /**
+   * Painel de diagnóstico temporário: mostra exatamente o que a consulta ao banco
+   * (/api/documentos-fiscais) retorna para a competência atual, sem precisar abrir
+   * o DevTools do navegador. Usado para investigar notas que somem da tela mesmo
+   * depois de trocar e voltar de competência.
+   */
+  async function rodarDiagnostico(){
+    if(!empresa || !periodoInicio) { setErroDiagnostico("Selecione uma empresa e uma competência primeiro."); return; }
+    const competencia = monthParaCompetencia(periodoInicio);
+    setCarregandoDiagnostico(true);
+    setErroDiagnostico("");
+    setDiagnosticoDocs(null);
+    try {
+      const res = await fetch(`/api/documentos-fiscais?empresa_id=${empresa.id}&competencia=${encodeURIComponent(competencia)}&incluir_itens=true`);
+      if(!res.ok){ setErroDiagnostico(`Erro ao consultar o banco (HTTP ${res.status}).`); return; }
+      const docs: DocumentoFiscalDb[] = await res.json();
+      if(!Array.isArray(docs)){ setErroDiagnostico("Resposta inesperada do servidor."); return; }
+      setDiagnosticoDocs(docs.map(d => ({
+        numero: d.numero ?? "-",
+        parceiro: (d.tipo_movimento === "saida" ? d.destinatario_nome : d.emitente_nome) ?? (d.tipo_movimento === "saida" ? d.destinatario_cnpj : d.emitente_cnpj) ?? "-",
+        tipo_movimento: d.tipo_movimento ?? "(vazio)",
+        qtd_itens: d.fa_documentos_itens?.length ?? 0,
+        chave_final: d.chave_acesso ? `...${d.chave_acesso.slice(-8)}` : "(sem chave)",
+        status: d.status ?? "-",
+      })));
+    } catch (e) {
+      setErroDiagnostico(e instanceof Error ? e.message : "Erro ao consultar o banco.");
+    } finally {
+      setCarregandoDiagnostico(false);
     }
   }
   async function limparConfiguradoDb(){
@@ -3975,6 +4083,7 @@ export default function ValidadorPage() {
         cnpjEmpresa={cnpjEmpresaXml || undefined}
         nomeEmpresa={nomeEmpresaXml || undefined}
         competenciaArquivo={competenciaXml || undefined}
+        competenciaAtiva={sessaoAtual?.competencia || undefined}
         arquivosDetectados={xmlsAgrupados}
         onConfirmar={onConfirmarSessaoXmlNovo}
         onConfirmarLote={onConfirmarSessaoXmlLote}
@@ -4043,7 +4152,59 @@ export default function ValidadorPage() {
           disabled={vazio}
           style={{...S.bG,opacity:vazio?0.35:1,cursor:vazio?"not-allowed":"pointer"}}
         ><Download size={14}/>Exportar Excel</button>
+        <button
+          type="button"
+          onClick={rodarDiagnostico}
+          disabled={!empresa || !periodoInicio || carregandoDiagnostico}
+          title="Mostra exatamente o que está gravado no banco para a competência selecionada"
+          style={{...S.bG, opacity:(!empresa||!periodoInicio)?0.35:1, cursor:carregandoDiagnostico?"wait":"pointer"}}
+        >{carregandoDiagnostico?"Consultando...":"Diagnóstico"}</button>
       </div>
+
+      {/* ── PAINEL DE DIAGNÓSTICO (temporário, investigação de notas sumindo) ──── */}
+      {(diagnosticoDocs || erroDiagnostico) && (
+        <div style={{marginBottom:20,padding:"14px 16px",background:"var(--af-surface)",border:"1px solid var(--af-border)",borderRadius:12}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+            <strong style={{fontSize:13,color:T.pageClr}}>Diagnóstico — competência {monthParaCompetencia(periodoInicio)}</strong>
+            <button type="button" onClick={()=>{setDiagnosticoDocs(null);setErroDiagnostico("");}} style={{background:"none",border:"none",color:T.accentDim,cursor:"pointer",fontSize:12}}>Fechar</button>
+          </div>
+          {erroDiagnostico && <div style={{color:"#f87171",fontSize:12}}>{erroDiagnostico}</div>}
+          {diagnosticoDocs && diagnosticoDocs.length === 0 && (
+            <div style={{fontSize:12,color:T.bGclr}}>O banco não tem nenhum documento fiscal gravado para esta competência.</div>
+          )}
+          {diagnosticoDocs && diagnosticoDocs.length > 0 && (
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                <thead>
+                  <tr style={{textAlign:"left",color:T.accentDim}}>
+                    <th style={{padding:"4px 8px"}}>Número</th>
+                    <th style={{padding:"4px 8px"}}>Fornecedor / Destinatário</th>
+                    <th style={{padding:"4px 8px"}}>Tipo movimento</th>
+                    <th style={{padding:"4px 8px"}}>Qtd. itens</th>
+                    <th style={{padding:"4px 8px"}}>Chave (final)</th>
+                    <th style={{padding:"4px 8px"}}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {diagnosticoDocs.map((d,i)=>(
+                    <tr key={i} style={{borderTop:`1px solid ${T.bGbrd}`}}>
+                      <td style={{padding:"4px 8px"}}>{d.numero}</td>
+                      <td style={{padding:"4px 8px"}}>{d.parceiro}</td>
+                      <td style={{padding:"4px 8px",color:d.tipo_movimento==="(vazio)"?"#f87171":T.pageClr,fontWeight:700}}>{d.tipo_movimento}</td>
+                      <td style={{padding:"4px 8px",color:d.qtd_itens===0?"#f87171":T.pageClr}}>{d.qtd_itens}</td>
+                      <td style={{padding:"4px 8px",fontFamily:"monospace"}}>{d.chave_final}</td>
+                      <td style={{padding:"4px 8px"}}>{d.status}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p style={{marginTop:8,fontSize:11,color:T.accentDim}}>
+                Se uma nota de fornecedor aparecer aqui com &quot;Qtd. itens&quot; = 0 ou &quot;Tipo movimento&quot; diferente de &quot;entrada&quot;, o problema está na gravação. Se ela nem aparecer nesta lista, o documento não está no banco para esta competência.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── NOTIFICAÇÕES INLINE (sem card) ─────────────────────────────────────── */}
       {erroSalvar && (
@@ -4255,9 +4416,9 @@ export default function ValidadorPage() {
         <div style={{...S.card,overflow:"hidden"}}>
           <div style={{overflowX:"auto" as const}}>
             <table style={{width:"100%",borderCollapse:"collapse" as const,fontSize:12}}>
-              <thead><tr><th style={{...S.th,width:32}}></th>{["NFS-e","Data","Cliente","Documento","Serviço","CFOP","Valor Serviços","ISS","Líquido","Status"].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+              <thead><tr><th style={{...S.th,width:32}}></th>{["NFS-e","Data","Cliente","Documento","Serviço","CFOP","Valor Serviços","Retenção ISS","ISS","Líquido","Status"].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
               <tbody>
-                {!nfsesFiltradas.length?<tr><td colSpan={11} style={{padding:"60px 20px",textAlign:"center",color:D?"var(--af-muted)":"rgba(10,102,116,0.4)",fontSize:14}}>{nfses.length===0?"Importe XMLs de NFS-e para visualizar os serviços prestados.":"Nenhuma NFS-e corresponde aos filtros."}</td></tr>
+                {!nfsesFiltradas.length?<tr><td colSpan={12} style={{padding:"60px 20px",textAlign:"center",color:D?"var(--af-muted)":"rgba(10,102,116,0.4)",fontSize:14}}>{nfses.length===0?"Importe XMLs de NFS-e para visualizar os serviços prestados.":"Nenhuma NFS-e corresponde aos filtros."}</td></tr>
                 :nfsesPagina.map(nfse=>{const exp=expandidasNfse.has(nfse.id);return(
                   <React.Fragment key={nfse.id}>
                     <tr style={{background:nfse.status==="cancelada"?D?"rgba(167,139,250,0.04)":"rgba(167,139,250,0.08)":"transparent",opacity:nfse.status==="cancelada"?0.7:1}}>
@@ -4269,12 +4430,13 @@ export default function ValidadorPage() {
                       <td style={{...S.td,maxWidth:280,overflow:"hidden" as const,textOverflow:"ellipsis",whiteSpace:"nowrap" as const,color:T.pageClr}}>{nfse.servico}</td>
                       <td style={{...S.td,color:T.accent,fontWeight:800}}>{nfse.cfop}</td>
                       <td style={S.td}>{fmoe(nfse.status==="cancelada"?0:nfse.valorServicos)}</td>
+                      <td style={S.td}><span style={{fontSize:10,fontWeight:800,color:nfse.issRetido?"#16a34a":"var(--af-muted)"}}>{nfse.issRetido?"RETIDO":"NÃO RETIDO"}</span></td>
                       <td style={S.td}>{fmoe(nfse.status==="cancelada"?0:nfse.valorIss)}</td>
                       <td style={{...S.td,fontWeight:800,color:T.pageClr}}>{fmoe(nfse.status==="cancelada"?0:(nfse.valorLiquido||nfse.valorServicos))}</td>
                       <td style={S.td}><Tg st={nfse.status==="cancelada"?"ALERTA":"OK"} cancelada={nfse.status==="cancelada"}/></td>
                     </tr>
                     {exp&&<tr style={{background:D?"rgba(5,18,28,0.6)":"rgba(240,249,251,0.8)"}}>
-                      <td colSpan={11} style={{padding:"0 12px 12px 44px"}}>
+                      <td colSpan={12} style={{padding:"0 12px 12px 44px"}}>
                         <div style={{borderRadius:10,background:D?"rgba(39,199,216,0.03)":"rgba(10,102,116,0.04)",border:D?"1px solid rgba(127,221,228,0.09)":"1px solid rgba(10,102,116,0.12)",padding:"12px 14px",marginTop:6}}>
                           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:"8px 20px",fontSize:11}}>
                             <div><span style={{color:T.accentDim,display:"block",marginBottom:2}}>Competência</span><span style={{color:T.pageClr,fontWeight:700}}>{nfse.competencia || "—"}</span></div>
@@ -4283,6 +4445,7 @@ export default function ValidadorPage() {
                             <div><span style={{color:T.accentDim,display:"block",marginBottom:2}}>Item Serviço</span><span style={{color:T.pageClr,fontWeight:700}}>{nfse.itemListaServico || "—"}</span></div>
                             <div><span style={{color:T.accentDim,display:"block",marginBottom:2}}>Tributação Município</span><span style={{color:T.pageClr,fontWeight:700}}>{nfse.codigoTributacaoMunicipio || "—"}</span></div>
                             <div><span style={{color:T.accentDim,display:"block",marginBottom:2}}>Deduções</span><span style={{color:T.pageClr,fontWeight:700}}>{fmoe(nfse.valorDeducoes)}</span></div>
+                            <div><span style={{color:T.accentDim,display:"block",marginBottom:2}}>ISS retido</span><span style={{color:nfse.issRetido?"#16a34a":T.pageClr,fontWeight:700}}>{nfse.issRetido?`Sim · ${fmoe(nfse.valorIssRetido)}`:"Não"}</span></div>
                           </div>
                           <div style={{marginTop:10,fontSize:12,lineHeight:1.5,color:T.pageClr}}>{nfse.servico}</div>
                           {nfse.status!=="cancelada"&&<div style={{marginTop:10,display:"flex",justifyContent:"flex-end"}}>

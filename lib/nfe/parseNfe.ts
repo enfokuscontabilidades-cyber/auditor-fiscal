@@ -55,12 +55,17 @@ export interface XmlMetadataNfe {
   emitente_nome: string
   destinatario_cnpj: string
   destinatario_nome: string
+  natureza_operacao: string
   /** tpNF: "0" = entrada, "1" = saída */
   tpNF: string
+  /** finNFe: 1=normal, 2=complementar, 3=ajuste, 4=devolução */
+  finalidade: string
   valor_total: number
   valor_produtos: number
   valor_desconto: number
   valor_frete: number
+  valor_seguro: number
+  valor_outras_despesas: number
   valor_icms: number
   valor_pis: number
   valor_cofins: number
@@ -136,6 +141,8 @@ export function extrairMetadataNfe(txt: string): XmlMetadataNfe | null {
     const mod = gtxt(ide, 'mod') || '55'
     const dhEmi = gtxt(ide, 'dhEmi') || gtxt(ide, 'dEmi') || ''
     const tpNF = gtxt(ide, 'tpNF')
+    const finalidade = gtxt(ide, 'finNFe') || '1'
+    const natureza_operacao = gtxt(ide, 'natOp')
 
     let data_emissao: string | null = null
     let data_competencia = ''
@@ -153,6 +160,8 @@ export function extrairMetadataNfe(txt: string): XmlMetadataNfe | null {
     const valor_produtos = nnum(gtxt(tot, 'vProd'))
     const valor_desconto = nnum(gtxt(tot, 'vDesc'))
     const valor_frete = nnum(gtxt(tot, 'vFrete'))
+    const valor_seguro = nnum(gtxt(tot, 'vSeg'))
+    const valor_outras_despesas = nnum(gtxt(tot, 'vOutro'))
     const valor_icms = nnum(gtxt(tot, 'vICMS'))
     const valor_pis = nnum(gtxt(tot, 'vPIS'))
     const valor_cofins = nnum(gtxt(tot, 'vCOFINS'))
@@ -180,11 +189,15 @@ export function extrairMetadataNfe(txt: string): XmlMetadataNfe | null {
       emitente_nome: emitNome,
       destinatario_cnpj: destCnpj,
       destinatario_nome: destNome,
+      natureza_operacao,
       tpNF,
+      finalidade,
       valor_total,
       valor_produtos,
       valor_desconto,
       valor_frete,
+      valor_seguro,
+      valor_outras_despesas,
       valor_icms,
       valor_pis,
       valor_cofins,
@@ -224,12 +237,14 @@ export function parseNfeParaDocumento(
 
   // Classificação do documento como um todo (baseada no primeiro CFOP dos itens ou na direção da nota)
   // Será refinada item a item abaixo
+  const direcao = resolverDirecaoNfe(meta, cnpjEmpresa)
   const docClass = classificarCfopDoDocumento(meta, cnpjEmpresa, ehIndustrial)
+  const ehNfce = meta.modelo === '65'
 
   const doc: Omit<DocumentoFiscalInput, 'empresa_id'> = {
     sessao_id: undefined,
-    tipo_documento: 'nfe',
-    origem: 'xml_nfe',
+    tipo_documento: ehNfce ? 'nfce' : 'nfe',
+    origem: ehNfce ? 'xml_nfce' : 'xml_nfe',
     chave_acesso: meta.chave_acesso ?? undefined,
     numero: meta.numero || undefined,
     serie: meta.serie || undefined,
@@ -240,11 +255,15 @@ export function parseNfeParaDocumento(
     emitente_nome: meta.emitente_nome || undefined,
     destinatario_cnpj: meta.destinatario_cnpj || undefined,
     destinatario_nome: meta.destinatario_nome || undefined,
+    natureza_operacao: meta.natureza_operacao || undefined,
+    finalidade_nfe: meta.finalidade,
     valor_total: meta.valor_total,
     valor_produtos: meta.valor_produtos,
     valor_servicos: 0,
     valor_desconto: meta.valor_desconto,
     valor_frete: meta.valor_frete,
+    valor_seguro: meta.valor_seguro,
+    valor_outras_despesas: meta.valor_outras_despesas,
     valor_icms: meta.valor_icms,
     valor_pis: meta.valor_pis,
     valor_cofins: meta.valor_cofins,
@@ -265,45 +284,64 @@ export function parseNfeParaDocumento(
     const xmlDoc = new DOMParser().parseFromString(xmlTxt, 'text/xml')
     if (!xmlDoc.querySelector('parsererror')) {
       const detList = xmlDoc.getElementsByTagName('det')
-      let somaProd = 0
+      const valoresProdutos: number[] = []
       for (let i = 0; i < detList.length; i++) {
         const p = detList[i].getElementsByTagName('prod')[0]
-        if (p) somaProd += nnum(gtxt(p, 'vProd'))
+        valoresProdutos.push(p ? nnum(gtxt(p, 'vProd')) : 0)
       }
 
       const totNode = xmlDoc.getElementsByTagName('ICMSTot')[0] || null
       const vFreteNota = nnum(gtxt(totNode, 'vFrete'))
+      const vSeguroNota = nnum(gtxt(totNode, 'vSeg'))
+      const vOutroNota = nnum(gtxt(totNode, 'vOutro'))
       const vDescNota = nnum(gtxt(totNode, 'vDesc'))
 
-      // Pré-calcular soma dos vDesc individuais dos itens e soma do vProd dos itens SEM vDesc.
-      // O desconto a distribuir proporcionalmente é apenas o restante não coberto pelos itens.
-      let somaDescItens = 0
-      let somaProdSemDesc = 0
-      for (let i = 0; i < detList.length; i++) {
-        const p = detList[i].getElementsByTagName('prod')[0]
-        if (!p) continue
-        const d = nnum(gtxt(p, 'vDesc'))
-        somaDescItens += d
-        if (d === 0) somaProdSemDesc += nnum(gtxt(p, 'vProd'))
+      // Alguns emissores informam frete/desconto/seguro/outras despesas apenas
+      // no total da nota. Distribui somente o saldo que não veio detalhado e
+      // joga eventual resíduo de centavos no último item, mantendo a soma exata.
+      const distribuirTotal = (tag: 'vFrete' | 'vSeg' | 'vOutro' | 'vDesc', totalNota: number): number[] => {
+        const valores = Array.from(detList, det => {
+          const prod = det.getElementsByTagName('prod')[0]
+          return prod ? nnum(gtxt(prod, tag)) : 0
+        })
+        const somaDetalhada = valores.reduce((soma, valor) => soma + valor, 0)
+        const indicesSemValor = valores
+          .map((valor, indice) => valor > 0 ? -1 : indice)
+          .filter(indice => indice >= 0)
+        const saldo = Math.max(0, Math.round((totalNota - somaDetalhada) * 100) / 100)
+        const somaPesos = indicesSemValor.reduce((soma, indice) => soma + valoresProdutos[indice], 0)
+        let distribuido = 0
+
+        indicesSemValor.forEach((indice, posicao) => {
+          if (saldo === 0 || somaPesos === 0) return
+          const ehUltimo = posicao === indicesSemValor.length - 1
+          const parcela = ehUltimo
+            ? Math.round((saldo - distribuido) * 100) / 100
+            : Math.round((saldo * valoresProdutos[indice] / somaPesos) * 100) / 100
+          valores[indice] = parcela
+          distribuido += parcela
+        })
+        return valores
       }
-      const vDescRestante = Math.max(0, vDescNota - somaDescItens)
+
+      const fretes = distribuirTotal('vFrete', vFreteNota)
+      const seguros = distribuirTotal('vSeg', vSeguroNota)
+      const outrasDespesasPorItem = distribuirTotal('vOutro', vOutroNota)
+      const descontos = distribuirTotal('vDesc', vDescNota)
 
       for (let di = 0; di < detList.length; di++) {
         const det = detList[di]
+        const numeroItemXml = Number(det.getAttribute('nItem'))
         const prod = det.getElementsByTagName('prod')[0]
         const imp = det.getElementsByTagName('imposto')[0]
         if (!prod) continue
 
         const cfop = gtxt(prod, 'CFOP').replace(/\D/g, '').slice(0, 4)
         const vProd = nnum(gtxt(prod, 'vProd'))
-        const prop = somaProd > 0 ? vProd / somaProd : 0
-        const vFreteItem = nnum(gtxt(prod, 'vFrete'))
-        const vDescItem = nnum(gtxt(prod, 'vDesc'))
-        const frete = vFreteItem > 0 ? vFreteItem : Math.round(vFreteNota * prop * 100) / 100
-        // Se o item já tem vDesc próprio, usa-o. Caso contrário, distribui apenas o desconto
-        // restante (vDescNota - somaDescItens) proporcionalmente pelo vProd dos itens sem desc.
-        const propSemDesc = somaProdSemDesc > 0 ? vProd / somaProdSemDesc : 0
-        const desc = vDescItem > 0 ? vDescItem : Math.round(vDescRestante * propSemDesc * 100) / 100
+        const frete = fretes[di] ?? 0
+        const seguro = seguros[di] ?? 0
+        const outrasDespesas = outrasDespesasPorItem[di] ?? 0
+        const desc = descontos[di] ?? 0
 
         const icmsNode = getIcmsNode(imp || null)
         const cst = gtxt(icmsNode, 'CST') || gtxt(icmsNode, 'CSOSN') || ''
@@ -311,6 +349,7 @@ export function parseNfeParaDocumento(
 
         const pisNode = getPisCofinsNode(imp || null, 'PIS')
         const cofNode = getPisCofinsNode(imp || null, 'COFINS')
+        const ipiNode = det.getElementsByTagName('IPI')[0]?.firstElementChild as Element | null
         const ibsCbsGrp = imp?.getElementsByTagName('IBSCBS')[0] || null
         const gIbsCbs = ibsCbsGrp?.getElementsByTagName('gIBSCBS')[0] || null
         const gIbsUf = gIbsCbs?.getElementsByTagName('gIBSUF')[0] || null
@@ -320,17 +359,39 @@ export function parseNfeParaDocumento(
         const valorIbsMun = nnum(gtxt(gIbsMun, 'vIBSMun'))
         const valorIbs = nnum(gtxt(gIbsCbs, 'vIBS')) || valorIbsUf + valorIbsMun
 
-        const itemClass = classificarCfop(
+        const itemClassBase = classificarCfop(
           cfop,
-          meta.tpNF,
+          direcao === 'entrada' ? '0' : direcao === 'saida' ? '1' : meta.tpNF,
           meta.emitente_cnpj,
           cnpjEmpresa,
           ehIndustrial,
         )
+        const itemClass = docClass.tipo_movimento === 'devolucao_venda'
+          ? {
+              ...itemClassBase,
+              tipo_movimento: 'devolucao_venda' as const,
+              impacto_receita: 'reduz_receita' as const,
+              natureza_receita_simples: 'devolucao' as const,
+              origem_devolucao: docClass.origem_devolucao,
+              anexo_sugerido: null,
+              regra_aplicada: `Devolução de venda recebida pela empresa (CFOP ${cfop})`,
+            }
+          : docClass.tipo_movimento === 'devolucao_compra'
+            ? {
+                ...itemClassBase,
+                tipo_movimento: 'devolucao_compra' as const,
+                impacto_receita: 'sem_impacto' as const,
+                natureza_receita_simples: 'nao_receita' as const,
+                origem_devolucao: 'nao_aplicavel' as const,
+                anexo_sugerido: null,
+                regra_aplicada: `Devolução de compra emitida pela empresa (CFOP ${cfop})`,
+              }
+            : itemClassBase
 
         itens.push({
-          item_numero: di + 1,
+          item_numero: Number.isInteger(numeroItemXml) && numeroItemXml > 0 ? numeroItemXml : di + 1,
           codigo_produto: gtxt(prod, 'cProd') || undefined,
+          ean: gtxt(prod, 'cEANTrib') || gtxt(prod, 'cEAN') || undefined,
           descricao: gtxt(prod, 'xProd') || undefined,
           ncm: gtxt(prod, 'NCM') || undefined,
           cest: gtxt(prod, 'CEST') || undefined,
@@ -341,8 +402,12 @@ export function parseNfeParaDocumento(
           valor_total: vProd,
           valor_desconto: desc,
           valor_frete: frete,
+          valor_seguro: seguro,
+          valor_outras_despesas: outrasDespesas,
           cst_icms: cst || undefined,
           csosn: csosn || undefined,
+          origem_mercadoria: gtxt(icmsNode, 'orig') || undefined,
+          cbenef: gtxt(icmsNode, 'cBenef') || gtxt(prod, 'cBenef') || undefined,
           valor_bc_icms: nnum(gtxt(icmsNode, 'vBC')),
           aliquota_icms: nnum(gtxt(icmsNode, 'pICMS')),
           valor_icms: nnum(gtxt(icmsNode, 'vICMS')),
@@ -356,6 +421,9 @@ export function parseNfeParaDocumento(
           valor_bc_cofins: nnum(gtxt(cofNode, 'vBC')),
           aliquota_cofins: nnum(gtxt(cofNode, 'pCOFINS')),
           valor_cofins: nnum(gtxt(cofNode, 'vCOFINS') || gtxt(cofNode, 'vCOFINSAliq') || gtxt(cofNode, 'vCOFINSQtde')),
+          cst_ipi: gtxt(ipiNode, 'CST') || undefined,
+          valor_bc_ipi: nnum(gtxt(ipiNode, 'vBC')),
+          aliquota_ipi: nnum(gtxt(ipiNode, 'pIPI')),
           cst_ibs_cbs: gtxt(ibsCbsGrp, 'CST') || undefined,
           cclass_trib: gtxt(ibsCbsGrp, 'cClassTrib') || undefined,
           valor_bc_ibs_cbs: nnum(gtxt(gIbsCbs, 'vBC')),
@@ -366,7 +434,7 @@ export function parseNfeParaDocumento(
           valor_ibs: valorIbs,
           aliquota_cbs: nnum(gtxt(gCbs, 'pCBS')),
           valor_cbs: nnum(gtxt(gCbs, 'vCBS')),
-          valor_ipi: nnum(gtxt(det.getElementsByTagName('IPI')[0] || null, 'vIPI')),
+          valor_ipi: nnum(gtxt(ipiNode, 'vIPI')),
           classificacao: 'outros',
           natureza_receita_simples: itemClass.natureza_receita_simples,
           tipo_movimento: itemClass.tipo_movimento,
@@ -398,6 +466,28 @@ export function parseNfeParaDocumento(
 }
 
 // Classificação de alto nível baseada nos metadados do documento
+export function resolverDirecaoNfe(
+  meta: Pick<XmlMetadataNfe, 'tpNF' | 'emitente_cnpj' | 'destinatario_cnpj'>,
+  cnpjEmpresa: string,
+): 'entrada' | 'saida' | 'outros' {
+  const empresa = cnpjEmpresa.replace(/\D/g, '')
+  const emitente = meta.emitente_cnpj.replace(/\D/g, '')
+  const destinatario = meta.destinatario_cnpj.replace(/\D/g, '')
+
+  if (empresa.length === 14) {
+    const emitenteEhEmpresa = emitente === empresa
+    const destinatarioEhEmpresa = destinatario === empresa
+
+    // tpNF descreve a operação do ponto de vista do emitente. Quando a empresa
+    // analisada é destinatária de um documento emitido por terceiro, a operação
+    // é sempre uma entrada para ela, mesmo que o XML tenha tpNF=1.
+    if (destinatarioEhEmpresa && !emitenteEhEmpresa) return 'entrada'
+    if (emitenteEhEmpresa) return meta.tpNF === '0' ? 'entrada' : meta.tpNF === '1' ? 'saida' : 'outros'
+  }
+
+  return meta.tpNF === '0' ? 'entrada' : meta.tpNF === '1' ? 'saida' : 'outros'
+}
+
 function classificarCfopDoDocumento(
   meta: XmlMetadataNfe,
   cnpjEmpresa: string,
@@ -405,8 +495,26 @@ function classificarCfopDoDocumento(
 ) {
   const cnpjEmpresaNorm = cnpjEmpresa.replace(/\D/g, '')
   const emitenteCnpjNorm = meta.emitente_cnpj.replace(/\D/g, '')
+  const direcao = resolverDirecaoNfe(meta, cnpjEmpresa)
+  const ehDevolucao = meta.finalidade === '4'
 
-  if (meta.tpNF === '1') {
+  if (ehDevolucao && direcao === 'entrada') {
+    return {
+      tipo_movimento: 'devolucao_venda' as const,
+      impacto_receita: 'reduz_receita' as const,
+      origem_devolucao: emitenteCnpjNorm === cnpjEmpresaNorm ? 'emitida_propria' as const : 'emitida_terceiro' as const,
+    }
+  }
+
+  if (ehDevolucao && direcao === 'saida') {
+    return {
+      tipo_movimento: 'devolucao_compra' as const,
+      impacto_receita: 'sem_impacto' as const,
+      origem_devolucao: 'nao_aplicavel' as const,
+    }
+  }
+
+  if (direcao === 'saida') {
     // Nota de saída (emitida pelo emitente) — provavelmente venda
     // Classificamos como soma_receita mesmo quando o CNPJ da empresa não está cadastrado
     // ou não coincide, pois o usuário do Simples Nacional importa as próprias NF-e de saída.
@@ -426,12 +534,13 @@ function classificarCfopDoDocumento(
     }
   }
 
-  if (meta.tpNF === '0') {
-    // Nota de entrada recebida de terceiro — compra ou devolução de venda
+  if (direcao === 'entrada') {
+    // Entrada normal. Referência por si só não prova devolução: notas
+    // complementares e de ajuste também podem referenciar outro documento.
     return {
       tipo_movimento: 'entrada' as const,
-      impacto_receita: meta.ref_chave_acesso ? 'reduz_receita' as const : 'sem_impacto' as const,
-      origem_devolucao: meta.ref_chave_acesso ? 'emitida_terceiro' as const : 'nao_aplicavel' as const,
+      impacto_receita: 'sem_impacto' as const,
+      origem_devolucao: 'nao_aplicavel' as const,
     }
   }
 

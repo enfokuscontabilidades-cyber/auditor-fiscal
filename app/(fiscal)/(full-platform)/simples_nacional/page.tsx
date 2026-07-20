@@ -10,8 +10,8 @@ import { parseNfeParaDocumento, detectarCancelamento } from "@/lib/nfe/parseNfe"
 import { apurarSimples } from "@/lib/simples/calcularSimples"
 import { classificarCfop } from "@/lib/simples/cfopReceita"
 import { extrairXmlsDeArquivos } from "@/lib/fiscal/xmlArchive"
-import type { SnDeclaracao, SnParsedData, ArquivoXml, DocumentoFiscal, DocumentoFiscalItem, DocumentoFiscalItemInput, SnReceitaMensal, SnConfigServicosEmpresa, SnFolhaMensal, SnConfigServicoAtividade } from "@/lib/types"
-import type { ResultadoApuracao, ConfigServicoAtividade } from "@/lib/simples/calcularSimples"
+import type { SnDeclaracao, SnParsedData, ArquivoXml, DocumentoFiscal, DocumentoFiscalItem, DocumentoFiscalItemInput, SnReceitaMensal, SnFolhaMensal, SnConfigServicoAtividade } from "@/lib/types"
+import type { ResultadoApuracao, ResultadoDas, ConfigServicoAtividade } from "@/lib/simples/calcularSimples"
 import type { NfeParseResult } from "@/lib/nfe/parseNfe"
 import PageHeader from "@/components/ui/PageHeader"
 
@@ -1280,6 +1280,39 @@ function AbaApuracaoSistema({
             </div>
           )}
 
+          {/* Drill-down: quais notas compõem o total de faturamento acima */}
+          {docsSomam.length > 0 && (
+            <details style={{ ...S.card, padding: '12px 16px', marginBottom: 20 }}>
+              <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 600, color: 'var(--af-muted)' }}>
+                Ver as {docsSomam.length} nota(s) que compõem {fmtBRL.format(totalBruto)} de faturamento
+              </summary>
+              <div style={{ overflowX: 'auto', marginTop: 10, maxHeight: 320, overflowY: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr>
+                      <th style={S.th}>Número</th>
+                      <th style={S.th}>Emitente</th>
+                      <th style={S.th}>Emissão</th>
+                      <th style={S.th}>Chave</th>
+                      <th style={S.thR}>Valor</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {docsSomam.map(doc => (
+                      <tr key={doc.id}>
+                        <td style={S.td}>{doc.numero ?? '—'}</td>
+                        <td style={S.td}>{doc.emitente_nome ?? doc.emitente_cnpj ?? '—'}</td>
+                        <td style={S.td}>{doc.data_emissao ?? '—'}</td>
+                        <td style={{ ...S.td, fontFamily: 'monospace', fontSize: 10 }}>{doc.chave_acesso ?? '—'}</td>
+                        <td style={S.tdNum}>{fmtBRL.format(doc.valor_total ?? 0)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          )}
+
           {/* Aviso de RBT12 indisponível */}
           {xmlDocumentos.length > 0 && (
             <RelatorioConferenciaSimples
@@ -1343,7 +1376,8 @@ const LABEL_TRIBUTO: Record<string, string> = {
   PIS: 'PIS/PASEP', CPP: 'INSS/CPP', ICMS: 'ICMS', IPI: 'IPI', ISS: 'ISS',
 }
 
-const ORDEM_TRIBUTOS = ['IRPJ', 'CSLL', 'COFINS', 'PIS', 'CPP', 'ICMS', 'IPI', 'ISS']
+type TributoSimples = keyof ResultadoDas['breakdown']
+const ORDEM_TRIBUTOS: TributoSimples[] = ['IRPJ', 'CSLL', 'COFINS', 'PIS', 'CPP', 'ICMS', 'IPI', 'ISS']
 
 function LinhaReceitaExtrato({ label, valor, tipo, destaque }: {
   label: string; valor: number; tipo: '+' | '-' | '='; destaque?: boolean
@@ -1364,7 +1398,7 @@ function LinhaReceitaExtrato({ label, valor, tipo, destaque }: {
 
 function BlocoAnexo({ anexo, das, rbt12 }: {
   anexo: string
-  das: import('@/lib/simples/calcularSimples').ResultadoDas
+  das: ResultadoDas
   rbt12: number
 }) {
   const faixa = das.faixa
@@ -1374,9 +1408,44 @@ function BlocoAnexo({ anexo, das, rbt12 }: {
   const numerador = rbt12 * faixa.aliquotaNominal - faixa.parcelaDeduzir
   const numeradorFmt = fmtBRL.format(Math.max(0, numerador))
   const efetivaPct = fmtPctNum(faixa.aliquotaEfetivaPerc)
+  const segregacaoIss = das.segregacaoIss
 
-  const tributos = ORDEM_TRIBUTOS
-    .filter(t => (das.breakdown as unknown as Record<string, number>)[t] > 0)
+  const tributos = ORDEM_TRIBUTOS.filter(t => das.distribuicao[t] > 0)
+
+  const renderPartilha = (
+    breakdown: ResultadoDas['breakdown'],
+    issRetido: boolean,
+  ) => (
+    <div style={{ overflowX: 'auto' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 400 }}>
+        <thead>
+          <tr>
+            {tributos.map(t => (
+              <th key={t} style={{ padding: '6px 10px', fontSize: 10, fontWeight: 700, color: 'var(--af-muted)', textAlign: 'center', borderBottom: '1px solid var(--af-border)', background: 'var(--af-surface-2)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                {LABEL_TRIBUTO[t] ?? t}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            {tributos.map(t => (
+              <td key={t} style={{ padding: '4px 10px', fontSize: 11, textAlign: 'center', borderBottom: '1px solid var(--af-border)', color: issRetido && t === 'ISS' ? '#16a34a' : 'var(--af-muted)', fontVariantNumeric: 'tabular-nums' }}>
+                {issRetido && t === 'ISS' ? 'Excluído' : fmtPctNum(das.distribuicao[t])}
+              </td>
+            ))}
+          </tr>
+          <tr>
+            {tributos.map(t => (
+              <td key={t} style={{ padding: '6px 10px', fontSize: 12, fontWeight: 700, textAlign: 'center', color: issRetido && t === 'ISS' ? '#16a34a' : 'var(--af-text)', fontVariantNumeric: 'tabular-nums' }}>
+                {fmtBRL.format(breakdown[t])}
+              </td>
+            ))}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  )
 
   return (
     <div style={{ background: 'var(--af-surface)', border: '1px solid var(--af-border)', borderRadius: 12, overflow: 'hidden', marginBottom: 12 }}>
@@ -1419,46 +1488,54 @@ function BlocoAnexo({ anexo, das, rbt12 }: {
           </div>
         </div>
 
-        {/* DAS do período */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'rgba(39,199,216,0.08)', border: '1px solid rgba(39,199,216,0.2)', borderRadius: 8, marginBottom: 14 }}>
-          <span style={{ fontSize: 13, fontWeight: 600 }}>DAS do Período — Anexo {anexo}</span>
-          <span style={{ fontSize: 18, fontWeight: 800, color: 'var(--af-primary)', fontVariantNumeric: 'tabular-nums' }}>{fmtBRL.format(das.valorDas)}</span>
-        </div>
+        {segregacaoIss ? (
+          <div style={{ display: 'grid', gap: 12 }}>
+            {segregacaoIss.semRetencao && (
+              <div style={{ border: '1px solid var(--af-border)', borderRadius: 8, overflow: 'hidden' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '9px 12px', background: 'var(--af-surface-2)', borderBottom: '1px solid var(--af-border)' }}>
+                  <span style={{ fontSize: 12, fontWeight: 700 }}>Serviços sem retenção de ISS</span>
+                  <span style={{ fontSize: 12, color: 'var(--af-text-soft)' }}>Receita: <strong>{fmtBRL.format(segregacaoIss.semRetencao.receita)}</strong></span>
+                </div>
+                {renderPartilha(segregacaoIss.semRetencao.breakdown, false)}
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', borderTop: '1px solid var(--af-border)', fontSize: 13 }}>
+                  <strong>Total desta situação</strong><strong>{fmtBRL.format(segregacaoIss.semRetencao.valorDas)}</strong>
+                </div>
+              </div>
+            )}
 
-        {/* Partilha por tributo */}
-        {tributos.length > 0 && (
-          <div>
-            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--af-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.08em', marginBottom: 8 }}>Partilha por Tributo</div>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 400 }}>
-                <thead>
-                  <tr>
-                    {tributos.map(t => (
-                      <th key={t} style={{ padding: '6px 10px', fontSize: 10, fontWeight: 700, color: 'var(--af-muted)', textAlign: 'center', borderBottom: '1px solid var(--af-border)', background: 'var(--af-surface-2)', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>
-                        {LABEL_TRIBUTO[t] ?? t}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    {tributos.map(t => (
-                      <td key={t} style={{ padding: '4px 10px', fontSize: 11, textAlign: 'center', borderBottom: '1px solid var(--af-border)', color: 'var(--af-muted)', fontVariantNumeric: 'tabular-nums' }}>
-                        {fmtPctNum((das.distribuicao as unknown as Record<string, number>)[t] ?? 0)}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr>
-                    {tributos.map(t => (
-                      <td key={t} style={{ padding: '6px 10px', fontSize: 12, fontWeight: 700, textAlign: 'center', color: 'var(--af-text)', fontVariantNumeric: 'tabular-nums' }}>
-                        {fmtBRL.format((das.breakdown as unknown as Record<string, number>)[t] ?? 0)}
-                      </td>
-                    ))}
-                  </tr>
-                </tbody>
-              </table>
+            <div style={{ border: '1px solid rgba(22,163,74,0.3)', borderRadius: 8, overflow: 'hidden' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '9px 12px', background: 'rgba(22,163,74,0.06)', borderBottom: '1px solid rgba(22,163,74,0.2)' }}>
+                <span style={{ fontSize: 12, fontWeight: 700 }}>Serviços com ISS retido</span>
+                <span style={{ fontSize: 12, color: 'var(--af-text-soft)' }}>Receita: <strong>{fmtBRL.format(segregacaoIss.comRetencao.receita)}</strong></span>
+              </div>
+              {renderPartilha(segregacaoIss.comRetencao.breakdown, true)}
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', borderTop: '1px solid rgba(22,163,74,0.2)', fontSize: 13 }}>
+                <span>
+                  <strong>Total desta situação</strong>
+                  <span style={{ display: 'block', fontSize: 10, color: 'var(--af-muted)', marginTop: 2 }}>ISS desconsiderado; demais tributos permanecem no DAS</span>
+                </span>
+                <strong>{fmtBRL.format(segregacaoIss.comRetencao.valorDas)}</strong>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '11px 14px', background: 'rgba(39,199,216,0.08)', border: '1px solid rgba(39,199,216,0.2)', borderRadius: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 700 }}>Total do imposto — Anexo {anexo}</span>
+              <span style={{ fontSize: 18, fontWeight: 800, color: 'var(--af-primary)', fontVariantNumeric: 'tabular-nums' }}>{fmtBRL.format(das.valorDasAPagar ?? das.valorDas)}</span>
             </div>
           </div>
+        ) : (
+          <>
+            <div style={{ padding: '10px 14px', background: 'rgba(39,199,216,0.08)', border: '1px solid rgba(39,199,216,0.2)', borderRadius: 8, marginBottom: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 13, fontWeight: 600 }}>DAS do Período — Anexo {anexo}</span>
+              <span style={{ fontSize: 18, fontWeight: 800, color: 'var(--af-primary)', fontVariantNumeric: 'tabular-nums' }}>{fmtBRL.format(das.valorDas)}</span>
+            </div>
+            {tributos.length > 0 && (
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--af-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Partilha por Tributo</div>
+                {renderPartilha(das.breakdown, false)}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
@@ -1637,6 +1714,12 @@ function ExtratoPgdasSimulado({
             <LinhaReceitaExtrato tipo="+" label="Receita Bruta de Vendas" valor={apuracao.receita_vendas_bruta} />
             <LinhaReceitaExtrato tipo="-" label="Devoluções de Venda" valor={apuracao.receita_devolucoes} />
             <LinhaReceitaExtrato tipo="=" label="Receita Líquida do Período" valor={apuracao.receita_liquida} destaque />
+            {(apuracao.receita_servicos_com_iss_retido > 0 || apuracao.receita_servicos_sem_iss_retido > 0) && (
+              <>
+                <LinhaReceitaExtrato tipo="=" label="Serviços sem retenção de ISS (segregação)" valor={apuracao.receita_servicos_sem_iss_retido} />
+                <LinhaReceitaExtrato tipo="=" label="Serviços com ISS retido (segregação)" valor={apuracao.receita_servicos_com_iss_retido} />
+              </>
+            )}
             {apuracao.receita_st > 0 && (
               <LinhaReceitaExtrato tipo="-" label="ST / Monofásico (excluído da base do DAS)" valor={apuracao.receita_st} />
             )}
@@ -1666,28 +1749,17 @@ function ExtratoPgdasSimulado({
           Resultado Final
         </div>
         <div style={{ padding: '16px 20px' }}>
-          {/* DAS calculado */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--af-border)' }}>
-            <span style={{ fontSize: 14, fontWeight: 600 }}>{(apuracao.total_iss_retido ?? 0) > 0 ? 'DAS Bruto Calculado' : 'DAS Calculado pelo Sistema'}</span>
-            <span style={{ fontSize: 22, fontWeight: 800, color: 'var(--af-primary)', fontVariantNumeric: 'tabular-nums' }}>{fmtBRL.format(apuracao.valor_das_total)}</span>
-          </div>
-
-          {/* ISS retido na fonte */}
-          {(apuracao.total_iss_retido ?? 0) > 0 && (
-            <>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--af-border)' }}>
-                <span style={{ fontSize: 13, color: 'var(--af-text-soft)' }}>
-                  (-) ISS Retido na Fonte
-                  <span style={{ fontSize: 11, color: 'var(--af-muted)', display: 'block' }}>LC 123/2006 art. 21 §4°, V — ISS recolhido pelo tomador</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, padding: '10px 0', borderBottom: '1px solid var(--af-border)' }}>
+            <span style={{ fontSize: 14, fontWeight: 700 }}>
+              Total do imposto — DAS a pagar
+              {(apuracao.receita_servicos_com_iss_retido ?? 0) > 0 && (
+                <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--af-muted)', display: 'block', marginTop: 2 }}>
+                  Situações com e sem retenção de ISS demonstradas separadamente acima
                 </span>
-                <span style={{ fontSize: 15, fontWeight: 700, color: '#16a34a', fontVariantNumeric: 'tabular-nums' }}>- {fmtBRL.format(apuracao.total_iss_retido ?? 0)}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 20px', borderBottom: '1px solid var(--af-border)', background: 'rgba(39,199,216,0.06)', margin: '0 -20px' }}>
-                <span style={{ fontSize: 14, fontWeight: 700 }}>DAS a Pagar</span>
-                <span style={{ fontSize: 22, fontWeight: 800, color: 'var(--af-primary)', fontVariantNumeric: 'tabular-nums' }}>{fmtBRL.format(apuracao.valor_das_a_pagar ?? apuracao.valor_das_total)}</span>
-              </div>
-            </>
-          )}
+              )}
+            </span>
+            <span style={{ fontSize: 22, fontWeight: 800, color: 'var(--af-primary)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{fmtBRL.format(apuracao.valor_das_a_pagar ?? apuracao.valor_das_total)}</span>
+          </div>
 
           {/* Comparação com PGDAS */}
           {dasPgdas != null && (
@@ -1695,8 +1767,8 @@ function ExtratoPgdasSimulado({
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--af-border)' }}>
                 <span style={{ fontSize: 13, color: 'var(--af-text-soft)' }}>
                   DAS Declarado no PGDAS-D
-                  {(apuracao.total_iss_retido ?? 0) > 0 && (
-                    <span style={{ fontSize: 11, color: 'var(--af-muted)', display: 'block' }}>Comparado com DAS a Pagar (após ISS retido)</span>
+                  {(apuracao.receita_servicos_com_iss_retido ?? 0) > 0 && (
+                    <span style={{ fontSize: 11, color: 'var(--af-muted)', display: 'block' }}>Comparado com DAS após a segregação da receita com ISS retido</span>
                   )}
                 </span>
                 <span style={{ fontSize: 15, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{fmtBRL.format(dasPgdas)}</span>
@@ -1805,16 +1877,8 @@ export default function SimplesNacionalPage() {
   const [apuracao, setApuracao]             = useState<ResultadoApuracao | null>(null)
   const [apuracaoErro, setApuracaoErro]     = useState<string | null>(null)
   const [limpandoCompetencia, setLimpandoCompetencia] = useState(false)
-  const [configServicos, setConfigServicos] = useState<SnConfigServicosEmpresa | null>(null)
   const [folhas12m, setFolhas12m] = useState<SnFolhaMensal[]>([])
   const [folhaInputs, setFolhaInputs] = useState<Record<string, string>>({})
-  const [salvandoConfigServicos, setSalvandoConfigServicos] = useState(false)
-  const [configServicoForm, setConfigServicoForm] = useState<{
-    modo_servico: 'anexo_fixo' | 'fator_r'
-    anexo_fixo: 'III' | 'IV' | 'V'
-    atividade_descricao: string
-    observacoes: string
-  }>({ modo_servico: 'anexo_fixo', anexo_fixo: 'III', atividade_descricao: '', observacoes: '' })
 
   // ── Configuração por código de serviço (NFS-e) ──────────────────────────
   const [configServicosAtividade, setConfigServicosAtividade] = useState<SnConfigServicoAtividade[]>([])
@@ -1827,6 +1891,11 @@ export default function SimplesNacionalPage() {
   }>>([])
   const [salvandoConfigAtividades, setSalvandoConfigAtividades] = useState(false)
   const [configAtividadesForms, setConfigAtividadesForms] = useState<Record<string, { modo_tributacao: 'anexo_fixo' | 'fator_r'; anexo_fixo: 'III' | 'IV' | 'V' }>>({})
+
+  // ── Configuração de CFOP considerado faturamento ────────────────────────
+  const [cfopConfigs, setCfopConfigs] = useState<Array<{ cfop: string; descricao: string; considerar_faturamento: boolean; origem: 'padrao' | 'usuario' }>>([])
+  const [cfopBusca, setCfopBusca] = useState('')
+  const [salvandoCfop, setSalvandoCfop] = useState<string | null>(null)
 
   // Ler URL params no mount para navegação vinda do Validador NF-e
   useEffect(() => {
@@ -1949,7 +2018,7 @@ export default function SimplesNacionalPage() {
   }, [empresaAtiva, abaAtiva, carregarDocsConfronto])
 
   // ── Carregar documentos XML salvos para a competência ──────────────────
-  const carregarXmlDocumentos = useCallback(async (empresaId: string, competencia: string, cnpjEmpresa?: string, ehIndustrial = false) => {
+  const carregarXmlDocumentos = useCallback(async (empresaId: string, competencia: string) => {
     if (!competencia) return
     setXmlCompetenciaCarregada(null)
     setCarregandoXmlDocs(true)
@@ -1961,136 +2030,6 @@ export default function SimplesNacionalPage() {
       const base = await resBase.json() as ApuracaoBaseResponse
       setXmlDocumentos(Array.isArray(base.documentos) ? base.documentos : [])
       setXmlItens(Array.isArray(base.itens) ? base.itens : [])
-      return
-
-      const resDocs = await fetch(
-        `/api/documentos-fiscais?empresa_id=${empresaId}&competencia=${encodeURIComponent(competencia)}&incluir_itens=true`
-      )
-      if (resDocs.ok) {
-        const docsComItens: DocumentoFiscalComItens[] = await resDocs.json()
-        const docsValidos = Array.isArray(docsComItens)
-          ? docsComItens.filter(doc => doc.status !== 'cancelada')
-          : []
-        if (docsValidos.length > 0) {
-          setXmlDocumentos(docsValidos)
-          setXmlItens(docsValidos.flatMap(doc => doc.fa_documentos_itens ?? []))
-          return
-        }
-      }
-      // Fonte principal: fa_arquivos_xml — sempre disponível, sempre completo
-      // fa_documentos_fiscais não é usado aqui porque pode ter dados parciais
-      // (ON CONFLICT ignoreDuplicates pode ter pulado documentos em importações anteriores)
-      const resXml = await fetch(`/api/arquivos-xml?empresa_id=${empresaId}&competencia=${encodeURIComponent(competencia)}&incluir_dados=true`)
-      if (!resXml.ok) { setXmlDocumentos([]); setXmlItens([]); return }
-      const xmlRows: ArquivoXml[] = await resXml.json()
-
-      // Deduplicação em dois passos para lidar com registros onde um tem chave_nfe
-      // preenchida e um duplicado tem chave_nfe=null (importações de sessões distintas).
-      // Passo 1: agrupa por chave_nfe (44 chars) quando disponível
-      // Passo 2: registros sem chave_nfe só entram se não há versão com chave para o mesmo (numero_nf, emitente, data)
-      const todosDaComp = (Array.isArray(xmlRows) ? xmlRows : [])
-        .filter(x => x.data_emissao && dataParaCompetencia(x.data_emissao) === competencia)
-
-      // Mapa: fallback key → true (registros COM chave_nfe válida)
-      const fallbacksComChave = new Set<string>()
-      const porChave = new Map<string, ArquivoXml>()
-      for (const x of todosDaComp) {
-        const chave = x.chave_nfe?.trim() ?? ''
-        if (chave && chave.length >= 40) {
-          if (!porChave.has(chave)) porChave.set(chave, x)
-          fallbacksComChave.add(`${x.numero_nf}_${x.emitente_cnpj}_${x.data_emissao}`)
-        }
-      }
-      // Registros sem chave_nfe: só inclui se não existe versão com chave para o mesmo doc
-      const porFallback = new Map<string, ArquivoXml>()
-      for (const x of todosDaComp) {
-        const chave = x.chave_nfe?.trim() ?? ''
-        if (chave && chave.length >= 40) continue // já tratado acima
-        const fk = `${x.numero_nf}_${x.emitente_cnpj}_${x.data_emissao}`
-        if (!fallbacksComChave.has(fk) && !porFallback.has(fk)) porFallback.set(fk, x)
-      }
-      const filtrados = [...porChave.values(), ...porFallback.values()]
-      const docsConvertidos: DocumentoFiscal[] = filtrados.map(x => {
-        // tipo_operacao='saida' → saída emitida pela empresa → soma_receita
-        // tipo_operacao='entrada' com tipo_operacao → entrada de terceiro → sem_impacto
-        // CNPJ check como fallback para XMLs salvos sem tipo_operacao
-        const cnpjLimpo = (cnpjEmpresa ?? '').replace(/\D/g, '')
-        const emitenteNorm = (x.emitente_cnpj ?? '').replace(/\D/g, '')
-        const movimentoItens = movimentoPorItensXml(x.parsed_data)
-        const impactoParsed = impactoPorParsedXml(x.parsed_data)
-        const ehSaida = movimentoItens ? movimentoItens === 'saida' : x.tipo_operacao === 'saida'
-          || (!x.tipo_operacao && cnpjLimpo.length >= 8 && emitenteNorm.length >= 8 && emitenteNorm === cnpjLimpo)
-        const impactoReceita = impactoParsed ?? (ehSaida ? 'soma_receita' : 'sem_impacto')
-        return {
-          id: x.id,
-          org_id: '',
-          empresa_id: x.empresa_id,
-          sessao_id: x.sessao_id,
-          tipo_documento: 'nfe' as const,
-          origem: 'xml_nfe' as const,
-          chave_acesso: x.chave_nfe,
-          numero: x.numero_nf,
-          data_emissao: x.data_emissao,
-          data_competencia: competencia,
-          emitente_cnpj: x.emitente_cnpj,
-          emitente_nome: x.emitente_nome,
-          destinatario_cnpj: x.destinatario_cnpj,
-          destinatario_nome: x.destinatario_nome,
-          valor_total: x.valor_total ?? 0,
-          valor_produtos: 0,
-          valor_servicos: 0,
-          valor_desconto: 0,
-          valor_frete: 0,
-          valor_icms: 0,
-          valor_pis: 0,
-          valor_cofins: 0,
-          valor_st: 0,
-          valor_ipi: 0,
-          tipo_movimento: (ehSaida ? 'saida' : 'entrada') as import('@/lib/types').TipoMovimento,
-          impacto_receita: impactoReceita as import('@/lib/types').ImpactoReceita,
-          origem_devolucao: 'nao_aplicavel' as const,
-          status: 'ok' as const,
-          parsed_data: x.parsed_data,
-          created_at: x.created_at,
-          updated_at: x.created_at,
-        } as DocumentoFiscal
-      })
-      const itensExtraidos = docsConvertidos.flatMap(doc =>
-        itensPorParsedXml(doc, (cnpjEmpresa ?? '').replace(/\D/g, ''), ehIndustrial)
-      )
-      const itensPorDocumento = itensExtraidos.reduce((mapa, item) => {
-        const lista = mapa.get(item.documento_id) ?? []
-        lista.push(item)
-        mapa.set(item.documento_id, lista)
-        return mapa
-      }, new Map<string, DocumentoFiscalItem[]>())
-      const docsComImpactoItens = docsConvertidos.map(doc => {
-        const impactoItens = impactoPorItensDocumento(itensPorDocumento.get(doc.id) ?? [])
-        if (!impactoItens) return doc
-        return {
-          ...doc,
-          impacto_receita: impactoItens as import('@/lib/types').ImpactoReceita,
-          tipo_movimento: impactoItens === 'reduz_receita'
-            ? 'devolucao_venda' as import('@/lib/types').TipoMovimento
-            : doc.tipo_movimento,
-        }
-      })
-      setXmlDocumentos(docsComImpactoItens)
-      // Carregar itens de fa_documentos_itens para classificação ST/monofásico
-      try {
-        const resItens = await fetch(
-          `/api/documentos-fiscais?empresa_id=${empresaId}&competencia=${encodeURIComponent(competencia)}&incluir_itens=true`
-        )
-        if (resItens.ok) {
-          const docsComItens: Array<{ fa_documentos_itens?: DocumentoFiscalItem[] }> = await resItens.json()
-          const itensEstruturados = Array.isArray(docsComItens) ? docsComItens.flatMap(d => d.fa_documentos_itens ?? []) : []
-          setXmlItens(itensExtraidos.length > 0 ? itensExtraidos : itensEstruturados)
-        } else {
-          setXmlItens(itensExtraidos)
-        }
-      } catch {
-        setXmlItens(itensExtraidos)
-      }
     } catch {
       setXmlDocumentos([])
       setXmlItens([])
@@ -2119,23 +2058,6 @@ export default function SimplesNacionalPage() {
       }
     } catch {
       setRbt12Carregado(null)
-    }
-  }, [])
-
-  const carregarConfigServicos = useCallback(async (empresaId: string) => {
-    try {
-      const res = await fetch(`/api/simples/config-servicos?empresa_id=${empresaId}`)
-      if (!res.ok) { setConfigServicos(null); return }
-      const data = await res.json() as SnConfigServicosEmpresa | null
-      setConfigServicos(data)
-      setConfigServicoForm({
-        modo_servico: data?.modo_servico ?? 'anexo_fixo',
-        anexo_fixo: data?.anexo_fixo ?? 'III',
-        atividade_descricao: data?.atividade_descricao ?? '',
-        observacoes: data?.observacoes ?? '',
-      })
-    } catch {
-      setConfigServicos(null)
     }
   }, [])
 
@@ -2183,6 +2105,43 @@ export default function SimplesNacionalPage() {
     finally { setSalvandoConfigAtividades(false) }
   }, [empresaAtiva, servicosNfseDetectados, configAtividadesForms, carregarConfigServicosAtividade])
 
+  const carregarConfigCfop = useCallback(async (empresaId: string) => {
+    try {
+      const res = await fetch(`/api/simples/config-cfop?empresa_id=${empresaId}`)
+      if (!res.ok) { setCfopConfigs([]); return }
+      const data = await res.json() as { cfops: Array<{ cfop: string; descricao: string; considerar_faturamento: boolean; origem: 'padrao' | 'usuario' }> }
+      setCfopConfigs(data.cfops ?? [])
+    } catch {
+      setCfopConfigs([])
+    }
+  }, [])
+
+  const handleAlterarCfop = useCallback(async (cfop: string, considerarFaturamento: boolean, descricao: string) => {
+    if (!empresaAtiva) return
+    setSalvandoCfop(cfop)
+    try {
+      const res = await fetch('/api/simples/config-cfop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ empresa_id: empresaAtiva.id, configs: [{ cfop, descricao, considerar_faturamento: considerarFaturamento }] }),
+      })
+      if (!res.ok) { alert('Falha ao salvar configuração de CFOP.'); return }
+      await carregarConfigCfop(empresaAtiva.id)
+    } catch { alert('Erro ao salvar configuração de CFOP.') }
+    finally { setSalvandoCfop(null) }
+  }, [empresaAtiva, carregarConfigCfop])
+
+  const handleRestaurarCfopPadrao = useCallback(async (cfop: string) => {
+    if (!empresaAtiva) return
+    setSalvandoCfop(cfop)
+    try {
+      const res = await fetch(`/api/simples/config-cfop?empresa_id=${empresaAtiva.id}&cfop=${encodeURIComponent(cfop)}`, { method: 'DELETE' })
+      if (!res.ok) { alert('Falha ao restaurar o padrão do CFOP.'); return }
+      await carregarConfigCfop(empresaAtiva.id)
+    } catch { alert('Erro ao restaurar o padrão do CFOP.') }
+    finally { setSalvandoCfop(null) }
+  }, [empresaAtiva, carregarConfigCfop])
+
   const carregarFolha12 = useCallback(async (empresaId: string, competencia: string) => {
     if (!competencia) return
     try {
@@ -2197,21 +2156,20 @@ export default function SimplesNacionalPage() {
 
   useEffect(() => {
     if (!empresaAtiva) {
-      setConfigServicos(null)
       setFolhas12m([])
       setConfigServicosAtividade([])
       setServicosNfseDetectados([])
       return
     }
-    carregarConfigServicos(empresaAtiva.id)
     carregarConfigServicosAtividade(empresaAtiva.id)
-  }, [empresaAtiva, carregarConfigServicos, carregarConfigServicosAtividade])
+  }, [empresaAtiva, carregarConfigServicosAtividade])
 
   useEffect(() => {
     if (abaAtiva === 'configuracoes' && empresaAtiva) {
       carregarConfigServicosAtividade(empresaAtiva.id)
+      carregarConfigCfop(empresaAtiva.id)
     }
-  }, [abaAtiva, empresaAtiva, carregarConfigServicosAtividade])
+  }, [abaAtiva, empresaAtiva, carregarConfigServicosAtividade, carregarConfigCfop])
 
   // Sugestão RBT12 do PGDAS-D — apenas armazenada; nunca aplicada automaticamente.
   // O usuário deve confirmar no modal para que o valor seja usado na apuração.
@@ -2227,9 +2185,7 @@ export default function SimplesNacionalPage() {
 
   useEffect(() => {
     if (!empresaAtiva || !xmlCompetencia || abaAtiva !== 'apuracao_sistema') return
-    const cnpj = (empresaAtiva.cnpj ?? '').replace(/\D/g, '')
-    const ehIndustrial = /^(1[0-9]|2[0-9]|3[0-3])/.test(empresaAtiva.cnae_principal ?? '')
-    carregarXmlDocumentos(empresaAtiva.id, xmlCompetencia, cnpj, ehIndustrial)
+    carregarXmlDocumentos(empresaAtiva.id, xmlCompetencia)
     carregarRbt12(empresaAtiva.id, xmlCompetencia)
     carregarFolha12(empresaAtiva.id, xmlCompetencia)
   }, [empresaAtiva, xmlCompetencia, abaAtiva, carregarXmlDocumentos, carregarRbt12, carregarFolha12])
@@ -2301,48 +2257,17 @@ export default function SimplesNacionalPage() {
     const docEntries = xmlPreview.filter(p => p.doc)
     const cancelamentos = xmlPreview.filter(p => p.tipo_movimento === 'cancelamento' && p.chave)
 
-    // Processar cancelamentos (silencioso — tabela pode não existir)
-    for (const canc of cancelamentos) {
-      await fetch('/api/documentos-fiscais/importar-nfe', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ empresa_id: empresaAtiva.id, chave_acesso: canc.chave }),
-      }).catch(() => {})
-    }
-
     if (docEntries.length > 0) {
-      let salvo = false
-
-      // Tentativa 1: fa_documentos_fiscais (requer migração fase A)
       try {
-        const documentos = docEntries.map(p => ({
-          ...p.doc!.documento,
-          empresa_id: empresaAtiva.id,
-          data_competencia: xmlCompetencia,
-        }))
-        const itens: Record<string, Omit<DocumentoFiscalItemInput, 'empresa_id' | 'documento_id'>[]> = {}
-        for (const p of docEntries) {
-          const chave = p.doc!.metadados.chave_acesso ?? p.nomeArq
-          itens[chave] = p.doc!.itens
-        }
-        const res = await fetch('/api/documentos-fiscais/importar-nfe', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ empresa_id: empresaAtiva.id, documentos, itens }),
-        })
-        if (res.ok) salvo = true
-      } catch { /* silencioso */ }
-
-      // Tentativa 2: fa_arquivos_xml (sempre disponível — cria sessão automaticamente)
-      try {
-        // Obter ou criar sessão exclusiva desta aba (observacoes='apuracao_simples')
-        // Nunca reutilizar sessões do Validador para evitar mistura de dados
+        // Sessão exclusiva desta aba (observacoes='apuracao_simples') — nunca reutiliza
+        // sessões do Validador, para não misturar dados. Necessária só para o espelho
+        // legado em fa_arquivos_xml (a coluna sessao_id é obrigatória nessa tabela);
+        // a gravação de fa_documentos_fiscais/itens não depende dela.
         const sessaoRes = await fetch(`/api/sessoes?empresa_id=${empresaAtiva.id}`)
         const sessoes = sessaoRes.ok ? (await sessaoRes.json() as { id: string; competencia: string; observacoes?: string }[]) : []
         let sessaoId = Array.isArray(sessoes)
           ? (sessoes.find(s => s.competencia === xmlCompetencia && s.observacoes === 'apuracao_simples')?.id ?? null)
           : null
-
         if (!sessaoId) {
           const novaRes = await fetch('/api/sessoes', {
             method: 'POST',
@@ -2352,55 +2277,60 @@ export default function SimplesNacionalPage() {
           if (novaRes.ok) sessaoId = (await novaRes.json() as { id: string }).id
         }
 
-        if (sessaoId) {
-          const xmlsParaSalvar = docEntries.map(p => ({
-            chave_nfe: p.doc!.metadados.chave_acesso ?? null,
-            numero_nf: p.doc!.metadados.numero ?? null,
-            data_emissao: p.doc!.metadados.data_emissao ?? null,
-            emitente_cnpj: p.doc!.metadados.emitente_cnpj || null,
-            emitente_nome: p.doc!.metadados.emitente_nome || null,
-            destinatario_cnpj: p.doc!.metadados.destinatario_cnpj || null,
-            destinatario_nome: p.doc!.metadados.destinatario_nome || null,
-            tipo_operacao: p.doc!.metadados.tpNF === '1' ? 'saida' : 'entrada',
-            valor_total: p.doc!.metadados.valor_total ?? 0,
-          }))
-
-          const xmlRes = await fetch('/api/arquivos-xml', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              sessao_id: sessaoId,
-              empresa_id: empresaAtiva.id,
-              competencia: xmlCompetencia,
-              xmls: xmlsParaSalvar,
-              replace_sessao: true,
-            }),
-          })
-          if (xmlRes.ok) {
-            salvo = true
-          } else {
-            const errBody = await xmlRes.json().catch(() => ({}))
-            setXmlErros(prev => [...prev, `Erro ao salvar XMLs (${xmlRes.status}): ${errBody.error ?? 'falha desconhecida'}`])
-          }
+        const documentos = docEntries.map(p => ({
+          ...p.doc!.documento,
+          empresa_id: empresaAtiva.id,
+          data_competencia: xmlCompetencia,
+        }))
+        const itens: Record<string, Omit<DocumentoFiscalItemInput, 'empresa_id' | 'documento_id'>[]> = {}
+        const legado: Record<string, { tipo_operacao: string | null; parsed_data: unknown }> = {}
+        for (const p of docEntries) {
+          const chave = p.doc!.metadados.chave_acesso ?? p.nomeArq
+          itens[chave] = p.doc!.itens
+          legado[chave] = { tipo_operacao: p.doc!.metadados.tpNF === '1' ? 'saida' : 'entrada', parsed_data: null }
         }
-      } catch (e2) {
-        setXmlErros(prev => [...prev, `Erro inesperado ao salvar XMLs: ${e2 instanceof Error ? e2.message : String(e2)}`])
-      }
 
-      if (!salvo) {
+        const res = await fetch('/api/documentos-fiscais/importar-nfe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            empresa_id: empresaAtiva.id,
+            sessao_id: sessaoId,
+            documentos,
+            itens,
+            legado,
+            cancelamentos: cancelamentos.map(c => c.chave).filter((chave): chave is string => Boolean(chave)),
+          }),
+        })
+        const corpo = await res.json().catch(() => ({})) as { salvos?: number; erros?: string[] }
+        const salvos = corpo.salvos ?? 0
+        const erros = corpo.erros ?? []
+
+        if (salvos === 0) {
+          setXmlErros(prev => [...prev, ...(erros.length > 0 ? erros : [`Erro ao salvar XMLs (HTTP ${res.status}).`])])
+          setImportandoXml(false)
+          return
+        }
+        if (erros.length > 0) setXmlErros(prev => [...prev, ...erros])
+      } catch (err) {
+        setXmlErros(prev => [...prev, `Erro inesperado ao salvar XMLs: ${err instanceof Error ? err.message : String(err)}`])
         setImportandoXml(false)
         return
+      }
+    } else if (cancelamentos.length > 0) {
+      for (const canc of cancelamentos) {
+        const res = await fetch('/api/documentos-fiscais/importar-nfe', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ empresa_id: empresaAtiva.id, chave_acesso: canc.chave }),
+        })
+        if (!res.ok) setXmlErros(prev => [...prev, `Não foi possível aplicar o cancelamento ${canc.chave}.`])
       }
     }
 
     setXmlPreview(null)
     setImportandoXml(false)
-    carregarXmlDocumentos(
-      empresaAtiva.id,
-      xmlCompetencia,
-      (empresaAtiva.cnpj ?? '').replace(/\D/g, ''),
-      /^(1[0-9]|2[0-9]|3[0-3])/.test(empresaAtiva.cnae_principal ?? ''),
-    )
+    carregarXmlDocumentos(empresaAtiva.id, xmlCompetencia)
     carregarRbt12(empresaAtiva.id, xmlCompetencia)
   }, [xmlPreview, empresaAtiva, xmlCompetencia, carregarXmlDocumentos, carregarRbt12])
 
@@ -2438,85 +2368,57 @@ export default function SimplesNacionalPage() {
       }
     }
 
-    // ── Modo por serviço: se há configs de atividade configuradas ────────
-    if (configServicosAtividade.length > 0) {
-      const codigosComConfig = new Set(configServicosAtividade.map(c => c.codigo_servico))
-      const codigosNasNotas = [...new Set(
-        xmlItens.filter(i => i.classificacao === 'servico' && i.codigo_produto).map(i => i.codigo_produto!)
-      )]
-      const codigosSemConfig = codigosNasNotas.filter(c => !codigosComConfig.has(c))
+    // Cada código de serviço deve ter sua própria configuração. Não existe
+    // mais fallback por empresa, pois ele poderia classificar NFS-e em anexo
+    // diferente do enquadramento específico da atividade.
+    const itensServico = xmlItens.filter(item =>
+      item.classificacao === 'servico' ||
+      item.anexo_sugerido === 'III' ||
+      item.anexo_sugerido === 'IV' ||
+      item.anexo_sugerido === 'V'
+    )
+    const temServicoSemCodigo = itensServico.some(item => !item.codigo_produto?.trim()) || itensServico.length === 0
+    const codigosComConfig = new Set(configServicosAtividade.map(c => c.codigo_servico))
+    const codigosNasNotas = [...new Set(
+      itensServico.map(item => item.codigo_produto?.trim()).filter((codigo): codigo is string => Boolean(codigo))
+    )]
+    const codigosSemConfig = codigosNasNotas.filter(codigo => !codigosComConfig.has(codigo))
 
-      if (codigosSemConfig.length > 0) {
-        return {
-          anexoServico: undefined,
-          fatorR: undefined,
-          configServicosAtividade: configServicosAtividade as ConfigServicoAtividade[],
-          fatorRAnexo,
-          alerta: `Serviços sem configuração de anexo: ${codigosSemConfig.join(', ')} — configure na aba Configurações.`,
-        }
-      }
-
-      const algumFatorR = configServicosAtividade.some(c => c.modo_tributacao === 'fator_r')
-      if (algumFatorR && !fatorRAnexo) {
-        return {
-          anexoServico: undefined,
-          fatorR: { modo_servico: 'fator_r' as const, folha12, percentual: rbt12 > 0 ? folha12 / rbt12 : 0 },
-          configServicosAtividade: configServicosAtividade as ConfigServicoAtividade[],
-          fatorRAnexo: undefined,
-          alerta: 'Informe a folha dos 12 meses anteriores na aba Configurações para calcular o Fator R.',
-        }
-      }
-
-      return {
-        anexoServico: undefined,
-        fatorR: fatorRAnexo
-          ? { modo_servico: 'fator_r' as const, folha12, percentual: fatorRPercentual ?? 0, anexo_servico: fatorRAnexo }
-          : undefined,
-        configServicosAtividade: configServicosAtividade as ConfigServicoAtividade[],
-        fatorRAnexo,
-        alerta: null,
-      }
-    }
-
-    // ── Fallback: modo por empresa (legado) ──────────────────────────────
-    if (!configServicos) {
+    if (temServicoSemCodigo || codigosSemConfig.length > 0) {
+      const detalhes = [
+        temServicoSemCodigo ? 'NFS-e sem código de serviço identificável' : null,
+        codigosSemConfig.length > 0 ? `códigos sem configuração: ${codigosSemConfig.join(', ')}` : null,
+      ].filter((detalhe): detalhe is string => Boolean(detalhe)).join('; ')
       return {
         anexoServico: undefined,
         fatorR: undefined,
-        configServicosAtividade: undefined,
+        configServicosAtividade: configServicosAtividade as ConfigServicoAtividade[],
         fatorRAnexo,
-        alerta: 'Configure o anexo dos serviços na aba Configurações antes de apurar NFS-e.',
+        alerta: `Serviços pendentes: ${detalhes}. Configure cada serviço na aba Configurações antes de apurar.`,
       }
     }
 
-    if (configServicos.modo_servico === 'anexo_fixo') {
-      return {
-        anexoServico: configServicos.anexo_fixo,
-        fatorR: { modo_servico: 'anexo_fixo' as const, anexo_servico: configServicos.anexo_fixo },
-        configServicosAtividade: undefined,
-        fatorRAnexo,
-        alerta: null,
-      }
-    }
-
-    if (!fatorRAnexo) {
+    const algumFatorR = configServicosAtividade.some(c => c.modo_tributacao === 'fator_r')
+    if (algumFatorR && !fatorRAnexo) {
       return {
         anexoServico: undefined,
         fatorR: { modo_servico: 'fator_r' as const, folha12, percentual: rbt12 > 0 ? folha12 / rbt12 : 0 },
-        configServicosAtividade: undefined,
+        configServicosAtividade: configServicosAtividade as ConfigServicoAtividade[],
         fatorRAnexo: undefined,
         alerta: 'Informe a folha dos 12 meses anteriores na aba Configurações para calcular o Fator R.',
       }
     }
 
     return {
-      anexoServico: fatorRAnexo,
-      fatorR: { modo_servico: 'fator_r' as const, folha12, percentual: fatorRPercentual ?? 0, anexo_servico: fatorRAnexo },
-      configServicosAtividade: undefined,
+      anexoServico: undefined,
+      fatorR: fatorRAnexo
+        ? { modo_servico: 'fator_r' as const, folha12, percentual: fatorRPercentual ?? 0, anexo_servico: fatorRAnexo }
+        : undefined,
+      configServicosAtividade: configServicosAtividade as ConfigServicoAtividade[],
       fatorRAnexo,
       alerta: null,
     }
-  }, [configServicos, configServicosAtividade, folhas12m, xmlDocumentos, xmlItens])
+  }, [configServicosAtividade, folhas12m, xmlDocumentos, xmlItens])
 
   const handleApurar = useCallback(() => {
     if (!empresaAtiva || xmlDocumentos.length === 0) return
@@ -2962,30 +2864,6 @@ export default function SimplesNacionalPage() {
     XLSX.writeFile(wb, nomeArq)
   }, [confrontoData, declaracoes, empresaAtiva])
 
-  const handleSalvarConfigServicos = useCallback(async () => {
-    if (!empresaAtiva) return
-    setSalvandoConfigServicos(true)
-    try {
-      const res = await fetch('/api/simples/config-servicos', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          empresa_id: empresaAtiva.id,
-          modo_servico: configServicoForm.modo_servico,
-          anexo_fixo: configServicoForm.anexo_fixo,
-          atividade_descricao: configServicoForm.atividade_descricao,
-          observacoes: configServicoForm.observacoes,
-        }),
-      })
-      if (res.ok) {
-        const data = await res.json() as SnConfigServicosEmpresa
-        setConfigServicos(data)
-      }
-    } finally {
-      setSalvandoConfigServicos(false)
-    }
-  }, [empresaAtiva, configServicoForm])
-
   const handleSalvarFolha = useCallback(async () => {
     if (!empresaAtiva || !xmlCompetencia) return
     const entradas = Object.entries(folhaInputs)
@@ -3334,40 +3212,82 @@ export default function SimplesNacionalPage() {
               )}
             </div>
 
-            {/* ── Config por empresa (fallback) ── */}
+            {/* ── CFOP considerado faturamento ── */}
             <div style={{ ...S.card, padding: 24 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-                <Settings size={18} style={{ color: 'var(--af-primary)' }} />
-                <span style={{ fontWeight: 700, fontSize: 15 }}>Configuração padrão de serviços</span>
-                {configServicosAtividade.length > 0 && (
-                  <span style={{ fontSize: 11, color: 'var(--af-muted)', marginLeft: 4 }}>(fallback quando não há config por serviço)</span>
-                )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                <FileText size={18} style={{ color: 'var(--af-primary)' }} />
+                <span style={{ fontWeight: 700, fontSize: 15 }}>CFOP considerado faturamento</span>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-                <label style={{ display: 'grid', gap: 6, fontSize: 12, color: 'var(--af-muted)' }}>
-                  Regra dos servicos
-                  <select value={configServicoForm.modo_servico} onChange={e => setConfigServicoForm(prev => ({ ...prev, modo_servico: e.target.value as 'anexo_fixo' | 'fator_r' }))} style={{ background: 'var(--af-surface-2)', border: '1px solid var(--af-border)', borderRadius: 10, padding: '9px 12px', color: 'var(--af-text)' }}>
-                    <option value="anexo_fixo">Anexo fixo</option>
-                    <option value="fator_r">Fator R (III/V)</option>
-                  </select>
-                </label>
-                <label style={{ display: 'grid', gap: 6, fontSize: 12, color: 'var(--af-muted)' }}>
-                  Anexo fixo / referencia
-                  <select value={configServicoForm.anexo_fixo} onChange={e => setConfigServicoForm(prev => ({ ...prev, anexo_fixo: e.target.value as 'III' | 'IV' | 'V' }))} style={{ background: 'var(--af-surface-2)', border: '1px solid var(--af-border)', borderRadius: 10, padding: '9px 12px', color: 'var(--af-text)' }}>
-                    <option value="III">Anexo III</option>
-                    <option value="IV">Anexo IV</option>
-                    <option value="V">Anexo V</option>
-                  </select>
-                </label>
-                <label style={{ display: 'grid', gap: 6, fontSize: 12, color: 'var(--af-muted)' }}>
-                  Atividade
-                  <input value={configServicoForm.atividade_descricao} onChange={e => setConfigServicoForm(prev => ({ ...prev, atividade_descricao: e.target.value }))} placeholder="Ex: corretagem, consultoria, software" style={{ background: 'var(--af-surface-2)', border: '1px solid var(--af-border)', borderRadius: 10, padding: '9px 12px', color: 'var(--af-text)' }} />
-                </label>
+              <div style={{ fontSize: 12, color: 'var(--af-muted)', marginBottom: 16 }}>
+                Lista padrão do sistema, editável por empresa. Desmarque um CFOP para excluí-lo do faturamento
+                apurado, ou restaure o padrão a qualquer momento. Vale só para esta empresa.
               </div>
-              <textarea value={configServicoForm.observacoes} onChange={e => setConfigServicoForm(prev => ({ ...prev, observacoes: e.target.value }))} placeholder="Observacoes internas sobre enquadramento" style={{ marginTop: 12, width: '100%', minHeight: 74, background: 'var(--af-surface-2)', border: '1px solid var(--af-border)', borderRadius: 10, padding: '9px 12px', color: 'var(--af-text)', resize: 'vertical' }} />
-              <button onClick={handleSalvarConfigServicos} disabled={salvandoConfigServicos} style={{ ...S.btn, marginTop: 12, background: 'var(--af-primary)', color: '#fff', opacity: salvandoConfigServicos ? 0.7 : 1 }}>
-                {salvandoConfigServicos ? 'Salvando...' : 'Salvar configuracao'}
-              </button>
+              <input
+                value={cfopBusca}
+                onChange={e => setCfopBusca(e.target.value)}
+                placeholder="Buscar por código ou descrição..."
+                style={{ width: '100%', marginBottom: 12, background: 'var(--af-surface-2)', border: '1px solid var(--af-border)', borderRadius: 10, padding: '9px 12px', color: 'var(--af-text)' }}
+              />
+              <div style={{ overflowX: 'auto', maxHeight: 420, overflowY: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr>
+                      <th style={S.th}>CFOP</th>
+                      <th style={S.th}>Descrição</th>
+                      <th style={{ ...S.th, width: 100 }}>Origem</th>
+                      <th style={{ ...S.th, width: 130 }}>Faturamento</th>
+                      <th style={{ ...S.th, width: 90 }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cfopConfigs
+                      .filter(c => {
+                        const busca = cfopBusca.trim().toLowerCase()
+                        if (!busca) return true
+                        return c.cfop.includes(busca) || c.descricao.toLowerCase().includes(busca)
+                      })
+                      .map(c => (
+                        <tr key={c.cfop}>
+                          <td style={S.td}>
+                            <span style={{ fontFamily: 'monospace', color: 'var(--af-primary)', fontWeight: 700 }}>{c.cfop}</span>
+                          </td>
+                          <td style={S.td}>{c.descricao || `CFOP ${c.cfop}`}</td>
+                          <td style={S.td}>
+                            <span style={{
+                              display: 'inline-block', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6,
+                              background: c.origem === 'usuario' ? 'rgba(39,199,216,0.12)' : 'rgba(148,163,184,0.15)',
+                              color: c.origem === 'usuario' ? 'var(--af-primary)' : 'var(--af-muted)',
+                            }}>
+                              {c.origem === 'usuario' ? 'Personalizado' : 'Padrão'}
+                            </span>
+                          </td>
+                          <td style={S.td}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: salvandoCfop === c.cfop ? 'wait' : 'pointer' }}>
+                              <input
+                                type="checkbox"
+                                checked={c.considerar_faturamento}
+                                disabled={salvandoCfop === c.cfop}
+                                onChange={e => handleAlterarCfop(c.cfop, e.target.checked, c.descricao)}
+                              />
+                              {c.considerar_faturamento ? 'Sim' : 'Não'}
+                            </label>
+                          </td>
+                          <td style={S.td}>
+                            {c.origem === 'usuario' && (
+                              <button
+                                onClick={() => handleRestaurarCfopPadrao(c.cfop)}
+                                disabled={salvandoCfop === c.cfop}
+                                style={{ background: 'none', border: 'none', color: 'var(--af-muted)', fontSize: 11, textDecoration: 'underline', cursor: 'pointer', padding: 0 }}
+                              >
+                                Restaurar padrão
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
 
             <div style={{ ...S.card, padding: 24 }}>

@@ -3,7 +3,8 @@
 import { useRef, useState } from 'react'
 import { Upload, Loader2, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { extrairXmlsDeArquivos } from '@/lib/fiscal/xmlArchive'
-import { parseNfeParaDocumento } from '@/lib/nfe/parseNfe'
+import { detectarCancelamento, parseNfeParaDocumento } from '@/lib/nfe/parseNfe'
+import { detectarXmlNfseAbrasf, parseNfseAbrasf } from '@/lib/nfse/parseNfseAbrasf'
 import type { DocumentoFiscalInput, DocumentoFiscalItemInput } from '@/lib/types'
 
 interface ImportadorXmlReformaProps {
@@ -33,28 +34,57 @@ export default function ImportadorXmlReforma({ empresaId, cnpjEmpresa, cnaePrinc
       const rejeitados: string[] = [...extraidos.avisos]
       const documentos: Omit<DocumentoFiscalInput, 'empresa_id'>[] = []
       const itensPorChave: Record<string, Omit<DocumentoFiscalItemInput, 'empresa_id' | 'documento_id'>[]> = {}
+      const cancelamentos: string[] = []
 
       for (const arquivo of extraidos.arquivos) {
-        const resultado = parseNfeParaDocumento(arquivo.txt, cnpjLimpo, ehIndustrial, arquivo.nome)
-        if (!resultado) {
-          rejeitados.push(`${arquivo.nome}: não foi possível extrair dados do XML`)
+        const chaveCancelada = detectarCancelamento(arquivo.txt)
+        if (chaveCancelada) {
+          cancelamentos.push(chaveCancelada)
+          continue
+        }
+        // Alguns XMLs municipais possuem tags genéricas como `ide`; identificar
+        // NFS-e primeiro evita que sejam interpretados indevidamente como NF-e.
+        const resultadosNfse = detectarXmlNfseAbrasf(arquivo.txt)
+          ? parseNfseAbrasf(arquivo.txt, cnpjLimpo, arquivo.nome)
+          : []
+        const resultadoNfe = resultadosNfse.length === 0
+          ? parseNfeParaDocumento(arquivo.txt, cnpjLimpo, ehIndustrial, arquivo.nome)
+          : null
+        const resultados = resultadosNfse.length > 0
+          ? resultadosNfse
+          : resultadoNfe ? [resultadoNfe] : []
+
+        if (resultados.length === 0) {
+          rejeitados.push(`${arquivo.nome}: não foi possível identificar NF-e, NFC-e ou NFS-e`)
           continue
         }
 
-        const { emitente_cnpj, destinatario_cnpj } = resultado.metadados
-        const pertenceAEmpresa = emitente_cnpj === cnpjLimpo || destinatario_cnpj === cnpjLimpo
-        if (!pertenceAEmpresa) {
-          rejeitados.push(`${arquivo.nome}: o documento não pertence à empresa selecionada`)
-          continue
-        }
+        for (const resultado of resultados) {
+          const { emitente_cnpj, destinatario_cnpj } = resultado.documento
+          const pertenceAEmpresa = emitente_cnpj === cnpjLimpo || destinatario_cnpj === cnpjLimpo
+          if (!pertenceAEmpresa) {
+            rejeitados.push(`${arquivo.nome}: o documento não pertence à empresa selecionada`)
+            continue
+          }
 
-        const chave = resultado.metadados.chave_acesso ?? arquivo.nome
-        documentos.push(resultado.documento)
-        itensPorChave[chave] = resultado.itens
+          const chave = resultado.documento.chave_acesso ?? `${arquivo.nome}:${resultado.documento.numero ?? documentos.length + 1}`
+          documentos.push(resultado.documento)
+          itensPorChave[chave] = resultado.itens
+        }
       }
 
       if (documentos.length === 0) {
-        setResumo({ salvos: 0, rejeitados })
+        let cancelados = 0
+        for (const chave of cancelamentos) {
+          const res = await fetch('/api/documentos-fiscais/importar-nfe', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ empresa_id: empresaId, chave_acesso: chave }),
+          })
+          if (res.ok) cancelados++
+          else rejeitados.push(`Cancelamento ${chave}: não foi possível atualizar o documento.`)
+        }
+        setResumo({ salvos: cancelados, rejeitados })
         setProcessando(false)
         return
       }
@@ -62,7 +92,7 @@ export default function ImportadorXmlReforma({ empresaId, cnpjEmpresa, cnaePrinc
       const res = await fetch('/api/documentos-fiscais/importar-nfe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ empresa_id: empresaId, documentos, itens: itensPorChave }),
+        body: JSON.stringify({ empresa_id: empresaId, documentos, itens: itensPorChave, cancelamentos }),
       })
 
       if (!res.ok) {
@@ -97,7 +127,7 @@ export default function ImportadorXmlReforma({ empresaId, cnpjEmpresa, cnaePrinc
           {processando ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <Upload size={16} />}
           {processando ? 'Processando...' : 'Importar XMLs'}
         </button>
-        <span className="af-help">Aceita arquivos .xml ou .zip contendo XMLs de NF-e.</span>
+        <span className="af-help">Aceita arquivos .xml ou .zip com NF-e, NFC-e e NFS-e.</span>
         <input
           ref={inputRef}
           type="file"

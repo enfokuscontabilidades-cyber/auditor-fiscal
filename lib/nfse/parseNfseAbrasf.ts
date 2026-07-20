@@ -1,4 +1,5 @@
 import type { DocumentoFiscalInput, DocumentoFiscalItemInput } from '@/lib/types'
+import { lerXmlDiagnostico } from '@/lib/fiscal/lerXmlDiagnostico'
 
 type XmlElement = Element | null | undefined
 
@@ -54,6 +55,17 @@ function numberXml(value: string | null | undefined): number {
   const normalized = clean.includes(',') ? clean.replace(/\./g, '').replace(',', '.') : clean
   const parsed = Number(normalized)
   return Number.isFinite(parsed) ? parsed : 0
+}
+
+function indicadorIssRetido(value: string | null | undefined): boolean {
+  const normalized = (value ?? '').trim().toLowerCase()
+  return ['1', 'true', 's', 'sim', 'yes'].includes(normalized)
+}
+
+function tipoRetencaoIssNacional(value: string | null | undefined): boolean {
+  // NFS-e Nacional: 1 = não retido; 2 = retido pelo tomador;
+  // 3 = retido pelo intermediário.
+  return ['2', '3'].includes((value ?? '').trim())
 }
 
 function decodeXmlEntities(value: string) {
@@ -124,7 +136,7 @@ function findCnpj(node: XmlElement, role?: 'prestador' | 'tomador'): string {
 }
 
 function findNome(node: XmlElement): string {
-  return firstText(node, ['RazaoSocial', 'NomeRazaoSocial', 'NomePrestador', 'NomeTomador', 'Nome', 'NomeFantasia'])
+  return firstText(node, ['RazaoSocial', 'NomeRazaoSocial', 'NomePrestador', 'NomeTomador', 'xNome', 'Nome', 'NomeFantasia'])
 }
 
 function municipioCodigo(inf: Element): string {
@@ -152,8 +164,12 @@ export interface NfseAbrasfMetadata {
   codigo_tributacao_municipio: string
   valor_servicos: number
   valor_deducoes: number
+  desconto_incondicionado: number
+  desconto_condicionado: number
   valor_iss: number
+  valor_iss_retido: number
   iss_retido: boolean
+  tipo_retencao_iss: string
   valor_liquido: number
   cancelada: boolean
 }
@@ -203,6 +219,12 @@ function parseInfNfse(inf: Element, xmlTxt: string, nomeArquivo?: string): NfseP
     situacaoCancelada() ||
     temEventoCancelamento()
 
+  const indicadorRetencao = firstText(valores ?? inf, ['IssRetido', 'ISSRetido', 'RetencaoISS', 'RetemISS'])
+  const tipoRetencaoIss = firstText(inf, ['tpRetISSQN', 'TipoRetencaoISSQN', 'TipoRetencaoIss'])
+  const valorIss = numberXml(firstText(valores, ['ValorIss', 'ValorISS', 'vISSQN']))
+  const issRetido = indicadorIssRetido(indicadorRetencao) || tipoRetencaoIssNacional(tipoRetencaoIss)
+  const valorIssRetidoInformado = numberXml(firstText(valores ?? inf, ['ValorIssRetido', 'ValorISSRetido', 'vISSQNRet', 'vISSRet']))
+
   const metadados: NfseAbrasfMetadata = {
     numero: firstText(inf, ['Numero', 'NumeroNfse', 'NumeroNFSe', 'NumeroNota', 'NumeroNotaFiscal', 'nNFSe', 'nDFSe', 'nDPS']),
     codigo_verificacao: firstText(inf, ['CodigoVerificacao', 'CodVerificacao', 'ChaveAutenticacao']),
@@ -218,8 +240,12 @@ function parseInfNfse(inf: Element, xmlTxt: string, nomeArquivo?: string): NfseP
     codigo_tributacao_municipio: firstText(servico, ['CodigoTributacaoMunicipio', 'cTribMun']),
     valor_servicos: numberXml(firstText(valores, ['ValorServicos', 'ValorServico', 'ValorTotalServicos', 'vServ', 'vBC'])),
     valor_deducoes: numberXml(firstText(valores, ['ValorDeducoes', 'ValorDeducao'])),
-    valor_iss: numberXml(firstText(valores, ['ValorIss', 'ValorISS', 'vISSQN'])),
-    iss_retido: firstText(valores, ['IssRetido', 'ISSRetido']) === '1' || /^true$/i.test(firstText(valores, ['IssRetido', 'ISSRetido'])),
+    desconto_incondicionado: numberXml(firstText(valores, ['DescontoIncondicionado', 'ValorDescontoIncondicionado', 'vDescIncond'])),
+    desconto_condicionado: numberXml(firstText(valores, ['DescontoCondicionado', 'ValorDescontoCondicionado', 'vDescCond'])),
+    valor_iss: valorIss,
+    valor_iss_retido: issRetido ? (valorIssRetidoInformado || valorIss) : 0,
+    iss_retido: issRetido,
+    tipo_retencao_iss: tipoRetencaoIss,
     valor_liquido: numberXml(firstText(valores, ['ValorLiquidoNfse', 'ValorLiquidoNFSe', 'ValorLiquido', 'vLiq'])) || numberXml(firstText(valores, ['ValorServicos', 'ValorServico', 'ValorTotalServicos', 'vServ', 'vBC'])),
     cancelada,
   }
@@ -245,7 +271,7 @@ function parseInfNfse(inf: Element, xmlTxt: string, nomeArquivo?: string): NfseP
     valor_total: metadados.cancelada ? 0 : valorTotal,
     valor_produtos: 0,
     valor_servicos: metadados.cancelada ? 0 : metadados.valor_servicos,
-    valor_desconto: metadados.cancelada ? 0 : metadados.valor_deducoes,
+    valor_desconto: metadados.cancelada ? 0 : metadados.desconto_incondicionado,
     valor_frete: 0,
     valor_icms: 0,
     valor_pis: 0,
@@ -269,7 +295,7 @@ function parseInfNfse(inf: Element, xmlTxt: string, nomeArquivo?: string): NfseP
     quantidade: 1,
     valor_unitario: metadados.valor_servicos,
     valor_total: metadados.valor_servicos,
-    valor_desconto: metadados.valor_deducoes,
+    valor_desconto: metadados.desconto_incondicionado,
     valor_frete: 0,
     valor_bc_icms: 0,
     aliquota_icms: 0,
@@ -297,6 +323,11 @@ function parseInfNfse(inf: Element, xmlTxt: string, nomeArquivo?: string): NfseP
 
 function parseRawNfse(xmlTxt: string, nomeArquivo?: string): NfseParseResult | null {
   const data_emissao = dateIso(rawTag(xmlTxt, ['DataEmissao', 'DataEmissaoNfse', 'DataEmissaoNFSe', 'DtEmissao', 'dhProc', 'dhEmi', 'dCompet']))
+  const indicadorRetencao = rawTag(xmlTxt, ['IssRetido', 'ISSRetido', 'RetencaoISS', 'RetemISS'])
+  const tipoRetencaoIss = rawTag(xmlTxt, ['tpRetISSQN', 'TipoRetencaoISSQN', 'TipoRetencaoIss'])
+  const valorIss = numberXml(rawTag(xmlTxt, ['ValorIss', 'ValorISS', 'vISSQN']))
+  const issRetido = indicadorIssRetido(indicadorRetencao) || tipoRetencaoIssNacional(tipoRetencaoIss)
+  const valorIssRetidoInformado = numberXml(rawTag(xmlTxt, ['ValorIssRetido', 'ValorISSRetido', 'vISSQNRet', 'vISSRet']))
   const metadados: NfseAbrasfMetadata = {
     numero: rawTag(xmlTxt, ['NumeroNFSe', 'NumeroNfse', 'NumeroNotaFiscal', 'NumeroNota', 'Numero', 'nNFSe', 'nDFSe', 'nDPS']),
     codigo_verificacao: rawTag(xmlTxt, ['CodigoVerificacao', 'CodVerificacao', 'ChaveAutenticacao']),
@@ -312,8 +343,12 @@ function parseRawNfse(xmlTxt: string, nomeArquivo?: string): NfseParseResult | n
     codigo_tributacao_municipio: rawTag(xmlTxt, ['CodigoTributacaoMunicipio', 'cTribMun']),
     valor_servicos: numberXml(rawTag(xmlTxt, ['ValorServicos', 'ValorServico', 'ValorTotalServicos', 'vServ', 'vBC'])),
     valor_deducoes: numberXml(rawTag(xmlTxt, ['ValorDeducoes', 'ValorDeducao'])),
-    valor_iss: numberXml(rawTag(xmlTxt, ['ValorIss', 'ValorISS', 'vISSQN'])),
-    iss_retido: rawTag(xmlTxt, ['IssRetido', 'ISSRetido']) === '1' || /^true$/i.test(rawTag(xmlTxt, ['IssRetido', 'ISSRetido'])),
+    desconto_incondicionado: numberXml(rawTag(xmlTxt, ['DescontoIncondicionado', 'ValorDescontoIncondicionado', 'vDescIncond'])),
+    desconto_condicionado: numberXml(rawTag(xmlTxt, ['DescontoCondicionado', 'ValorDescontoCondicionado', 'vDescCond'])),
+    valor_iss: valorIss,
+    valor_iss_retido: issRetido ? (valorIssRetidoInformado || valorIss) : 0,
+    iss_retido: issRetido,
+    tipo_retencao_iss: tipoRetencaoIss,
     valor_liquido: numberXml(rawTag(xmlTxt, ['ValorLiquidoNfse', 'ValorLiquidoNFSe', 'ValorLiquido', 'vLiq'])) || numberXml(rawTag(xmlTxt, ['ValorServicos', 'ValorServico', 'ValorTotalServicos', 'vServ', 'vBC'])),
     cancelada: ((): boolean => {
       if (/<[^>]*(?:Cancelamento|Confirmacao|NfseCancelamento|NfseCanc|CancelNfse|InfCancelamento|ConfirmacaoCancelamento)[\s>/]/i.test(xmlTxt)) return true
@@ -351,7 +386,7 @@ function parseInfNfseFromMetadata(metadados: NfseAbrasfMetadata, xmlTxt: string,
     valor_total: metadados.cancelada ? 0 : valorTotal,
     valor_produtos: 0,
     valor_servicos: metadados.cancelada ? 0 : metadados.valor_servicos,
-    valor_desconto: metadados.cancelada ? 0 : metadados.valor_deducoes,
+    valor_desconto: metadados.cancelada ? 0 : metadados.desconto_incondicionado,
     valor_frete: 0,
     valor_icms: 0,
     valor_pis: 0,
@@ -375,7 +410,7 @@ function parseInfNfseFromMetadata(metadados: NfseAbrasfMetadata, xmlTxt: string,
     quantidade: 1,
     valor_unitario: metadados.valor_servicos,
     valor_total: metadados.valor_servicos,
-    valor_desconto: metadados.valor_deducoes,
+    valor_desconto: metadados.desconto_incondicionado,
     valor_frete: 0,
     valor_bc_icms: 0,
     aliquota_icms: 0,
@@ -401,15 +436,44 @@ function parseInfNfseFromMetadata(metadados: NfseAbrasfMetadata, xmlTxt: string,
   return { documento, itens, metadados }
 }
 
+function enriquecerIbsCbsNfse(resultados: NfseParseResult[], xmlTxt: string): NfseParseResult[] {
+  const leitura = lerXmlDiagnostico(xmlTxt)
+  if (!leitura.ok || leitura.documento.tipoDocumento !== 'NFS-e') return resultados
+
+  const itemDiagnostico = leitura.documento.itens[0]
+  if (!itemDiagnostico) return resultados
+
+  return resultados.map(resultado => {
+    if (resultado.documento.numero !== leitura.documento.numero || !resultado.itens[0]) return resultado
+    return {
+      ...resultado,
+      itens: resultado.itens.map((item, indice) => indice === 0 ? {
+        ...item,
+        cst_ibs_cbs: itemDiagnostico.cst || undefined,
+        cclass_trib: itemDiagnostico.cclass || undefined,
+        valor_bc_ibs_cbs: itemDiagnostico.base,
+        aliquota_ibs_uf: itemDiagnostico.aliquotaIbsUf,
+        valor_ibs_uf: itemDiagnostico.valorIbsUf,
+        aliquota_ibs_mun: itemDiagnostico.aliquotaIbsMun,
+        valor_ibs_mun: itemDiagnostico.valorIbsMun,
+        valor_ibs: itemDiagnostico.valorIbs,
+        aliquota_cbs: itemDiagnostico.aliquotaCbs,
+        valor_cbs: itemDiagnostico.valorCbs,
+      } : item),
+    }
+  })
+}
+
 export function parseNfseAbrasf(xmlTxt: string, cnpjEmpresa: string, nomeArquivo?: string): NfseParseResult[] {
   const doc = new DOMParser().parseFromString(xmlTxt, 'text/xml')
   if (doc.querySelector('parsererror')) {
     const rawParsed = parseRawNfse(xmlTxt, nomeArquivo)
     const cnpj = onlyDigits(cnpjEmpresa)
     if (!rawParsed) return []
-    if (!cnpj) return [rawParsed]
+    const enriquecidos = enriquecerIbsCbsNfse([rawParsed], xmlTxt)
+    if (!cnpj) return enriquecidos
     if (cnpj.length !== 14) return []
-    return rawParsed.metadados.prestador_cnpj === cnpj ? [rawParsed] : []
+    return rawParsed.metadados.prestador_cnpj === cnpj ? enriquecidos : []
   }
 
   const infs = [
@@ -432,10 +496,11 @@ export function parseNfseAbrasf(xmlTxt: string, cnpjEmpresa: string, nomeArquivo
     if (decodedParsed) parsedResults.push(decodedParsed)
   }
 
+  const resultadosEnriquecidos = enriquecerIbsCbsNfse(parsedResults, xmlTxt)
   const cnpj = onlyDigits(cnpjEmpresa)
-  if (!cnpj) return parsedResults
+  if (!cnpj) return resultadosEnriquecidos
   if (cnpj.length !== 14) return []
-  return parsedResults.filter(item => item.metadados.prestador_cnpj === cnpj)
+  return resultadosEnriquecidos.filter(item => item.metadados.prestador_cnpj === cnpj)
 }
 
 export function detectarXmlNfseAbrasf(xmlTxt: string): boolean {

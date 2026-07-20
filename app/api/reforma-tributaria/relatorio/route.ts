@@ -18,6 +18,7 @@ import {
   type DocumentoFiscalReforma,
   type ArquivoXmlFiscalReforma,
   type LinhaReforma,
+  type TipoDocumentoReforma,
 } from '@/lib/fiscal/linhasReformaTributaria'
 import { PARAMETROS_REFORMA_2026, type ParametrosReferenciaReforma } from '@/lib/fiscal/parametrosReforma2026'
 import {
@@ -46,6 +47,7 @@ const LIMITE_NUMERO_RELATORIO = 1_000_000_000_000
 interface RelatorioBody {
   empresa_id?: string
   competencia?: string
+  tipoDocumento?: TipoDocumentoReforma
   reportAudience?: ReportAudience
   modoParametros?: ModoParametrosReforma
   parametrosEspecificos?: Partial<ParametrosEspecificosInput>
@@ -106,11 +108,11 @@ function linhasParaDocumentosAnalise(linhas: LinhaReforma[]): DocumentoParaAnali
       doc = {
         id: chaveDocumento,
         numero: linha.nota,
-        serie: '-',
-        tipoDocumento: 'nfe',
+        serie: linha.serie,
+        tipoDocumento: linha.tipoDocumento,
         dataEmissao: linha.data || null,
-        destinatarioNome: linha.participante,
-        destinatarioCnpj: null,
+        destinatarioNome: linha.participanteNome || linha.participante,
+        destinatarioCnpj: linha.participanteDocumento || null,
         itens: [],
       }
       porDocumento.set(chaveDocumento, doc)
@@ -142,6 +144,9 @@ export async function POST(request: Request) {
 
   const body = await request.json() as RelatorioBody
   const { empresa_id: empresaId, competencia } = body
+  const tipoDocumento = body.tipoDocumento && ['nfe', 'nfce', 'nfse', 'outro'].includes(body.tipoDocumento)
+    ? body.tipoDocumento
+    : undefined
   const reportAudience: ReportAudience = body.reportAudience === 'accountant_client' ? 'accountant_client' : 'company'
   if (!empresaId) return NextResponse.json({ error: 'empresa_id é obrigatório' }, { status: 400 })
 
@@ -266,15 +271,15 @@ export async function POST(request: Request) {
   const [docsResult, xmlsResult] = await Promise.all([
     fetchAll((from, to) => supabase
       .from('fa_documentos_fiscais')
-      .select('id, numero, data_emissao, data_competencia, destinatario_nome, destinatario_cnpj, tipo_movimento, ' +
-        'fa_documentos_itens(id, codigo_produto, descricao, ncm, cfop, valor_total, cst_ibs_cbs, cclass_trib, valor_bc_ibs_cbs, ' +
+      .select('id, tipo_documento, chave_acesso, numero, serie, modelo, data_emissao, data_competencia, destinatario_nome, destinatario_cnpj, tipo_movimento, ' +
+        'fa_documentos_itens(id, item_numero, codigo_produto, descricao, ncm, cfop, valor_total, cst_ibs_cbs, cclass_trib, valor_bc_ibs_cbs, ' +
         'aliquota_ibs_uf, valor_ibs_uf, aliquota_ibs_mun, valor_ibs_mun, valor_ibs, aliquota_cbs, valor_cbs)')
       .eq('empresa_id', empresaId)
       .order('data_emissao', { ascending: false })
       .range(from, to)),
     fetchAll((from, to) => supabase
       .from('fa_arquivos_xml')
-      .select('id, numero_nf, data_emissao, competencia, tipo_operacao, destinatario_nome, destinatario_cnpj, parsed_data')
+      .select('id, chave_nfe, numero_nf, data_emissao, competencia, tipo_operacao, destinatario_nome, destinatario_cnpj, parsed_data')
       .eq('empresa_id', empresaId)
       .eq('tipo_operacao', 'saida')
       .order('data_emissao', { ascending: false })
@@ -285,7 +290,7 @@ export async function POST(request: Request) {
     docsResult as unknown as DocumentoFiscalReforma[],
     xmlsResult as unknown as ArquivoXmlFiscalReforma[],
   )
-  const linhasRelatorio = filtrarLinhasReforma(linhas, { competencia })
+  const linhasRelatorio = filtrarLinhasReforma(linhas, { competencia, tipoDocumento })
   const documentosParaAnalise = linhasParaDocumentosAnalise(linhasRelatorio)
 
   const { resumo, grupos, documentos: documentosAnalisados } = analisarDocumentosReforma(documentosParaAnalise, opcoesAnalise)

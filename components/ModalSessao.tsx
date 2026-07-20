@@ -29,6 +29,8 @@ type Props = {
   cnpjEmpresa?: string;
   nomeEmpresa?: string;
   competenciaArquivo?: string;
+  /** Competência atualmente exibida na tela (sessão ativa), para alertar sobre divergência. */
+  competenciaAtiva?: string;
   arquivosDetectados?: ArquivoDetectado[];
   // Callback para período único
   onConfirmar: (dados: DadosSessao) => Promise<void>;
@@ -56,7 +58,7 @@ function fmtCnpjInput(raw: string) {
 }
 
 export default function ModalSessao({
-  aberto, cnpjEmpresa, nomeEmpresa, competenciaArquivo, arquivosDetectados = [],
+  aberto, cnpjEmpresa, nomeEmpresa, competenciaArquivo, competenciaAtiva, arquivosDetectados = [],
   onConfirmar, onConfirmarLote, onCancelar,
 }: Props) {
   const [empresas, setEmpresas] = useState<Empresa[]>([]);
@@ -360,6 +362,17 @@ export default function ModalSessao({
               <p style={{ margin: "5px 0 0", fontSize: 11, color: "var(--af-muted)" }}>
                 Detectado automaticamente do arquivo
               </p>
+            )}
+            {competenciaAtiva && competencia && competencia !== competenciaAtiva && (
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 8, padding: "7px 10px", background: "rgba(255,180,60,0.07)", border: "1px solid rgba(255,180,60,0.2)", borderRadius: 7 }}>
+                <AlertTriangle size={12} color="var(--af-warning)" style={{ flexShrink: 0, marginTop: 1 }} />
+                <span style={{ fontSize: 11, color: "var(--af-warning)" }}>
+                  Você está vendo a competência <strong>{competenciaAtiva}</strong> na tela, mas este arquivo será
+                  salvo em <strong>{competencia}</strong> — um período diferente. As notas já importadas de{" "}
+                  {competenciaAtiva} não vão desaparecer, mas a tela vai passar a mostrar {competencia} depois de
+                  confirmar. Ajuste o campo acima se o período estiver errado.
+                </span>
+              </div>
             )}
           </div>
         )}

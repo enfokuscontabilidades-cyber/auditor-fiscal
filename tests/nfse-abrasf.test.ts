@@ -14,6 +14,7 @@ function nfseXml(opts: {
   cnpj?: string
   codigoVerificacao?: string
   cancelada?: boolean
+  issRetido?: '1' | '2'
 } = {}) {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <ConsultarNfseResposta xmlns="http://www.abrasf.org.br/nfse.xsd">
@@ -30,7 +31,7 @@ function nfseXml(opts: {
               <ValorServicos>1500.00</ValorServicos>
               <ValorDeducoes>100.00</ValorDeducoes>
               <ValorIss>45.00</ValorIss>
-              <IssRetido>2</IssRetido>
+              <IssRetido>${opts.issRetido ?? '2'}</IssRetido>
               <ValorLiquidoNfse>1400.00</ValorLiquidoNfse>
             </Valores>
             <ItemListaServico>10.05</ItemListaServico>
@@ -64,6 +65,16 @@ describe('parseNfseAbrasf', () => {
     expect(result.documento.valor_servicos).toBe(1500)
     expect(result.itens[0].classificacao).toBe('servico')
     expect(result.itens[0].impacto_receita).toBe('soma_receita')
+    expect(result.metadados.iss_retido).toBe(false)
+    // Dedução da base municipal do ISS não é desconto incondicional da receita.
+    expect(result.documento.valor_desconto).toBe(0)
+    expect(result.itens[0].valor_desconto).toBe(0)
+  })
+
+  test('identifica ISS retido no padrão ABRASF e preserva o valor informado', () => {
+    const [result] = parseNfseAbrasf(nfseXml({ issRetido: '1' }), CNPJ_EMPRESA)
+    expect(result.metadados.iss_retido).toBe(true)
+    expect(result.metadados.valor_iss_retido).toBe(45)
   })
 
   test('suporta lote/lista com mais de uma NFS-e', () => {
@@ -134,6 +145,22 @@ describe('parseNfseAbrasf', () => {
             <vISSQN>4.45</vISSQN>
             <vLiq>128.88</vLiq>
           </valores>
+          <IBSCBS>
+            <valores>
+              <vBC>125.42</vBC>
+              <uf><pIBSUF>0.10</pIBSUF></uf>
+              <mun><pIBSMun>0.00</pIBSMun></mun>
+              <fed><pCBS>0.90</pCBS></fed>
+            </valores>
+            <totCIBS>
+              <gIBS>
+                <vIBSTot>0.13</vIBSTot>
+                <gIBSUFTot><vIBSUF>0.13</vIBSUF></gIBSUFTot>
+                <gIBSMunTot><vIBSMun>0.00</vIBSMun></gIBSMunTot>
+              </gIBS>
+              <gCBS><vCBS>1.13</vCBS></gCBS>
+            </totCIBS>
+          </IBSCBS>
           <DPS versao="1.01">
             <infDPS>
               <dhEmi>2026-06-02T10:25:50-03:00</dhEmi>
@@ -141,6 +168,7 @@ describe('parseNfseAbrasf', () => {
               <prest><CNPJ>${CNPJ_EMPRESA}</CNPJ></prest>
               <toma><CPF>32061323120</CPF><xNome>Cliente Tomador</xNome></toma>
               <serv>
+                <tribMun><tpRetISSQN>2</tpRetISSQN></tribMun>
                 <cServ>
                   <cTribNac>171201</cTribNac>
                   <cTribMun>1712</cTribMun>
@@ -150,6 +178,11 @@ describe('parseNfseAbrasf', () => {
               <valores>
                 <vServPrest><vServ>128.88</vServ></vServPrest>
               </valores>
+              <IBSCBS>
+                <valores><trib><gIBSCBS>
+                  <CST>000</CST><cClassTrib>000001</cClassTrib>
+                </gIBSCBS></trib></valores>
+              </IBSCBS>
             </infDPS>
           </DPS>
         </infNFSe>
@@ -162,6 +195,20 @@ describe('parseNfseAbrasf', () => {
     expect(result.metadados.prestador_cnpj).toBe(CNPJ_EMPRESA)
     expect(result.documento.data_competencia).toBe('06/2026')
     expect(result.documento.valor_servicos).toBe(128.88)
+    expect(result.documento.destinatario_cnpj).toBe('32061323120')
+    expect(result.documento.destinatario_nome).toBe('Cliente Tomador')
     expect(result.itens[0].descricao).toBe('TAXA DE ADMINISTRACAO')
+    expect(result.metadados.iss_retido).toBe(true)
+    expect(result.metadados.tipo_retencao_iss).toBe('2')
+    expect(result.itens[0]).toMatchObject({
+      cst_ibs_cbs: '000',
+      cclass_trib: '000001',
+      valor_bc_ibs_cbs: 125.42,
+      aliquota_ibs_uf: 0.1,
+      valor_ibs_uf: 0.13,
+      aliquota_cbs: 0.9,
+      valor_ibs: 0.13,
+      valor_cbs: 1.13,
+    })
   })
 })

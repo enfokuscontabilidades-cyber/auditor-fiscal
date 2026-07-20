@@ -243,6 +243,8 @@ export interface ArquivoXml {
   emitente_nome?: string
   destinatario_cnpj?: string
   destinatario_nome?: string
+  natureza_operacao?: string
+  finalidade_nfe?: string
   tipo_operacao?: 'entrada' | 'saida'
   valor_total?: number
   storage_path?: string
@@ -410,7 +412,86 @@ export type TipoMovimento = 'saida' | 'entrada' | 'devolucao_venda' | 'devolucao
 export type ImpactoReceita = 'soma_receita' | 'reduz_receita' | 'sem_impacto' | 'pendente_revisao'
 export type OrigemDevolucao = 'emitida_propria' | 'emitida_terceiro' | 'nao_aplicavel'
 export type StatusDocumentoFiscal = 'ok' | 'cancelada' | 'pendente' | 'erro'
-export type ClassificacaoItem = 'revenda' | 'insumo' | 'uso_consumo' | 'imobilizado' | 'servico' | 'outros'
+
+// ---------------------------------------------------------------
+// Classificação fiscal do item (fa_documentos_itens.classificacao) vs.
+// situação operacional de revisão (fa_documentos_itens.situacao_classificacao)
+//
+// Fonte única de verdade para os valores aceitos pelo banco — ver a
+// CHECK constraint `fa_documentos_itens_classificacao_check` em
+// supabase_migration_classificacao_itens_fix.sql. "combustivel" é uma
+// classificação fiscal real (mesmo conceito usado em
+// lib/fiscal/classificacao.ts para o SPED). "desconhece" e "nao_recebido"
+// NÃO são classificações fiscais — são respostas operacionais do usuário
+// durante a conferência (o item ainda não tem classificação fiscal
+// definida) e por isso vivem numa coluna separada.
+// ---------------------------------------------------------------
+export const CLASSIFICACAO_ITEM_VALORES = [
+  'revenda', 'insumo', 'uso_consumo', 'imobilizado', 'combustivel', 'servico', 'outros',
+] as const
+export type ClassificacaoItem = typeof CLASSIFICACAO_ITEM_VALORES[number]
+
+export const SITUACAO_CLASSIFICACAO_VALORES = ['desconhece', 'nao_recebido'] as const
+export type SituacaoClassificacaoItem = typeof SITUACAO_CLASSIFICACAO_VALORES[number]
+
+/**
+ * União usada pelo seletor manual de classificação do Validador de Entradas:
+ * classificação fiscal real, situação operacional de revisão, ou null
+ * (ainda não classificado). "outros" é só o default interno do banco e
+ * não é uma opção selecionável pelo usuário.
+ */
+export type ClassificacaoManualItem = Exclude<ClassificacaoItem, 'outros'> | SituacaoClassificacaoItem | null
+
+/**
+ * Separa a escolha manual do usuário entre a classificação fiscal
+ * persistível (coluna `classificacao`) e a situação operacional de
+ * revisão (coluna `situacao_classificacao`) — "desconhece"/"nao_recebido"
+ * nunca podem ser gravados na coluna fiscal (violaria a CHECK constraint).
+ */
+export function separarClassificacaoManual(valor: ClassificacaoManualItem): {
+  classificacao: ClassificacaoItem | null
+  situacao_classificacao: SituacaoClassificacaoItem | null
+} {
+  if (valor === 'desconhece' || valor === 'nao_recebido') {
+    return { classificacao: null, situacao_classificacao: valor }
+  }
+  return { classificacao: valor, situacao_classificacao: null }
+}
+
+/**
+ * Reconstrói a escolha manual do usuário a partir do que foi persistido —
+ * usado ao recarregar uma competência/sessão para que a tela reproduza
+ * exatamente o que está gravado no banco (nunca descarta a classificação
+ * salva).
+ */
+export function combinarClassificacaoManual(
+  classificacao: string | null | undefined,
+  situacaoClassificacao: string | null | undefined,
+): ClassificacaoManualItem {
+  if (situacaoClassificacao === 'desconhece' || situacaoClassificacao === 'nao_recebido') {
+    return situacaoClassificacao
+  }
+  if (classificacao && classificacao !== 'outros' && (CLASSIFICACAO_ITEM_VALORES as readonly string[]).includes(classificacao)) {
+    return classificacao as Exclude<ClassificacaoItem, 'outros'>
+  }
+  return null
+}
+
+/**
+ * Sanitiza um valor de classificação vindo de uma requisição antes de
+ * persistir — última barreira no servidor, além da CHECK constraint do
+ * banco. Retorna `outros` (default seguro) quando o valor não é
+ * reconhecido, sinalizando `invalida: true` para quem chamou poder avisar
+ * o usuário em vez de falhar silenciosamente.
+ */
+export function normalizarClassificacaoPersistivel(valor: unknown): { classificacao: ClassificacaoItem; invalida: boolean } {
+  if (valor == null) return { classificacao: 'outros', invalida: false }
+  if (typeof valor === 'string' && (CLASSIFICACAO_ITEM_VALORES as readonly string[]).includes(valor)) {
+    return { classificacao: valor as ClassificacaoItem, invalida: false }
+  }
+  return { classificacao: 'outros', invalida: true }
+}
+
 export type NaturezaReceitaSimples = 'tributada' | 'st' | 'monofasica' | 'isenta' | 'exportacao' | 'devolucao' | 'nao_receita' | 'pendente'
 
 export interface DocumentoFiscal {
@@ -430,11 +511,15 @@ export interface DocumentoFiscal {
   emitente_nome?: string
   destinatario_cnpj?: string
   destinatario_nome?: string
+  natureza_operacao?: string
+  finalidade_nfe?: string
   valor_total: number
   valor_produtos: number
   valor_servicos: number
   valor_desconto: number
   valor_frete: number
+  valor_seguro?: number
+  valor_outras_despesas?: number
   valor_icms: number
   valor_pis: number
   valor_cofins: number
@@ -460,6 +545,7 @@ export interface DocumentoFiscalItem {
   documento_id: string
   item_numero?: number
   codigo_produto?: string
+  ean?: string
   descricao?: string
   ncm?: string
   cest?: string
@@ -470,8 +556,12 @@ export interface DocumentoFiscalItem {
   valor_total: number
   valor_desconto: number
   valor_frete: number
+  valor_seguro?: number
+  valor_outras_despesas?: number
   cst_icms?: string
   csosn?: string
+  origem_mercadoria?: string
+  cbenef?: string
   valor_bc_icms: number
   aliquota_icms: number
   valor_icms: number
@@ -485,6 +575,9 @@ export interface DocumentoFiscalItem {
   valor_bc_cofins: number
   aliquota_cofins: number
   valor_cofins: number
+  cst_ipi?: string
+  valor_bc_ipi?: number
+  aliquota_ipi?: number
   cst_ibs_cbs?: string
   cclass_trib?: string
   valor_bc_ibs_cbs?: number
@@ -497,6 +590,7 @@ export interface DocumentoFiscalItem {
   valor_cbs?: number
   valor_ipi: number
   classificacao: ClassificacaoItem
+  situacao_classificacao?: SituacaoClassificacaoItem | null
   natureza_receita_simples: NaturezaReceitaSimples
   tipo_movimento: TipoMovimento
   impacto_receita: ImpactoReceita
@@ -549,6 +643,18 @@ export interface SnConfigServicoAtividade {
   modo_tributacao: 'anexo_fixo' | 'fator_r'
   anexo_fixo?: 'III' | 'IV' | 'V'
   observacoes?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface FaCfopFaturamentoConfig {
+  id: string
+  org_id: string
+  empresa_id: string
+  cfop: string
+  descricao?: string
+  considerar_faturamento: boolean
+  origem: 'padrao' | 'usuario'
   created_at: string
   updated_at: string
 }

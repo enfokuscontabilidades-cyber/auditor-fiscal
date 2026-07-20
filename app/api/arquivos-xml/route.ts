@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getOrgId } from '@/lib/supabase/org'
 import { validarEmpresaDaOrg, validarSessaoDaOrg, respostaForbidden } from '@/lib/supabase/validation'
 import { fetchAll } from '@/lib/supabase/fetchAll'
+import { normalizarCompetencia } from '@/lib/fiscal/competencia'
 import { NextResponse } from 'next/server'
 
 export async function POST(request: Request) {
@@ -122,7 +123,7 @@ export async function GET(request: Request) {
   const sessaoId    = searchParams.get('sessao_id')
   const empresaId   = searchParams.get('empresa_id')
   const tipoOperacao = searchParams.get('tipo_operacao')
-  const competencia = searchParams.get('competencia')
+  const competencia = normalizarCompetencia(searchParams.get('competencia'))
 
   if (!sessaoId && !empresaId) {
     return NextResponse.json({ error: 'sessao_id ou empresa_id é obrigatório' }, { status: 400 })
@@ -151,13 +152,10 @@ export async function GET(request: Request) {
 
   try {
     data = await fetchAll((from, to) => buildQuery(true).range(from, to))
-
-    // Se o filtro de competencia retornou zero resultados mas há empresa_id definida,
-    // pode ser que os registros tenham competencia=NULL (salvos antes/durante migração).
-    // Fallback: buscar sem filtro server-side — o client-side filtrará por data_emissao.
-    if (data.length === 0 && competencia && empresaId && !sessaoId) {
-      data = await fetchAll((from, to) => buildQuery(false).range(from, to))
-    }
+    // Zero resultados para a competência pedida é uma resposta válida (não há dados
+    // naquele período) — não silenciar isso buscando todas as competências da empresa.
+    // Registros com `competencia` NULL (pré-migração) são cobertos separadamente pelo
+    // fallback do chamador, que recalcula a competência a partir de `data_emissao`.
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     if (msg.includes('competencia')) {
