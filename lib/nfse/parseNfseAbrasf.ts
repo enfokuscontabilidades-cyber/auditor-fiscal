@@ -167,6 +167,8 @@ export interface NfseAbrasfMetadata {
   desconto_incondicionado: number
   desconto_condicionado: number
   valor_iss: number
+  base_calculo_iss: number
+  aliquota_iss: number
   valor_iss_retido: number
   iss_retido: boolean
   tipo_retencao_iss: string
@@ -243,6 +245,8 @@ function parseInfNfse(inf: Element, xmlTxt: string, nomeArquivo?: string): NfseP
     desconto_incondicionado: numberXml(firstText(valores, ['DescontoIncondicionado', 'ValorDescontoIncondicionado', 'vDescIncond'])),
     desconto_condicionado: numberXml(firstText(valores, ['DescontoCondicionado', 'ValorDescontoCondicionado', 'vDescCond'])),
     valor_iss: valorIss,
+    base_calculo_iss: numberXml(firstText(valores, ['BaseCalculo', 'ValorBaseCalculo', 'vBC'])),
+    aliquota_iss: numberXml(firstText(valores, ['Aliquota', 'AliquotaServicos', 'pAliq', 'pISSQN'])),
     valor_iss_retido: issRetido ? (valorIssRetidoInformado || valorIss) : 0,
     iss_retido: issRetido,
     tipo_retencao_iss: tipoRetencaoIss,
@@ -346,6 +350,8 @@ function parseRawNfse(xmlTxt: string, nomeArquivo?: string): NfseParseResult | n
     desconto_incondicionado: numberXml(rawTag(xmlTxt, ['DescontoIncondicionado', 'ValorDescontoIncondicionado', 'vDescIncond'])),
     desconto_condicionado: numberXml(rawTag(xmlTxt, ['DescontoCondicionado', 'ValorDescontoCondicionado', 'vDescCond'])),
     valor_iss: valorIss,
+    base_calculo_iss: numberXml(rawTag(xmlTxt, ['BaseCalculo', 'ValorBaseCalculo', 'vBC'])),
+    aliquota_iss: numberXml(rawTag(xmlTxt, ['Aliquota', 'AliquotaServicos', 'pAliq', 'pISSQN'])),
     valor_iss_retido: issRetido ? (valorIssRetidoInformado || valorIss) : 0,
     iss_retido: issRetido,
     tipo_retencao_iss: tipoRetencaoIss,

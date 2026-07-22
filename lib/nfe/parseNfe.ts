@@ -26,6 +26,11 @@ function nnum(v: unknown): number {
   return Number.isFinite(n) ? n : 0
 }
 
+function temTag(node: Element | null | undefined, tag: string): boolean {
+  if (!node) return false
+  return Array.from(node.getElementsByTagName('*')).some(el => el.localName === tag)
+}
+
 function getIcmsNode(imposto: Element | null): Element | null {
   if (!imposto) return null
   const grp = imposto.getElementsByTagName('ICMS')[0]
@@ -71,6 +76,13 @@ export interface XmlMetadataNfe {
   valor_cofins: number
   valor_st: number
   valor_ipi: number
+  tributos_cabecalho_informados: {
+    valor_icms: boolean
+    valor_pis: boolean
+    valor_cofins: boolean
+    valor_st: boolean
+    valor_ipi: boolean
+  }
   /** chave da NF-e referenciada (devoluções, complementares) */
   ref_chave_acesso?: string
 }
@@ -203,6 +215,13 @@ export function extrairMetadataNfe(txt: string): XmlMetadataNfe | null {
       valor_cofins,
       valor_st,
       valor_ipi,
+      tributos_cabecalho_informados: {
+        valor_icms: temTag(tot, 'vICMS'),
+        valor_pis: temTag(tot, 'vPIS'),
+        valor_cofins: temTag(tot, 'vCOFINS'),
+        valor_st: temTag(tot, 'vST'),
+        valor_ipi: temTag(tot, 'vIPI'),
+      },
       ref_chave_acesso,
     }
   } catch { return null }
@@ -269,6 +288,9 @@ export function parseNfeParaDocumento(
     valor_cofins: meta.valor_cofins,
     valor_st: meta.valor_st,
     valor_ipi: meta.valor_ipi,
+    parsed_data: {
+      tributos_cabecalho_informados: meta.tributos_cabecalho_informados,
+    },
     tipo_movimento: docClass.tipo_movimento,
     impacto_receita: docClass.impacto_receita,
     origem_devolucao: docClass.origem_devolucao,
