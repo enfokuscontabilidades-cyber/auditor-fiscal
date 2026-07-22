@@ -5,7 +5,7 @@ import { cor } from '../diagnostico-reforma-tributaria/_components/tokens'
 
 export const metadata: Metadata = {
   title: 'Política de Privacidade | Enfokus Contabilidade',
-  description: 'Como a Enfokus Contabilidade trata os dados pessoais coletados no diagnóstico gratuito de IBS e CBS.',
+  description: 'Como a Enfokus trata os dados pessoais coletados em seus formulários públicos.',
   robots: { index: true, follow: true },
 }
 
@@ -36,13 +36,15 @@ export default function PoliticaPrivacidadePage() {
 
         <p style={S.p}>
           Esta Política de Privacidade descreve como a <strong>Enfokus Contabilidade</strong> coleta, utiliza e protege os
-          dados pessoais informados por visitantes que utilizam o diagnóstico gratuito de IBS e CBS disponibilizado
-          nesta página, em conformidade com a Lei Geral de Proteção de Dados (Lei nº 13.709/2018 — LGPD).
+          dados pessoais informados por visitantes que utilizam o diagnóstico gratuito de IBS e CBS ou solicitam
+          acesso antecipado à plataforma, em conformidade com a Lei Geral de Proteção de Dados (Lei nº 13.709/2018 — LGPD).
         </p>
 
         <h2 style={S.h2}>1. Quais dados coletamos</h2>
         <p style={S.p}>Ao preencher o formulário do diagnóstico, coletamos: nome, nome da empresa, CNPJ, WhatsApp, e-mail,
           regime tributário, estado, cidade e, quando informado, o sistema utilizado para emissão de notas fiscais.
+          No formulário de acesso antecipado, coletamos nome, WhatsApp, e-mail, perfil profissional, finalidades de uso
+          selecionadas e, quando informados, escritório ou empresa, cargo, quantidade de clientes e principal desafio.
           Também registramos automaticamente a origem do acesso, os parâmetros de campanha (UTM), a página de origem,
           o endereço IP e o horário do envio, para fins de segurança e mensuração de campanhas.</p>
 
@@ -55,6 +57,7 @@ export default function PoliticaPrivacidadePage() {
         <h2 style={S.h2}>3. Finalidade do tratamento</h2>
         <ul style={{ margin: '0 0 12px', paddingLeft: 20 }}>
           <li style={S.li}>Viabilizar a execução do diagnóstico gratuito solicitado;</li>
+          <li style={S.li}>Analisar solicitações de acesso antecipado e selecionar perfis para testes da plataforma;</li>
           <li style={S.li}>Entrar em contato para apresentar orientações e serviços de adequação tributária, quando você autorizar;</li>
           <li style={S.li}>Cumprir obrigações legais e prevenir fraudes e uso abusivo da ferramenta.</li>
         </ul>

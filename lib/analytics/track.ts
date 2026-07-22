@@ -28,6 +28,11 @@ export type EventoDiagnosticoReforma =
   | 'reforma_pdf_solicitado'
   | 'reforma_pdf_gerado'
   | 'reforma_pdf_erro'
+  | 'landing_acesso_pageview'
+  | 'landing_acesso_formulario_iniciado'
+  | 'landing_acesso_formulario_concluido'
+  | 'landing_acesso_formulario_erro'
+  | 'landing_acesso_clique_whatsapp'
 
 type EventoMetadata = Record<string, string | number | boolean | undefined>
 

@@ -36,6 +36,7 @@ function isPublicPath(pathname: string): boolean {
     pathname.startsWith('/auth') ||
     pathname.startsWith('/planos-reforma-tributaria') ||
     pathname === '/api/leads/reforma-tributaria' ||
+    pathname === '/api/leads/acesso-antecipado' ||
     pathname === '/api/diagnostico-reforma-tributaria/analisar' ||
     pathname.startsWith('/api/diagnostico-reforma-tributaria/relatorio/') ||
     pathname === '/api/stripe/webhook' ||

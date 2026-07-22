@@ -1,5 +1,51 @@
 export type Regime = 'Simples Nacional' | 'Lucro Presumido' | 'Lucro Real' | 'MEI' | 'CPF'
 
+export type PerfilProfissionalAcesso =
+  | 'contador'
+  | 'gestor_escritorio'
+  | 'profissional_fiscal_tributario'
+  | 'auditor_independente'
+  | 'consultor_tributario'
+  | 'outro'
+
+export type FinalidadeAcessoAntecipado =
+  | 'controle_entregas_escritorio'
+  | 'analises_fiscais_tributarias'
+  | 'auditorias_independentes'
+  | 'validacao_sped_xml'
+  | 'simples_nacional'
+  | 'planejamento_tributario'
+  | 'gestao_carteira_clientes'
+  | 'outro'
+
+export interface LeadAcessoAntecipado {
+  id: string
+  nome: string
+  telefone: string
+  email: string
+  empresa: string | null
+  cargo: string | null
+  perfil_profissional: PerfilProfissionalAcesso
+  finalidades: FinalidadeAcessoAntecipado[]
+  faixa_empresas: string | null
+  principal_desafio: string | null
+  origem: string
+  campanha: string | null
+  codigo_solicitacao: string | null
+  consentimento_dados: boolean
+  consentimento_contato: boolean
+  consentimento_versao: string | null
+  utm_source: string | null
+  utm_medium: string | null
+  utm_campaign: string | null
+  pagina_origem: string | null
+  status: string
+  observacoes: string | null
+  contatado_em: string | null
+  created_at: string
+  atualizado_em: string
+}
+
 export interface Organizacao {
   id: string
   nome: string

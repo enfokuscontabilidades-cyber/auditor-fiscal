@@ -1,14 +1,10 @@
 'use client'
 
-import { useState } from 'react'
 import Link from 'next/link'
+import FormularioAcessoAntecipado from './_components/FormularioAcessoAntecipado'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CONFIGURAÇÃO — edite aqui para ativar o botão de contato
 // ─────────────────────────────────────────────────────────────────────────────
-// Insira a URL completa do WhatsApp (ex: https://wa.me/5511999999999?text=...)
-// ou de um formulário externo. Enquanto estiver vazia, um modal informativo é exibido.
-const WHATSAPP_URL = 'https://w.app/mt3qnk'
 // ─────────────────────────────────────────────────────────────────────────────
 
 const V: Record<string, React.CSSProperties> = {
@@ -351,29 +347,6 @@ const V: Record<string, React.CSSProperties> = {
     flexWrap: 'wrap' as const,
   },
 
-  // modal
-  modalOverlay: {
-    position: 'fixed' as const,
-    inset: 0,
-    background: 'rgba(0,0,0,0.7)',
-    backdropFilter: 'blur(4px)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 999,
-    padding: 24,
-  },
-  modalBox: {
-    background: '#0f2036',
-    border: '1px solid rgba(45,199,239,0.35)',
-    borderRadius: 18,
-    padding: '36px 40px',
-    maxWidth: 460,
-    width: '100%',
-    textAlign: 'center' as const,
-  },
-  modalTitle: { fontSize: 20, fontWeight: 800, margin: '0 0 14px', color: '#f7fbff' },
-  modalText: { fontSize: 15, color: '#a9bdd5', margin: '0 0 24px', lineHeight: 1.6 },
 }
 
 function BulletItem({ children }: { children: React.ReactNode }) {
@@ -395,18 +368,7 @@ function FeatureBullet({ children }: { children: React.ReactNode }) {
 }
 
 export default function LandingPage() {
-  const [modalOpen, setModalOpen] = useState(false)
-
-  function handleCta(e: React.MouseEvent) {
-    if (!WHATSAPP_URL) {
-      e.preventDefault()
-      setModalOpen(true)
-    }
-  }
-
-  const ctaProps = WHATSAPP_URL
-    ? { href: WHATSAPP_URL, target: '_blank' as const, rel: 'noopener noreferrer' }
-    : { href: '#', onClick: handleCta }
+  const ctaProps = { href: '#solicitar-acesso' }
 
   return (
     <>
@@ -847,6 +809,8 @@ export default function LandingPage() {
           </section>
 
           {/* ── FOUNDER ACCESS ───────────────────────────────────────────── */}
+          <FormularioAcessoAntecipado />
+
           <section style={V.founderSection}>
             <div style={V.wrap}>
               <div style={V.founderBox}>
@@ -874,23 +838,6 @@ export default function LandingPage() {
       </div>
 
       {/* ── MODAL ──────────────────────────────────────────────────────────── */}
-      {modalOpen && (
-        <div style={V.modalOverlay} onClick={() => setModalOpen(false)}>
-          <div style={V.modalBox} onClick={(e) => e.stopPropagation()}>
-            <h2 style={V.modalTitle}>Acesso em breve</h2>
-            <p style={V.modalText}>
-              Em breve você poderá solicitar acesso. Entre em contato com a Enfokus para participar da seleção beta.
-            </p>
-            <button
-              onClick={() => setModalOpen(false)}
-              style={{ ...V.btnPrimary, width: '100%', justifyContent: 'center', border: 'none' }}
-            >
-              Entendido
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* ── RESPONSIVE STYLES ────────────────────────────────────────────── */}
       <style>{`
         html { scroll-behavior: smooth; }
