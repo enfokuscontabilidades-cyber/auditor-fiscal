@@ -3,9 +3,14 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { emailAutorizadoParaLeads } from '@/lib/security/adminLeads'
 
-const STATUS_VALIDOS = [
+const STATUS_REFORMA = [
   'novo', 'diagnostico_iniciado', 'diagnostico_concluido', 'aguardando_contato',
   'contatado', 'reuniao_agendada', 'proposta_enviada', 'convertido', 'sem_interesse', 'invalido',
+]
+
+const STATUS_ACESSO = [
+  'novo', 'aguardando_contato', 'contatado', 'reuniao_agendada', 'aprovado_beta',
+  'lista_espera', 'convertido', 'sem_interesse', 'invalido',
 ]
 
 type Payload = {
@@ -15,6 +20,9 @@ type Payload = {
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
+  const tipo = request.nextUrl.searchParams.get('tipo')
+  const ehAcessoAntecipado = tipo === 'acesso_antecipado'
+  const statusValidos = ehAcessoAntecipado ? STATUS_ACESSO : STATUS_REFORMA
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user || !emailAutorizadoParaLeads(user.email)) {
@@ -31,7 +39,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const atualizacao: Record<string, unknown> = { atualizado_em: new Date().toISOString() }
 
   if (typeof body.status === 'string') {
-    if (!STATUS_VALIDOS.includes(body.status)) {
+    if (!statusValidos.includes(body.status)) {
       return NextResponse.json({ error: 'Status inválido.' }, { status: 400 })
     }
     atualizacao.status = body.status
@@ -54,7 +62,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
 
   const { error } = await admin
-    .from('leads_reforma_tributaria')
+    .from(ehAcessoAntecipado ? 'leads_acesso_antecipado' : 'leads_reforma_tributaria')
     .update(atualizacao)
     .eq('id', id)
 

@@ -39,7 +39,7 @@ const LINKS: { href: string; label: string; icon: typeof LayoutDashboard; modulo
   { href: '/suporte', label: 'Suporte', icon: HelpCircle, modulo: 'suporte' },
 ]
 
-const LINK_LEADS_ADMIN = { href: '/leads-reforma-tributaria', label: 'Leads Reforma', icon: Users, modulo: 'leads_reforma_tributaria' as ModuloFiscal }
+const LINK_LEADS_ADMIN = { href: '/leads-reforma-tributaria', label: 'Leads', icon: Users, modulo: 'leads_reforma_tributaria' as ModuloFiscal }
 const LINK_ADMIN_RT = { href: '/admin-reforma-tributaria', label: 'Assinaturas RT (admin)', icon: ShieldCheck, modulo: 'leads_reforma_tributaria' as ModuloFiscal }
 
 const FERRAMENTAS_BLOQUEADAS = [

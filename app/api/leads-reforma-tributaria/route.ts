@@ -35,8 +35,44 @@ export async function GET(request: NextRequest) {
   const regime = params.get('regime')?.trim()
   const status = params.get('status')?.trim()
   const origem = params.get('origem')?.trim()
+  const tipo = params.get('tipo')?.trim()
+  const perfil = params.get('perfil')?.trim()
+  const finalidade = params.get('finalidade')?.trim()
   const dataInicio = params.get('data_inicio')?.trim()
   const dataFim = params.get('data_fim')?.trim()
+
+  if (tipo === 'acesso_antecipado') {
+    let queryAcesso = admin
+      .from('leads_acesso_antecipado')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(1000)
+
+    if (busca) {
+      const termo = busca.replace(/[%,]/g, '')
+      queryAcesso = queryAcesso.or(
+        `nome.ilike.%${termo}%,empresa.ilike.%${termo}%,cargo.ilike.%${termo}%,telefone.ilike.%${termo}%,email.ilike.%${termo}%`,
+      )
+    }
+    if (status) queryAcesso = queryAcesso.eq('status', status)
+    if (perfil) queryAcesso = queryAcesso.eq('perfil_profissional', perfil)
+    if (finalidade) queryAcesso = queryAcesso.contains('finalidades', [finalidade])
+    if (dataInicio) queryAcesso = queryAcesso.gte('created_at', dataInicio)
+    if (dataFim) queryAcesso = queryAcesso.lte('created_at', dataFim)
+
+    const { data: acessos, error: erroAcesso } = await queryAcesso
+    if (erroAcesso) {
+      if (erroAcesso.code === 'PGRST205' || erroAcesso.message.toLowerCase().includes('leads_acesso_antecipado')) {
+        return NextResponse.json([])
+      }
+      return NextResponse.json({ error: 'Não foi possível carregar os leads de acesso antecipado.' }, { status: 500 })
+    }
+
+    return NextResponse.json((acessos ?? []).map(lead => ({
+      ...lead,
+      tipo_lead: 'acesso_antecipado',
+    })))
+  }
 
   let query = admin
     .from('leads_reforma_tributaria')
@@ -84,6 +120,7 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json(leads.map(lead => ({
     ...lead,
+    tipo_lead: 'reforma_tributaria',
     diagnostico_relatorio: diagnosticoPorLead.get(lead.id) ?? null,
   })))
 }

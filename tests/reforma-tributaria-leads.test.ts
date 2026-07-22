@@ -9,6 +9,7 @@
 
 import { validarCnpj, formatarCnpj, mascararCnpjParcial, telefoneValido, emailValido, somenteDigitos } from '../lib/validacao/documentos'
 import { montarLinha, analisarLinha, temReforma, ALIQUOTA_IBS_UF_2026, ALIQUOTA_CBS_2026 } from '../lib/fiscal/analiseReformaTributaria'
+import { ENFOKUS_CONTABILIDADE, linkWhatsapp } from '../lib/institucional/enfokusContabilidade'
 
 // CNPJs válidos conhecidos (dígitos verificadores corretos)
 const CNPJ_VALIDO_1 = '11444777000161' // CNPJ de teste amplamente conhecido, DV correto
@@ -65,7 +66,15 @@ describe('telefoneValido / emailValido', () => {
   })
 
   it('somenteDigitos remove tudo que não é número', () => {
-    expect(somenteDigitos('(62) 99999-9999')).toBe('6299999999')
+    expect(somenteDigitos('(62) 99999-9999')).toBe('62999999999')
+  })
+})
+
+describe('link oficial do WhatsApp', () => {
+  it('usa wa.me com o número internacional e a mensagem codificada', () => {
+    const link = linkWhatsapp('Olá, gostaria de falar sobre o acesso antecipado.')
+    expect(link).toContain(`https://wa.me/${ENFOKUS_CONTABILIDADE.whatsapp}?text=`)
+    expect(link).not.toContain('w.app')
   })
 })
 
