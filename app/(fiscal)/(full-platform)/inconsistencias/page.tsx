@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { AlertaFiscal } from '@/lib/types'
 import { useEmpresaAtiva } from '@/lib/hooks/useEmpresaAtiva'
-import { ChevronDown, ChevronUp, Building2, TriangleAlert, Package, Users, BarChart3, Hash, Download, Receipt } from 'lucide-react'
+import { ChevronDown, ChevronUp, Building2, TriangleAlert, Package, Users, BarChart3, Hash, Download, Receipt, FileText } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import PageHeader from '@/components/ui/PageHeader'
 import GlassCard from '@/components/ui/GlassCard'
@@ -51,10 +51,15 @@ type RelatorioFiscalResumo = {
   valor_ipi: number
   valor_pis: number
   valor_cofins: number
+  valor_servicos: number
+  base_iss: number
+  valor_iss: number
+  valor_iss_retido: number
 }
 
 type RelatorioFiscalDocumento = {
   id: string
+  tipo_documento: string | null
   tipo_movimento: string
   numero: string | null
   serie: string | null
@@ -69,6 +74,7 @@ type RelatorioFiscalDocumento = {
   origem: string | null
   valor_total: number | null
   valor_produtos: number | null
+  valor_servicos: number | null
   valor_desconto: number | null
   valor_frete: number | null
   valor_icms: number | null
@@ -77,11 +83,34 @@ type RelatorioFiscalDocumento = {
   valor_st: number | null
   valor_ipi: number | null
   status: string
+  base_icms?: number | null
+  base_st?: number | null
+  valor_icms_cabecalho?: number | null
+  valor_icms_itens?: number | null
+  situacao_icms?: 'cabecalho' | 'itens' | 'zero' | 'nao_informado' | 'nao_aplicavel' | 'divergente'
+  fonte_icms?: 'cabecalho' | 'itens' | null
+  itens_count?: number
+  soma_produtos_itens?: number | null
+  diferenca_produtos?: number | null
+  tem_divergencia?: boolean
+  dados_incompletos?: boolean
+  divergencias?: string[]
+  discriminacao_servico?: string | null
+  codigo_servico?: string | null
+  codigo_tributacao_municipio?: string | null
+  municipio_codigo?: string | null
+  codigo_verificacao?: string | null
+  base_iss?: number | null
+  aliquota_iss?: number | null
+  valor_iss?: number | null
+  valor_iss_retido?: number | null
+  iss_retido?: boolean
+  situacao_iss?: 'retido' | 'devido' | 'zero' | 'nao_informado' | 'nao_aplicavel'
 }
 
 type RelatorioFiscalDocumentoJoin = Pick<
   RelatorioFiscalDocumento,
-  'id' | 'tipo_movimento' | 'numero' | 'serie' | 'modelo' | 'data_emissao' | 'data_competencia' | 'emitente_cnpj' | 'emitente_nome' | 'destinatario_cnpj' | 'destinatario_nome' | 'chave_acesso' | 'origem' | 'status'
+  'id' | 'tipo_documento' | 'tipo_movimento' | 'numero' | 'serie' | 'modelo' | 'data_emissao' | 'data_competencia' | 'emitente_cnpj' | 'emitente_nome' | 'destinatario_cnpj' | 'destinatario_nome' | 'chave_acesso' | 'origem' | 'status' | 'valor_servicos' | 'discriminacao_servico' | 'codigo_servico' | 'codigo_tributacao_municipio' | 'municipio_codigo' | 'codigo_verificacao' | 'base_iss' | 'aliquota_iss' | 'valor_iss' | 'valor_iss_retido' | 'iss_retido' | 'situacao_iss'
 >
 
 type RelatorioFiscalProduto = {
@@ -130,6 +159,19 @@ type RelatorioFiscalResposta = {
     valor_ipi: number
     valor_pis: number
     valor_cofins: number
+    valor_servicos: number
+    base_iss: number
+    valor_iss: number
+    valor_iss_retido: number
+  }
+  conciliacao?: {
+    documentos: number
+    documentos_sem_itens: number
+    documentos_com_divergencia: number
+    documentos_com_dados_incompletos: number
+    icms_recuperado_dos_itens: number
+    icms_zero: number
+    icms_nao_informado: number
   }
   error?: string
 }
@@ -139,12 +181,69 @@ function workbookToXlsxBlob(wb: XLSX.WorkBook) {
   return new Blob([data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
 }
 
+const ESTILO_CABECALHO_EXCEL = {
+  font: { bold: true, color: { rgb: 'FFFFFFFF' }, sz: 11, name: 'Calibri' },
+  fill: { fgColor: { rgb: 'FF0D3340' } },
+  alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+  border: { bottom: { style: 'medium', color: { rgb: 'FF27C7D8' } } },
+}
+
+function estilizarTabelaExcel(ws: XLSX.WorkSheet, linhaCabecalho = 0) {
+  if (!ws['!ref']) return
+  const faixa = XLSX.utils.decode_range(ws['!ref'])
+  for (let coluna = faixa.s.c; coluna <= faixa.e.c; coluna += 1) {
+    const endereco = XLSX.utils.encode_cell({ r: linhaCabecalho, c: coluna })
+    const celula = ws[endereco] as XLSX.CellObject | undefined
+    if (celula) celula.s = ESTILO_CABECALHO_EXCEL
+  }
+  const amostraFim = Math.min(faixa.e.r, linhaCabecalho + 200)
+  ws['!cols'] = Array.from({ length: faixa.e.c - faixa.s.c + 1 }, (_, indice) => {
+    let largura = 12
+    for (let linha = linhaCabecalho; linha <= amostraFim; linha += 1) {
+      const celula = ws[XLSX.utils.encode_cell({ r: linha, c: faixa.s.c + indice })] as XLSX.CellObject | undefined
+      largura = Math.max(largura, String(celula?.v ?? '').length + 2)
+    }
+    return { wch: Math.min(largura, 42) }
+  })
+  ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: linhaCabecalho, c: faixa.s.c }, e: faixa.e }) }
+  ws['!rows'] = Array.from({ length: linhaCabecalho + 1 }, (_, indice) => ({ hpt: indice === linhaCabecalho ? 30 : 22 }))
+}
+
+function estilizarResumoExecutivo(ws: XLSX.WorkSheet) {
+  ws['!cols'] = [{ wch: 38 }, { wch: 72 }]
+  ws['!rows'] = [{ hpt: 28 }]
+  const titulo = ws.A1 as XLSX.CellObject | undefined
+  if (titulo) {
+    titulo.s = { font: { bold: true, sz: 14, color: { rgb: 'FF1A6B7A' }, name: 'Calibri' } }
+  }
+  if (!ws['!ref']) return
+  const faixa = XLSX.utils.decode_range(ws['!ref'])
+  for (let linha = 1; linha <= faixa.e.r; linha += 1) {
+    const rotulo = ws[XLSX.utils.encode_cell({ r: linha, c: 0 })] as XLSX.CellObject | undefined
+    if (rotulo?.v && String(rotulo.v) !== 'Indicador') {
+      rotulo.s = { font: { bold: true, color: { rgb: 'FF0D3340' }, name: 'Calibri' } }
+    }
+  }
+  const linhaIndicadores = Array.from({ length: faixa.e.r + 1 }, (_, linha) => linha)
+    .find(linha => (ws[XLSX.utils.encode_cell({ r: linha, c: 0 })] as XLSX.CellObject | undefined)?.v === 'Indicador')
+  if (linhaIndicadores !== undefined) {
+    for (let coluna = 0; coluna <= 1; coluna += 1) {
+      const celula = ws[XLSX.utils.encode_cell({ r: linhaIndicadores, c: coluna })] as XLSX.CellObject | undefined
+      if (celula) celula.s = ESTILO_CABECALHO_EXCEL
+    }
+  }
+}
+
 type RelatorioFiscalDocumentoJoinLocal = {
-  id?: string; tipo_movimento?: string; numero?: string | null; serie?: string | null
+  id?: string; tipo_documento?: string | null; tipo_movimento?: string; numero?: string | null; serie?: string | null
   modelo?: string | null; data_emissao?: string | null; data_competencia?: string | null
   emitente_cnpj?: string | null; emitente_nome?: string | null
   destinatario_cnpj?: string | null; destinatario_nome?: string | null
   chave_acesso?: string | null; origem?: string | null; status?: string
+  valor_servicos?: number | null; discriminacao_servico?: string | null; codigo_servico?: string | null
+  codigo_tributacao_municipio?: string | null; municipio_codigo?: string | null; codigo_verificacao?: string | null
+  base_iss?: number | null; aliquota_iss?: number | null; valor_iss?: number | null
+  valor_iss_retido?: number | null; iss_retido?: boolean; situacao_iss?: string
 }
 
 type RelatorioFiscalProdutoLocal = {
@@ -208,9 +307,14 @@ function construirExcelFiscal(
     const m: Record<string, string> = { xml_nfe: 'XML NF-e', xml_nfce: 'XML NFC-e', sped_txt: 'SPED', manual: 'Manual', xml_nfse: 'XML NFS-e', outro: 'Outro' }
     return o ? (m[o] ?? o) : '—'
   }
+  const tributoExcel = (valor: number | null | undefined) => valor === null || valor === undefined ? 'Não informado' : Number(valor)
 
-  const entradas = itens.filter(i => movItem(i) === 'entrada')
-  const saidas   = itens.filter(i => movItem(i) === 'saida')
+  const ehNfseLocal = (doc: RelatorioFiscalDocumentoJoinLocal | null) =>
+    doc?.tipo_documento === 'nfse' || doc?.origem === 'xml_nfse' || doc?.modelo === 'NFS-e'
+  const servicos = itens.filter(item => ehNfseLocal(getDoc(item)))
+  const mercadorias = itens.filter(item => !ehNfseLocal(getDoc(item)))
+  const entradas = mercadorias.filter(i => movItem(i) === 'entrada')
+  const saidas   = mercadorias.filter(i => movItem(i) === 'saida')
 
   if (aba === 'entradas_saidas') {
     // ── Notas Entradas ─────────────────────────────────────────────────────────
@@ -300,8 +404,9 @@ function construirExcelFiscal(
       wsRS['!cols'] = [{ wch: 12 }, { wch: 46 }, { wch: 12 }, { wch: 36 }, { wch: 8 }, { wch: 38 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 10 }]
       XLSX.utils.book_append_sheet(wb, wsRS, 'Resumo Saídas')
     }
-  } else {
-    // ── Itens Entradas ─────────────────────────────────────────────────────────
+  }
+
+  // ── Itens Entradas ─────────────────────────────────────────────────────────
     if (tipoMov !== 'saida' && entradas.length > 0) {
       const hIE = ['Nº Nota', 'Chave de Acesso', 'Data', 'Fornecedor', 'Cód.', 'Descrição', 'NCM', 'CFOP Forn.', 'CFOP Entrada', 'CST/CSOSN', 'Valor Produto', 'Frete Rateado', 'Despesas Rateadas', 'IPI Item', 'Desconto Rateado', 'Valor Contábil Total', 'Base ICMS', 'Alíq. ICMS', 'ICMS', 'Fonte']
       const rIE: XLSX.CellObject[][] = [hIE.map(h)]
@@ -317,12 +422,12 @@ function construirExcelFiscal(
           c(Number(item.valor_total ?? 0), false, '#,##0.00'),
           c(Number(item.valor_frete ?? 0), false, '#,##0.00'),
           c('—'),
-          c(Number(item.valor_ipi ?? 0), false, '#,##0.00'),
+          c(tributoExcel(item.valor_ipi), false, '#,##0.00'),
           c(Number(item.valor_desconto ?? 0), false, '#,##0.00'),
           c(Number(item.valor_total ?? 0), false, '#,##0.00'),
-          c(Number(item.valor_bc_icms ?? 0), false, '#,##0.00'),
-          c(Number(item.aliquota_icms ?? 0), false, '0.00'),
-          c(Number(item.valor_icms ?? 0), false, '#,##0.00'),
+          c(tributoExcel(item.valor_bc_icms), false, '#,##0.00'),
+          c(tributoExcel(item.aliquota_icms), false, '0.00'),
+          c(tributoExcel(item.valor_icms), false, '#,##0.00'),
           c(origemLabel(doc?.origem)),
         ])
       }
@@ -332,7 +437,7 @@ function construirExcelFiscal(
       XLSX.utils.book_append_sheet(wb, wsIE, 'Itens Entradas')
     }
 
-    // ── Notas Saídas ───────────────────────────────────────────────────────────
+  // ── Notas Saídas ───────────────────────────────────────────────────────────
     if (tipoMov !== 'entrada' && saidas.length > 0) {
       const hNS = ['Nº Nota', 'Chave de Acesso', 'Data', 'Destinatário', 'Cód.', 'Descrição', 'NCM', 'CFOP', 'CST ICMS', 'CST PIS', 'CST COFINS', 'Valor Produto', 'Frete Rateado', 'Despesas Rateadas', 'IPI Item', 'Desconto Rateado', 'Valor Contábil Total', 'Base ICMS', 'Alíq. ICMS', 'ICMS', 'ICMS-ST', 'IPI', 'PIS', 'COFINS', 'Status']
       const rNS: XLSX.CellObject[][] = [hNS.map(h)]
@@ -348,16 +453,16 @@ function construirExcelFiscal(
           c(Number(item.valor_total ?? 0), false, '#,##0.00'),
           c(Number(item.valor_frete ?? 0), false, '#,##0.00'),
           c('—'),
-          c(Number(item.valor_ipi ?? 0), false, '#,##0.00'),
+          c(tributoExcel(item.valor_ipi), false, '#,##0.00'),
           c(Number(item.valor_desconto ?? 0), false, '#,##0.00'),
           c(Number(item.valor_total ?? 0), false, '#,##0.00'),
-          c(Number(item.valor_bc_icms ?? 0), false, '#,##0.00'),
-          c(Number(item.aliquota_icms ?? 0), false, '0.00'),
-          c(Number(item.valor_icms ?? 0), false, '#,##0.00'),
-          c(Number(item.valor_st ?? 0), false, '#,##0.00'),
-          c(Number(item.valor_ipi ?? 0), false, '#,##0.00'),
-          c(Number(item.valor_pis ?? 0), false, '#,##0.00'),
-          c(Number(item.valor_cofins ?? 0), false, '#,##0.00'),
+          c(tributoExcel(item.valor_bc_icms), false, '#,##0.00'),
+          c(tributoExcel(item.aliquota_icms), false, '0.00'),
+          c(tributoExcel(item.valor_icms), false, '#,##0.00'),
+          c(tributoExcel(item.valor_st), false, '#,##0.00'),
+          c(tributoExcel(item.valor_ipi), false, '#,##0.00'),
+          c(tributoExcel(item.valor_pis), false, '#,##0.00'),
+          c(tributoExcel(item.valor_cofins), false, '#,##0.00'),
           c('—'),
         ])
       }
@@ -366,6 +471,86 @@ function construirExcelFiscal(
       wsNS['!cols'] = [{ wch: 12 }, { wch: 46 }, { wch: 12 }, { wch: 38 }, { wch: 12 }, { wch: 42 }, { wch: 12 }, { wch: 8 }, { wch: 8 }, { wch: 10 }, { wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 8 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 10 }]
       XLSX.utils.book_append_sheet(wb, wsNS, 'Notas Saídas')
     }
+  const adicionarResumoCfop = (fonte: RelatorioFiscalProdutoLocal[], nomeAba: string) => {
+    if (fonte.length === 0) return
+    const mapa = new Map<string, { documentos: Set<string>; itens: number; valor: number; base: number; icms: number }>()
+    for (const item of fonte) {
+      const cfop = item.cfop || 'Não informado'
+      const grupo = mapa.get(cfop) ?? { documentos: new Set<string>(), itens: 0, valor: 0, base: 0, icms: 0 }
+      grupo.documentos.add(item.documento_id)
+      grupo.itens += 1
+      grupo.valor += Number(item.valor_total ?? 0)
+      grupo.base += Number(item.valor_bc_icms ?? 0)
+      grupo.icms += Number(item.valor_icms ?? 0)
+      mapa.set(cfop, grupo)
+    }
+    const cabecalho = ['CFOP', 'Descrição', 'Qtd. documentos', 'Qtd. itens', 'Valor contábil', 'Base ICMS', 'ICMS']
+    const linhas: XLSX.CellObject[][] = [cabecalho.map(h)]
+    Array.from(mapa.entries()).sort(([a], [b]) => a.localeCompare(b, 'pt-BR', { numeric: true })).forEach(([cfop, grupo]) => {
+      linhas.push([
+        c(cfop, true), c(DESC_CFOP[cfop] ?? (cfop === 'Não informado' ? cfop : `CFOP ${cfop}`)),
+        c(grupo.documentos.size, false, '0'), c(grupo.itens, false, '0'),
+        c(grupo.valor, false, '#,##0.00'), c(grupo.base, false, '#,##0.00'), c(grupo.icms, false, '#,##0.00'),
+      ])
+    })
+    const ws = XLSX.utils.aoa_to_sheet(linhas.map(linha => linha.map(celula => celula.v)))
+    wr(ws, linhas)
+    ws['!cols'] = [{ wch: 10 }, { wch: 52 }, { wch: 16 }, { wch: 12 }, { wch: 18 }, { wch: 18 }, { wch: 18 }]
+    XLSX.utils.book_append_sheet(wb, ws, nomeAba)
+  }
+
+  if (servicos.length > 0) {
+    const cabecalhoServicos = [
+      'Nº NFS-e', 'Código de verificação', 'Data', 'Movimento', 'Prestador', 'Tomador',
+      'Descrição do serviço', 'Item da lista de serviço', 'Código tributário municipal',
+      'Município (IBGE)', 'Valor dos serviços', 'Base ISS', 'Alíquota ISS', 'ISS',
+      'ISS retido', 'Situação do ISS', 'Origem',
+    ]
+    const linhasServicos: XLSX.CellObject[][] = [cabecalhoServicos.map(h)]
+    for (const item of servicos) {
+      const doc = getDoc(item)
+      const situacaoIss = doc?.iss_retido
+        ? 'Retido pelo tomador'
+        : Number(doc?.valor_iss ?? 0) > 0
+          ? 'ISS destacado'
+          : 'Sem destaque de ISS'
+      linhasServicos.push([
+        c(doc?.numero ?? '—', true),
+        c(doc?.codigo_verificacao ?? ''),
+        c(fData(doc?.data_emissao)),
+        c(movItem(item) === 'entrada' ? 'Serviço tomado' : 'Serviço prestado'),
+        c(doc?.emitente_nome || doc?.emitente_cnpj || '—'),
+        c(doc?.destinatario_nome || doc?.destinatario_cnpj || '—'),
+        c(doc?.discriminacao_servico || item.descricao || '—'),
+        c(doc?.codigo_servico || item.codigo_produto || ''),
+        c(doc?.codigo_tributacao_municipio || ''),
+        c(doc?.municipio_codigo || ''),
+        c(Number(doc?.valor_servicos ?? item.valor_total ?? 0), false, '#,##0.00'),
+        c(tributoExcel(doc?.base_iss), false, '#,##0.00'),
+        c(tributoExcel(doc?.aliquota_iss), false, '0.0000'),
+        c(tributoExcel(doc?.valor_iss), false, '#,##0.00'),
+        c(Number(doc?.valor_iss_retido ?? 0), false, '#,##0.00'),
+        c(situacaoIss),
+        c(origemLabel(doc?.origem)),
+      ])
+    }
+    const wsServicos = XLSX.utils.aoa_to_sheet(linhasServicos.map(linha => linha.map(celula => celula.v)))
+    wr(wsServicos, linhasServicos)
+    wsServicos['!cols'] = [
+      { wch: 13 }, { wch: 22 }, { wch: 12 }, { wch: 18 }, { wch: 34 }, { wch: 34 },
+      { wch: 54 }, { wch: 20 }, { wch: 24 }, { wch: 18 }, { wch: 18 }, { wch: 14 },
+      { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 22 }, { wch: 14 },
+    ]
+    XLSX.utils.book_append_sheet(wb, wsServicos, 'Serviços NFS-e')
+  }
+
+  if (tipoMov !== 'saida') adicionarResumoCfop(entradas, 'Resumo CFOP Entradas')
+  if (tipoMov !== 'entrada') adicionarResumoCfop(saidas, 'Resumo CFOP Saídas')
+
+  for (const nome of wb.SheetNames) {
+    const ws = wb.Sheets[nome]
+    if (ws?.['!ref']) ws['!autofilter'] = { ref: ws['!ref'] }
+    if (ws) ws['!rows'] = [{ hpt: 30 }]
   }
 
   return wb
@@ -419,6 +604,15 @@ const LABEL_STATUS: Record<string, string> = {
   aberto: 'Aberto', em_analise: 'Em análise', resolvido: 'Resolvido', descartado: 'Descartado',
 }
 
+const LABEL_SITUACAO_TRIBUTO: Record<string, string> = {
+  cabecalho: 'Cabeçalho',
+  itens: 'Consolidado dos itens',
+  zero: 'Zero informado',
+  nao_informado: 'Não informado',
+  nao_aplicavel: 'Não aplicável',
+  divergente: 'Possível divergência',
+}
+
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmoe(v: number) {
@@ -456,7 +650,10 @@ export default function RelatoriosPage() {
   const [filtroCfop,        setFiltroCfop]        = useState('')
   const [filtroParticipante, setFiltroParticipante] = useState('')
   const [filtroNota,        setFiltroNota]        = useState('')
+  const [ordenarPorFiscal,  setOrdenarPorFiscal]  = useState<'data_emissao' | 'numero' | 'participante' | 'valor_total' | 'valor_icms'>('data_emissao')
+  const [direcaoFiscal,     setDirecaoFiscal]     = useState<'asc' | 'desc'>('asc')
   const filtrosRef = useRef<FiltrosAplicados>({ ncm: '', cfop: '', participante: '', nota: '' })
+  const [filtrosAplicados, setFiltrosAplicados] = useState<FiltrosAplicados>({ ncm: '', cfop: '', participante: '', nota: '' })
 
   // Estado aba Inconsistências (mantido intacto)
   const [alertas,       setAlertas]      = useState<AlertaFiscal[]>([])
@@ -480,10 +677,14 @@ export default function RelatoriosPage() {
   const [ordemFiscal,       setOrdemFiscal]       = useState<OrdemFiscal>('documento')
   const [resumidoFiscal,    setResumidoFiscal]    = useState(false)
   const [linhasFiscal,      setLinhasFiscal]      = useState<RelatorioFiscalLinha[]>([])
+  const [documentoExpandido, setDocumentoExpandido] = useState<string | null>(null)
+  const [itensDocumento, setItensDocumento] = useState<Record<string, RelatorioFiscalProduto[]>>({})
+  const [carregandoItensDocumento, setCarregandoItensDocumento] = useState<string | null>(null)
   const [totalFiscal,       setTotalFiscal]       = useState(0)
   const [totalizadoresFiscal, setTotalizadoresFiscal] = useState<RelatorioFiscalResposta['totalizadores']>()
   const [loadingRel,        setLoadingRel]        = useState(false)
   const [exportandoExcel,   setExportandoExcel]   = useState(false)
+  const [gerandoPdf,        setGerandoPdf]        = useState(false)
   const [erroRel,           setErroRel]           = useState<string | null>(null)
   const [pageSizeRel, setPageSizeRel] = useState(50)
   const [paginasRel, setPaginasRel] = useState<Record<AbaRelatorio, number>>({
@@ -694,6 +895,8 @@ export default function RelatoriosPage() {
     if (compInicio) params.set('competencia_inicio', compInicio)
     if (compFim) params.set('competencia_fim', compFim)
     if (tipoMov) params.set('tipo_movimento', tipoMov)
+    params.set('ordenar_por', ordenarPorFiscal)
+    params.set('direcao', direcaoFiscal)
     const filtros = filtrosRef.current
     if (filtros.ncm) params.set('ncm', filtros.ncm)
     if (filtros.cfop) params.set('cfop', filtros.cfop)
@@ -722,12 +925,43 @@ export default function RelatoriosPage() {
     } finally {
       setLoadingRel(false)
     }
-  }, [empresaId, abaAtiva, abaFiscal, compInicio, compFim, tipoMov, ordemFiscal, resumidoFiscal, paginaRel, pageSizeRel])
+  }, [empresaId, abaAtiva, abaFiscal, compInicio, compFim, tipoMov, ordenarPorFiscal, direcaoFiscal, ordemFiscal, resumidoFiscal, paginaRel, pageSizeRel])
 
   useEffect(() => {
     const timer = window.setTimeout(() => { void carregarRelatorioFiscal() }, 0)
     return () => window.clearTimeout(timer)
   }, [carregarRelatorioFiscal])
+
+  async function alternarDocumento(doc: RelatorioFiscalDocumento) {
+    if (documentoExpandido === doc.id) {
+      setDocumentoExpandido(null)
+      return
+    }
+    setDocumentoExpandido(doc.id)
+    if (itensDocumento[doc.id] || !empresaId) return
+    setCarregandoItensDocumento(doc.id)
+    try {
+      const params = new URLSearchParams({
+        empresa_id: empresaId,
+        nivel: 'produto',
+        resumido: 'false',
+        page: '1',
+        page_size: '1000',
+        nota: doc.chave_acesso || doc.numero || '',
+      })
+      if (compInicio) params.set('competencia_inicio', compInicio)
+      if (compFim) params.set('competencia_fim', compFim)
+      if (tipoMov) params.set('tipo_movimento', tipoMov)
+      const res = await fetch(`/api/relatorios/entradas-saidas?${params}`)
+      const body = await res.json() as RelatorioFiscalResposta
+      if (!res.ok) throw new Error(body.error ?? 'Erro ao carregar os itens do documento.')
+      setItensDocumento(atual => ({ ...atual, [doc.id]: (body.rows ?? []).filter(isProdutoFiscal) }))
+    } catch (err) {
+      setErroRel(err instanceof Error ? err.message : 'Erro ao carregar os itens do documento.')
+    } finally {
+      setCarregandoItensDocumento(null)
+    }
+  }
 
   // ── Consultar CNPJ cache ────────────────────────────────────────────────────
 
@@ -820,7 +1054,54 @@ export default function RelatoriosPage() {
       ? (doc.emitente_nome || doc.emitente_cnpj || '—')
       : (doc.destinatario_nome || doc.destinatario_cnpj || '—')
   }
+  const ehNfseFiscal = (doc: RelatorioFiscalDocumento | RelatorioFiscalDocumentoJoin | null | undefined) =>
+    doc?.tipo_documento === 'nfse' || doc?.origem === 'xml_nfse' || doc?.modelo === 'NFS-e'
+  const movimentoFiscal = (doc: RelatorioFiscalDocumento | RelatorioFiscalDocumentoJoin) => {
+    if (ehNfseFiscal(doc)) return doc.tipo_movimento === 'entrada' ? 'Serviço tomado' : 'Serviço prestado'
+    return doc.tipo_movimento
+  }
+  const situacaoIssFiscal = (doc: RelatorioFiscalDocumento | RelatorioFiscalDocumentoJoin) => {
+    if (doc.iss_retido) return 'ISS retido'
+    if (doc.situacao_iss === 'nao_informado') return 'ISS não informado'
+    return Number(doc.valor_iss ?? 0) > 0 ? 'ISS destacado' : 'Sem destaque'
+  }
+  const linhasDetalhadasRelatorio = linhasFiscal.filter(
+    (linha): linha is RelatorioFiscalDocumento | RelatorioFiscalProduto => !isResumoFiscal(linha),
+  )
+  const temNfseNoRelatorio = linhasDetalhadasRelatorio.some(linha => {
+    return isProdutoFiscal(linha) ? ehNfseFiscal(docProduto(linha)) : ehNfseFiscal(linha)
+  })
+  const somenteNfseNoRelatorio = linhasDetalhadasRelatorio.length > 0 && linhasDetalhadasRelatorio.every(linha =>
+    isProdutoFiscal(linha) ? ehNfseFiscal(docProduto(linha)) : ehNfseFiscal(linha),
+  )
   const dataFiscal = (data?: string | null) => data ? new Date(`${data}T00:00:00`).toLocaleDateString('pt-BR') : '—'
+  const tributoFiscal = (valor: number | null | undefined, situacao?: string) => {
+    if (valor === null || valor === undefined) {
+      return <span style={{ color: 'var(--af-warning)', fontSize: 11 }}>{LABEL_SITUACAO_TRIBUTO[situacao ?? 'nao_informado'] ?? 'Não informado'}</span>
+    }
+    return fmoe(Number(valor))
+  }
+  const cabecalhoOrdenavel = (
+    label: string,
+    campo: 'data_emissao' | 'numero' | 'participante' | 'valor_total' | 'valor_icms',
+  ) => (
+    <button
+      type="button"
+      onClick={() => {
+        if (ordenarPorFiscal === campo) setDirecaoFiscal(atual => atual === 'asc' ? 'desc' : 'asc')
+        else {
+          setOrdenarPorFiscal(campo)
+          setDirecaoFiscal('asc')
+        }
+        setPaginaRel(1)
+      }}
+      style={{ border: 0, padding: 0, background: 'transparent', color: 'inherit', font: 'inherit', textTransform: 'inherit', letterSpacing: 'inherit', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+      title={`Ordenar por ${label}`}
+    >
+      {label}
+      {ordenarPorFiscal === campo && (direcaoFiscal === 'asc' ? <ChevronUp size={11} /> : <ChevronDown size={11} />)}
+    </button>
+  )
   const labelAgrupamentoFiscal: Record<OrdemFiscal, string> = {
     documento: 'Documento',
     cfop: 'CFOP',
@@ -834,7 +1115,9 @@ export default function RelatoriosPage() {
   }
   const tituloFiscal = resumidoFiscal
     ? `Resumo por ${labelAgrupamentoFiscal[ordemFiscal]}`
-    : abaAtiva === 'produtos'
+    : somenteNfseNoRelatorio
+      ? 'Analítico de serviços NFS-e'
+      : abaAtiva === 'produtos'
       ? 'Analítico de produtos'
       : 'Analítico de documentos'
   const tituloRelatorioFiscal = abaAtiva === 'cfop'
@@ -853,7 +1136,7 @@ export default function RelatoriosPage() {
     return `Relatorio_${aba}_${periodo}.xlsx`
   }
 
-  async function buscarFiscalParaExcel() {
+  async function buscarFiscalParaExcel(opcoes?: { nivel?: NivelFiscal; resumido?: boolean }) {
     const todas: RelatorioFiscalLinha[] = []
     const tamanho = 1000
     let pagina = 1
@@ -861,15 +1144,22 @@ export default function RelatoriosPage() {
     while (true) {
       const params = new URLSearchParams({
         empresa_id: empresaId ?? '',
-        nivel: abaAtiva === 'entradas_saidas' ? 'documento' : 'produto',
+        nivel: opcoes?.nivel ?? (abaAtiva === 'entradas_saidas' ? 'documento' : 'produto'),
         ordem: abaAtiva === 'cfop' ? 'cfop' : ordemFiscal,
-        resumido: String(abaAtiva === 'cfop' ? true : resumidoFiscal),
+        resumido: String(opcoes?.resumido ?? (abaAtiva === 'cfop' ? true : resumidoFiscal)),
         page: String(pagina),
         page_size: String(tamanho),
       })
       if (compInicio) params.set('competencia_inicio', compInicio)
       if (compFim) params.set('competencia_fim', compFim)
       if (tipoMov) params.set('tipo_movimento', tipoMov)
+      params.set('ordenar_por', ordenarPorFiscal)
+      params.set('direcao', direcaoFiscal)
+      const filtros = filtrosRef.current
+      if (filtros.ncm) params.set('ncm', filtros.ncm)
+      if (filtros.cfop) params.set('cfop', filtros.cfop)
+      if (filtros.participante) params.set('participante', filtros.participante)
+      if (filtros.nota) params.set('nota', filtros.nota)
 
       const res = await fetch(`/api/relatorios/entradas-saidas?${params}`)
       const body = await res.json() as RelatorioFiscalResposta
@@ -935,7 +1225,71 @@ export default function RelatoriosPage() {
       // Abas entradas_saidas e produtos (detalhado): exportação multi-planilha estilizada
       if ((abaAtiva === 'entradas_saidas' || abaAtiva === 'produtos') && !resumidoFiscal) {
         const itens = await buscarTodosItensFiscal()
+        const documentos = abaAtiva === 'entradas_saidas'
+          ? (await buscarFiscalParaExcel()).filter(isDocumentoFiscal)
+          : []
         const wb = construirExcelFiscal(itens, abaAtiva, tipoMov)
+        const somenteNfse = documentos.length > 0 && documentos.every(doc => ehNfseFiscal(doc))
+        const resumo = [
+          ['RELATÓRIO FISCAL — ENFOKUS CONTABILIDADE E FINANÇAS CORPORATIVAS'],
+          [],
+          ['Empresa', empresa?.razao_social ?? ''],
+          ['CNPJ', empresa?.cnpj ?? ''],
+          ['Período', `${compInicio || 'início'} até ${compFim || compInicio || 'fim'}`],
+          ['Relatório', somenteNfse ? 'Serviços NFS-e' : abaAtiva === 'entradas_saidas' ? 'Entradas e saídas' : 'Produtos'],
+          ['Visualização', abaAtiva === 'entradas_saidas' ? 'Documentos e itens' : 'Itens analíticos'],
+          ['Gerado em', new Date().toLocaleString('pt-BR')],
+          ['Filtros aplicados', filtrosAtivosRelatorio.join(' | ') || 'Nenhum filtro adicional'],
+          [],
+          ['Indicador', 'Valor'],
+          ['Documentos', documentos.length || new Set(itens.map(item => item.documento_id)).size],
+          ['Itens', itens.length],
+          ['Valor das operações', totalizadoresFiscal?.valor_contabil ?? itens.reduce((soma, item) => soma + Number(item.valor_total ?? 0), 0)],
+          ['Base de ICMS', totalizadoresFiscal?.base_icms ?? itens.reduce((soma, item) => soma + Number(item.valor_bc_icms ?? 0), 0)],
+          ['ICMS consolidado', totalizadoresFiscal?.valor_icms ?? itens.reduce((soma, item) => soma + Number(item.valor_icms ?? 0), 0)],
+          ['ICMS-ST', totalizadoresFiscal?.valor_st ?? itens.reduce((soma, item) => soma + Number(item.valor_st ?? 0), 0)],
+          ['IPI', totalizadoresFiscal?.valor_ipi ?? itens.reduce((soma, item) => soma + Number(item.valor_ipi ?? 0), 0)],
+          ['PIS', totalizadoresFiscal?.valor_pis ?? itens.reduce((soma, item) => soma + Number(item.valor_pis ?? 0), 0)],
+          ['COFINS', totalizadoresFiscal?.valor_cofins ?? itens.reduce((soma, item) => soma + Number(item.valor_cofins ?? 0), 0)],
+          ['NFS-e', documentos.filter(doc => ehNfseFiscal(doc)).length],
+          ['Valor dos serviços', documentos.reduce((soma, doc) => soma + Number(doc.valor_servicos ?? 0), 0)],
+          ['Base de ISS', documentos.reduce((soma, doc) => soma + Number(doc.base_iss ?? 0), 0)],
+          ['ISS', documentos.reduce((soma, doc) => soma + Number(doc.valor_iss ?? 0), 0)],
+          ['ISS retido', documentos.reduce((soma, doc) => soma + Number(doc.valor_iss_retido ?? 0), 0)],
+          ['ICMS recuperado dos itens', documentos.filter(doc => !ehNfseFiscal(doc) && doc.situacao_icms === 'itens').length],
+          ['Documentos com divergência', documentos.filter(doc => doc.tem_divergencia).length],
+          ['Documentos com dados incompletos', documentos.filter(doc => doc.dados_incompletos).length],
+        ]
+        const wsResumo = XLSX.utils.aoa_to_sheet(resumo)
+        estilizarResumoExecutivo(wsResumo)
+        wb.Sheets['Resumo Executivo'] = wsResumo
+        wb.SheetNames = ['Resumo Executivo', ...wb.SheetNames.filter(nome => nome !== 'Resumo Executivo')]
+
+        const divergencias = documentos.filter(doc => doc.tem_divergencia || doc.dados_incompletos).map(doc => ({
+          Competencia: doc.data_competencia ?? '',
+          Tipo_Documento: ehNfseFiscal(doc) ? 'NFS-e' : (doc.modelo === '65' ? 'NFC-e' : 'NF-e'),
+          Nota: doc.numero ?? '',
+          Chave_Acesso: doc.chave_acesso ?? '',
+          Participante: participanteFiscal(doc),
+          Valor_Produtos_Cabecalho: doc.valor_produtos ?? null,
+          Soma_Produtos_Itens: doc.soma_produtos_itens ?? null,
+          Diferenca_Produtos: doc.diferenca_produtos ?? null,
+          ICMS_Cabecalho: doc.valor_icms_cabecalho ?? null,
+          ICMS_Itens: doc.valor_icms_itens ?? null,
+          ICMS_Consolidado: doc.valor_icms ?? null,
+          Situacao_ICMS: LABEL_SITUACAO_TRIBUTO[doc.situacao_icms ?? 'nao_informado'] ?? doc.situacao_icms,
+          Codigo_Servico: doc.codigo_servico ?? '',
+          Base_ISS: doc.base_iss ?? null,
+          ISS: doc.valor_iss ?? null,
+          ISS_Retido: doc.valor_iss_retido ?? null,
+          Situacao_ISS: ehNfseFiscal(doc) ? situacaoIssFiscal(doc) : 'Não aplicável',
+          Divergencias: doc.divergencias?.join(' | ') ?? '',
+        }))
+        if (divergencias.length > 0) {
+          const wsDivergencias = XLSX.utils.json_to_sheet(divergencias)
+          estilizarTabelaExcel(wsDivergencias)
+          XLSX.utils.book_append_sheet(wb, wsDivergencias, 'Divergencias')
+        }
         if (wb.SheetNames.length === 0) throw new Error('Não há dados para exportar.')
         return {
           message: 'Clique para baixar o relatorio gerado.',
@@ -1010,12 +1364,29 @@ export default function RelatoriosPage() {
 
       if (rows.length === 0) throw new Error('NÃ£o hÃ¡ dados para exportar.')
       const wb = XLSX.utils.book_new()
+      const resumoGeral = XLSX.utils.aoa_to_sheet([
+        ['RELATÓRIO FISCAL — ENFOKUS CONTABILIDADE E FINANÇAS CORPORATIVAS'],
+        [],
+        ['Empresa', empresa?.razao_social ?? ''],
+        ['CNPJ', empresa?.cnpj ?? ''],
+        ['Período', `${compInicio || 'início'} até ${compFim || compInicio || 'fim'}`],
+        ['Relatório', ABAS.find(aba => aba.key === abaAtiva)?.label ?? tituloRelatorioFiscal],
+        ['Visualização', resumidoFiscal ? 'Resumida' : 'Detalhada'],
+        ['Gerado em', new Date().toLocaleString('pt-BR')],
+        ['Filtros aplicados', filtrosAtivosRelatorio.join(' | ') || 'Nenhum filtro adicional'],
+        [],
+        ['Indicador', 'Valor'],
+        ['Resultados exportados', rows.length],
+      ])
+      estilizarResumoExecutivo(resumoGeral)
+      XLSX.utils.book_append_sheet(wb, resumoGeral, 'Resumo Executivo')
       const maxLinhasPorAba = 900000
       for (let i = 0; i < rows.length; i += maxLinhasPorAba) {
         const parte = rows.slice(i, i + maxLinhasPorAba)
         const ws = XLSX.utils.json_to_sheet(parte)
+        estilizarTabelaExcel(ws)
         const sufixo = rows.length > maxLinhasPorAba ? `_${Math.floor(i / maxLinhasPorAba) + 1}` : ''
-        XLSX.utils.book_append_sheet(wb, ws, `Relatorio${sufixo}`)
+        XLSX.utils.book_append_sheet(wb, ws, `Dados${sufixo}`)
       }
       const filename = nomeArquivoExcel()
       return {
@@ -1034,6 +1405,103 @@ export default function RelatoriosPage() {
       setExportandoExcel(false)
     }
   }
+
+  async function gerarPdfFiscal() {
+    if (!empresa || abaAtiva !== 'entradas_saidas') return
+    setGerandoPdf(true)
+    setErroRel(null)
+    try {
+      await runTask({
+        title: 'Gerando PDF do relatório fiscal',
+        runningMessage: 'O resumo sintético está sendo preparado.',
+        successTitle: 'PDF do relatório pronto',
+        errorTitle: 'Erro ao gerar PDF',
+      }, async () => {
+        const documentos = (await buscarFiscalParaExcel({ nivel: 'documento', resumido: false })).filter(isDocumentoFiscal)
+        if (documentos.length === 0) throw new Error('Não há documentos para gerar o PDF.')
+        const somenteNfse = documentos.every(doc => ehNfseFiscal(doc))
+        const { gerarRelatorioFiscalSintetico } = await import('@/lib/pdf/gerarRelatorioFiscalSintetico')
+        const soma = (campo: keyof RelatorioFiscalDocumento) => documentos.reduce((total, doc) => total + Number(doc[campo] ?? 0), 0)
+        const dataGeracao = new Date()
+        const linhas = documentos.map(doc => ({
+            data: dataFiscal(doc.data_emissao),
+            documento: doc.numero ?? 'Não informado',
+            tipo_documento: ehNfseFiscal(doc) ? 'NFS-e' : doc.modelo === '65' ? 'NFC-e' : 'NF-e',
+            participante: participanteFiscal(doc),
+            valor_total: Number(doc.valor_total ?? 0),
+            tributo: ehNfseFiscal(doc) ? 'ISS' : 'ICMS',
+            valor_tributo: ehNfseFiscal(doc) ? doc.valor_iss ?? 0 : doc.valor_icms ?? null,
+            situacao_tributo: ehNfseFiscal(doc)
+              ? situacaoIssFiscal(doc)
+              : LABEL_SITUACAO_TRIBUTO[doc.situacao_icms ?? 'nao_informado'] ?? 'Não informado',
+            divergencia: Boolean(doc.tem_divergencia || doc.dados_incompletos),
+          }))
+        const blob = await gerarRelatorioFiscalSintetico({
+          empresa: empresa.razao_social,
+          cnpj: empresa.cnpj ?? '',
+          periodo: `${compInicio || 'início'} até ${compFim || compInicio || 'fim'}`,
+          tipo: somenteNfse
+            ? tipoMov === 'entrada' ? 'Relatório de serviços tomados' : 'Relatório de serviços prestados'
+            : tipoMov === 'entrada' ? 'Relatório de entradas' : tipoMov === 'saida' ? 'Relatório de saídas' : 'Relatório de entradas e saídas',
+          filtros: filtrosAtivosRelatorio,
+          gerado_em: dataGeracao.toLocaleString('pt-BR'),
+          totais: {
+            documentos: documentos.length,
+            valor_operacoes: soma('valor_total'),
+            base_icms: soma('base_icms'),
+            icms: soma('valor_icms'),
+            st: soma('valor_st'),
+            ipi: soma('valor_ipi'),
+            pis: soma('valor_pis'),
+            cofins: soma('valor_cofins'),
+            base_iss: soma('base_iss'),
+            iss: soma('valor_iss'),
+            iss_retido: soma('valor_iss_retido'),
+            divergencias: documentos.filter(doc => doc.tem_divergencia).length,
+            incompletos: documentos.filter(doc => doc.dados_incompletos).length,
+          },
+          linhas,
+          observacao: 'O PDF apresenta todos os documentos correspondentes aos filtros aplicados, incluindo NFS-e com ISS. O Excel contém também os itens analíticos, os serviços e o resumo por CFOP.',
+        })
+        return {
+          message: 'Clique para baixar o resumo fiscal em PDF.',
+          action: {
+            type: 'download' as const,
+            filename: nomeArquivoExcel().replace(/\.xlsx$/i, '.pdf'),
+            mimeType: 'application/pdf',
+            blob,
+          },
+        }
+      })
+    } catch (err) {
+      setErroRel(err instanceof Error ? err.message : 'Erro ao gerar PDF')
+    } finally {
+      setGerandoPdf(false)
+    }
+  }
+
+  function limparFiltrosRelatorio() {
+    setCompInicio('')
+    setCompFim('')
+    setTipoMov('')
+    setFiltroNcm('')
+    setFiltroCfop('')
+    setFiltroParticipante('')
+    setFiltroNota('')
+    filtrosRef.current = { ncm: '', cfop: '', participante: '', nota: '' }
+    setFiltrosAplicados({ ncm: '', cfop: '', participante: '', nota: '' })
+    setPaginaRel(1)
+  }
+
+  const filtrosAtivosRelatorio = [
+    compInicio ? `De ${compInicio}` : '',
+    compFim ? `Até ${compFim}` : '',
+    tipoMov ? (tipoMov === 'entrada' ? 'Entradas' : 'Saídas') : '',
+    filtrosAplicados.ncm ? `NCM: ${filtrosAplicados.ncm}` : '',
+    filtrosAplicados.cfop ? `CFOP: ${filtrosAplicados.cfop}` : '',
+    filtrosAplicados.participante ? `Participante: ${filtrosAplicados.participante}` : '',
+    filtrosAplicados.nota ? `Nota: ${filtrosAplicados.nota}` : '',
+  ].filter(Boolean)
 
   return (
     <div style={S.page}>
@@ -1104,7 +1572,10 @@ export default function RelatoriosPage() {
             )}
 
             {!erroDivSimples && !loadingDivSimples && divergenciasSimples.length > 0 && (
-              <div style={{ overflowX: 'auto' }}>
+              <div
+                key={`${abaAtiva}-${resumidoFiscal ? 'resumido' : 'detalhado'}-${ordemFiscal}-${paginaRel}-${compInicio}-${compFim}-${tipoMov}-${filtrosAplicados.ncm}-${filtrosAplicados.cfop}-${filtrosAplicados.participante}-${filtrosAplicados.nota}`}
+                style={{ width: '100%', maxWidth: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}
+              >
                 <table style={{ ...S.table, minWidth: 980 }}>
                   <thead>
                     <tr>
@@ -1265,12 +1736,14 @@ export default function RelatoriosPage() {
             <button style={S.btnAplicar} onClick={() => {
               if (abaFiscal) {
                 const comNcmCfop = abaAtiva === 'produtos' || abaAtiva === 'cfop'
-                filtrosRef.current = {
+                const novosFiltros = {
                   ncm: comNcmCfop ? filtroNcm : '',
                   cfop: comNcmCfop ? filtroCfop : '',
                   participante: filtroParticipante,
                   nota: filtroNota,
                 }
+                filtrosRef.current = novosFiltros
+                setFiltrosAplicados(novosFiltros)
                 void carregarRelatorioFiscal()
               } else {
                 void carregarRelatorio()
@@ -1283,6 +1756,30 @@ export default function RelatoriosPage() {
             >
               <Download size={13} /> {exportandoExcel ? 'Gerando...' : 'Excel'}
             </button>
+            {abaAtiva === 'entradas_saidas' && (
+              <button
+                style={{ ...S.btnAplicar, display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--af-surface-2)', border: '1px solid var(--af-border)', color: 'var(--af-text)' }}
+                onClick={gerarPdfFiscal}
+                disabled={gerandoPdf || !empresa}
+              >
+                <FileText size={13} /> {gerandoPdf ? 'Gerando...' : 'PDF'}
+              </button>
+            )}
+            <button
+              style={{ ...S.btnAplicar, background: 'transparent', border: '1px solid var(--af-border)', color: 'var(--af-muted)' }}
+              onClick={limparFiltrosRelatorio}
+            >
+              Limpar todos
+            </button>
+          </div>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, margin: '-8px 0 16px' }}>
+            {filtrosAtivosRelatorio.map(filtro => (
+              <span key={filtro} style={{ border: '1px solid rgba(39,199,216,.28)', background: 'rgba(39,199,216,.08)', color: 'var(--af-text-soft)', borderRadius: 999, padding: '4px 9px', fontSize: 10.5, fontWeight: 700 }}>
+                {filtro}
+              </span>
+            ))}
+            {!loadingRel && abaFiscal && <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--af-muted)' }}>{totalFiscal} resultado(s)</span>}
           </div>
 
           {abaFiscal && (
@@ -1385,6 +1882,10 @@ export default function RelatoriosPage() {
                       <th style={{ ...S.th, textAlign: 'right' }}>ICMS</th>
                       <th style={{ ...S.th, textAlign: 'right' }}>ST</th>
                       <th style={{ ...S.th, textAlign: 'right' }}>IPI</th>
+                      {temNfseNoRelatorio && <th style={{ ...S.th, textAlign: 'right' }}>Serviços</th>}
+                      {temNfseNoRelatorio && <th style={{ ...S.th, textAlign: 'right' }}>Base ISS</th>}
+                      {temNfseNoRelatorio && <th style={{ ...S.th, textAlign: 'right' }}>ISS</th>}
+                      {temNfseNoRelatorio && <th style={{ ...S.th, textAlign: 'right' }}>ISS retido</th>}
                     </tr></thead>
                     <tbody>
                       {linhasFiscal.filter(isResumoFiscal).map((r, i) => (
@@ -1399,87 +1900,139 @@ export default function RelatoriosPage() {
                           <td style={{ ...S.td, textAlign: 'right' }}>{fmoe(r.valor_icms)}</td>
                           <td style={{ ...S.td, textAlign: 'right' }}>{fmoe(r.valor_st)}</td>
                           <td style={{ ...S.td, textAlign: 'right' }}>{fmoe(r.valor_ipi)}</td>
+                          {temNfseNoRelatorio && <td style={{ ...S.td, textAlign: 'right' }}>{fmoe(r.valor_servicos)}</td>}
+                          {temNfseNoRelatorio && <td style={{ ...S.td, textAlign: 'right' }}>{fmoe(r.base_iss)}</td>}
+                          {temNfseNoRelatorio && <td style={{ ...S.td, textAlign: 'right' }}>{fmoe(r.valor_iss)}</td>}
+                          {temNfseNoRelatorio && <td style={{ ...S.td, textAlign: 'right' }}>{fmoe(r.valor_iss_retido)}</td>}
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 ) : abaAtiva === 'produtos' ? (
-                  <table style={{ ...S.table, minWidth: 1180 }}>
+                  <table style={{ ...S.table, minWidth: 1060, tableLayout: 'fixed' }}>
                     <thead><tr>
-                      <th style={S.th}>CompetÃªncia</th>
-                      <th style={S.th}>Data</th>
-                      <th style={S.th}>Nota</th>
-                      <th style={S.th}>Cliente/Fornecedor</th>
-                      <th style={S.th}>Produto</th>
-                      <th style={S.th}>NCM</th>
-                      <th style={S.th}>CFOP</th>
-                      <th style={S.th}>CST</th>
-                      <th style={{ ...S.th, textAlign: 'right' }}>Qtd.</th>
-                      <th style={{ ...S.th, textAlign: 'right' }}>Valor Contábil</th>
-                      <th style={{ ...S.th, textAlign: 'right' }}>Base ICMS</th>
-                      <th style={{ ...S.th, textAlign: 'right' }}>Alíq.</th>
-                      <th style={{ ...S.th, textAlign: 'right' }}>ICMS</th>
-                      <th style={{ ...S.th, textAlign: 'right' }}>ST</th>
-                      <th style={{ ...S.th, textAlign: 'right' }}>IPI</th>
+                      <th style={{ ...S.th, width: 86 }}>Data</th>
+                      <th style={{ ...S.th, width: 72 }}>Nota</th>
+                      <th style={{ ...S.th, width: 170 }}>Cliente/Fornecedor</th>
+                      <th style={{ ...S.th, width: 240 }}>{temNfseNoRelatorio ? 'Produto / Serviço' : 'Produto'}</th>
+                      <th style={{ ...S.th, width: 88 }}>{temNfseNoRelatorio ? 'NCM / Serviço' : 'NCM'}</th>
+                      <th style={{ ...S.th, width: 76 }}>{temNfseNoRelatorio ? 'CFOP / Cód. mun.' : 'CFOP'}</th>
+                      <th style={{ ...S.th, width: 78 }}>{temNfseNoRelatorio ? 'CST / Município' : 'CST'}</th>
+                      <th style={{ ...S.th, width: 62, textAlign: 'right' }}>Qtd.</th>
+                      <th style={{ ...S.th, width: 100, textAlign: 'right' }}>Valor</th>
+                      <th style={{ ...S.th, width: 92, textAlign: 'right' }}>{temNfseNoRelatorio ? 'Base ICMS / ISS' : 'Base ICMS'}</th>
+                      <th style={{ ...S.th, width: 64, textAlign: 'right' }}>Alíq.</th>
+                      <th style={{ ...S.th, width: 86, textAlign: 'right' }}>{temNfseNoRelatorio ? 'ICMS / ISS' : 'ICMS'}</th>
                     </tr></thead>
                     <tbody>
                       {linhasFiscal.filter(isProdutoFiscal).map(p => {
                         const doc = docProduto(p)
+                        const ehServico = ehNfseFiscal(doc)
                         return (
                           <tr key={p.id}>
-                            <td style={{ ...S.td, fontWeight: 700, color: 'var(--af-muted)' }}>{competenciaDaLinha(p) ? competenciaLabel(competenciaDaLinha(p)) : 'â€”'}</td>
                             <td style={S.td}>{dataFiscal(doc?.data_emissao)}</td>
                             <td style={{ ...S.td, fontFamily: 'var(--font-geist-mono)', fontSize: 12 }}>{doc?.numero || '—'}</td>
-                            <td style={{ ...S.td, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{participanteFiscal(doc)}</td>
-                            <td style={{ ...S.td, minWidth: 260 }}>{p.descricao || '—'}</td>
-                            <td style={{ ...S.td, fontFamily: 'var(--font-geist-mono)', fontSize: 12 }}>{p.ncm || '—'}</td>
-                            <td style={{ ...S.td, fontFamily: 'var(--font-geist-mono)', fontSize: 12 }}>{p.cfop || '—'}</td>
-                            <td style={{ ...S.td, fontFamily: 'var(--font-geist-mono)', fontSize: 12 }}>{p.cst_icms || p.csosn || '—'}</td>
+                            <td style={{ ...S.td, whiteSpace: 'normal', overflowWrap: 'anywhere', lineHeight: 1.35 }}>{participanteFiscal(doc)}</td>
+                            <td style={{ ...S.td, whiteSpace: 'normal', overflowWrap: 'anywhere', lineHeight: 1.35 }}>{p.descricao || '—'}</td>
+                            <td style={{ ...S.td, fontFamily: 'var(--font-geist-mono)', fontSize: 12 }}>{ehServico ? (doc?.codigo_servico || p.codigo_produto || '—') : (p.ncm || '—')}</td>
+                            <td style={{ ...S.td, fontFamily: 'var(--font-geist-mono)', fontSize: 12 }}>{ehServico ? (doc?.codigo_tributacao_municipio || '—') : (p.cfop || '—')}</td>
+                            <td style={{ ...S.td, fontFamily: 'var(--font-geist-mono)', fontSize: 12 }}>{ehServico ? (doc?.municipio_codigo || '—') : (p.cst_icms || p.csosn || '—')}</td>
                             <td style={{ ...S.td, textAlign: 'right', color: 'var(--af-muted)' }}>{Number(p.quantidade ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 4 })}</td>
                             <td style={{ ...S.td, textAlign: 'right', fontWeight: 700, color: 'var(--af-primary)' }}>{fmoe(Number(p.valor_total ?? 0))}</td>
-                            <td style={{ ...S.td, textAlign: 'right' }}>{fmoe(Number(p.valor_bc_icms ?? 0))}</td>
-                            <td style={{ ...S.td, textAlign: 'right' }}>{Number(p.aliquota_icms ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%</td>
-                            <td style={{ ...S.td, textAlign: 'right' }}>{fmoe(Number(p.valor_icms ?? 0))}</td>
-                            <td style={{ ...S.td, textAlign: 'right' }}>{fmoe(Number(p.valor_st ?? 0))}</td>
-                            <td style={{ ...S.td, textAlign: 'right' }}>{fmoe(Number(p.valor_ipi ?? 0))}</td>
+                            <td style={{ ...S.td, textAlign: 'right' }}>{ehServico ? fmoe(Number(doc?.base_iss ?? 0)) : tributoFiscal(p.valor_bc_icms, p.cst_icms || p.csosn ? 'zero' : 'nao_informado')}</td>
+                            <td style={{ ...S.td, textAlign: 'right' }}>{ehServico ? `${Number(doc?.aliquota_iss ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 4 })}%` : p.aliquota_icms === null ? '—' : `${Number(p.aliquota_icms ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`}</td>
+                            <td style={{ ...S.td, textAlign: 'right' }}>{ehServico ? fmoe(Number(doc?.valor_iss ?? 0)) : tributoFiscal(p.valor_icms, p.cst_icms || p.csosn ? 'zero' : 'nao_informado')}</td>
                           </tr>
                         )
                       })}
                     </tbody>
                   </table>
                 ) : (
-                  <table style={{ ...S.table, minWidth: 920 }}>
+                  <table style={{ ...S.table, minWidth: 956, tableLayout: 'fixed' }}>
                     <thead><tr>
-                      <th style={S.th}>CompetÃªncia</th>
-                      <th style={S.th}>Data</th>
-                      <th style={S.th}>Nota</th>
-                      <th style={S.th}>Série</th>
-                      <th style={S.th}>Modelo</th>
-                      <th style={S.th}>Movimento</th>
-                      <th style={S.th}>Cliente/Fornecedor</th>
-                      <th style={{ ...S.th, textAlign: 'right' }}>Valor Contábil</th>
-                      <th style={{ ...S.th, textAlign: 'right' }}>Desconto</th>
-                      <th style={{ ...S.th, textAlign: 'right' }}>Frete</th>
-                      <th style={{ ...S.th, textAlign: 'right' }}>ICMS</th>
-                      <th style={{ ...S.th, textAlign: 'right' }}>IPI</th>
+                      <th style={{ ...S.th, width: 34 }} aria-label="Expandir itens" />
+                      <th style={{ ...S.th, width: 86 }}>{cabecalhoOrdenavel('Data', 'data_emissao')}</th>
+                      <th style={{ ...S.th, width: 76 }}>{cabecalhoOrdenavel('Nota', 'numero')}</th>
+                      <th style={{ ...S.th, width: 90 }}>Movimento</th>
+                      <th style={{ ...S.th, width: 220 }}>{cabecalhoOrdenavel('Cliente/Fornecedor', 'participante')}</th>
+                      <th style={{ ...S.th, width: 60, textAlign: 'right' }}>Itens</th>
+                      <th style={{ ...S.th, width: 110, textAlign: 'right' }}>{cabecalhoOrdenavel('Valor', 'valor_total')}</th>
+                      <th style={{ ...S.th, width: 105, textAlign: 'right' }}>{temNfseNoRelatorio ? 'Base ICMS / ISS' : 'Base ICMS'}</th>
+                      <th style={{ ...S.th, width: 105, textAlign: 'right' }}>{temNfseNoRelatorio ? 'ICMS / ISS' : cabecalhoOrdenavel('ICMS', 'valor_icms')}</th>
+                      <th style={{ ...S.th, width: 90 }}>Auditoria</th>
                     </tr></thead>
                     <tbody>
-                      {linhasFiscal.filter(isDocumentoFiscal).map(d => (
-                        <tr key={d.id}>
-                          <td style={{ ...S.td, fontWeight: 700, color: 'var(--af-muted)' }}>{d.data_competencia ? competenciaLabel(d.data_competencia) : 'â€”'}</td>
+                      {linhasFiscal.filter(isDocumentoFiscal).map(d => [
+                        <tr key={`${d.id}-documento`}>
+                          <td style={{ ...S.td, paddingLeft: 9, paddingRight: 4 }}>
+                            <button type="button" onClick={() => void alternarDocumento(d)} title="Visualizar itens vinculados" style={{ border: 0, background: 'transparent', color: 'var(--af-primary)', cursor: 'pointer', padding: 3, display: 'inline-flex' }}>
+                              {documentoExpandido === d.id ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+                            </button>
+                          </td>
                           <td style={S.td}>{dataFiscal(d.data_emissao)}</td>
-                          <td style={{ ...S.td, fontFamily: 'var(--font-geist-mono)', fontSize: 12 }}>{d.numero || '—'}</td>
-                          <td style={S.td}>{d.serie || '—'}</td>
-                          <td style={S.td}>{d.modelo || '—'}</td>
-                          <td style={{ ...S.td, textTransform: 'capitalize' as const }}>{d.tipo_movimento}</td>
-                          <td style={{ ...S.td, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{participanteFiscal(d)}</td>
+                          <td style={{ ...S.td, fontFamily: 'var(--font-geist-mono)', fontSize: 12 }} title={`${ehNfseFiscal(d) ? 'NFS-e' : 'NF-e/NFC-e'} · Série ${d.serie || '—'} · Modelo ${d.modelo || '—'}`}>{d.numero || '—'}</td>
+                          <td style={{ ...S.td, textTransform: 'capitalize' as const }}>{movimentoFiscal(d)}</td>
+                          <td style={{ ...S.td, whiteSpace: 'normal', overflowWrap: 'anywhere', lineHeight: 1.35 }}>{participanteFiscal(d)}</td>
+                          <td style={{ ...S.td, textAlign: 'right', color: 'var(--af-muted)' }}>{d.itens_count ?? '—'}</td>
                           <td style={{ ...S.td, textAlign: 'right', fontWeight: 700, color: 'var(--af-primary)' }}>{fmoe(Number(d.valor_total ?? 0))}</td>
-                          <td style={{ ...S.td, textAlign: 'right' }}>{fmoe(Number(d.valor_desconto ?? 0))}</td>
-                          <td style={{ ...S.td, textAlign: 'right' }}>{fmoe(Number(d.valor_frete ?? 0))}</td>
-                          <td style={{ ...S.td, textAlign: 'right' }}>{fmoe(Number(d.valor_icms ?? 0))}</td>
-                          <td style={{ ...S.td, textAlign: 'right' }}>{fmoe(Number(d.valor_ipi ?? 0))}</td>
-                        </tr>
-                      ))}
+                          <td style={{ ...S.td, textAlign: 'right' }}>{ehNfseFiscal(d) ? fmoe(Number(d.base_iss ?? 0)) : tributoFiscal(d.base_icms, d.dados_incompletos ? 'nao_informado' : 'itens')}</td>
+                          <td style={{ ...S.td, textAlign: 'right', color: !ehNfseFiscal(d) && d.situacao_icms === 'divergente' ? 'var(--af-danger)' : undefined }} title={ehNfseFiscal(d) ? `${situacaoIssFiscal(d)} · ISS retido: ${fmoe(Number(d.valor_iss_retido ?? 0))}` : `${LABEL_SITUACAO_TRIBUTO[d.situacao_icms ?? 'nao_informado'] ?? 'Não informado'} · Cabeçalho: ${fmoe(Number(d.valor_icms_cabecalho ?? 0))} · Itens: ${fmoe(Number(d.valor_icms_itens ?? 0))}`}>{ehNfseFiscal(d) ? fmoe(Number(d.valor_iss ?? 0)) : tributoFiscal(d.valor_icms, d.situacao_icms)}</td>
+                          <td style={S.td} title={d.divergencias?.join(' ')}>
+                            {d.tem_divergencia
+                              ? <span style={{ color: 'var(--af-danger)', fontSize: 11, fontWeight: 800 }}>Revisar</span>
+                              : d.dados_incompletos
+                                ? <span style={{ color: 'var(--af-warning)', fontSize: 11, fontWeight: 800 }}>Incompleto</span>
+                                : <span style={{ color: 'var(--af-success)', fontSize: 11, fontWeight: 800 }}>Conciliado</span>}
+                          </td>
+                        </tr>,
+                        documentoExpandido === d.id && (
+                          <tr key={`${d.id}-itens`}>
+                            <td colSpan={10} style={{ padding: 0, background: 'var(--af-surface-2)', borderBottom: '1px solid var(--af-border)' }}>
+                              {carregandoItensDocumento === d.id ? (
+                                <div style={{ padding: 16, color: 'var(--af-muted)', fontSize: 12 }}>Carregando itens...</div>
+                              ) : (itensDocumento[d.id] ?? []).length === 0 ? (
+                                <div style={{ padding: 16, color: 'var(--af-warning)', fontSize: 12 }}>Nenhum item estruturado ou legado foi localizado para este documento.</div>
+                              ) : (
+                                <div style={{ padding: 12, overflowX: 'auto' }}>
+                                  <table style={{ ...S.table, minWidth: 850 }}>
+                                    <thead><tr>
+                                      {ehNfseFiscal(d) ? <>
+                                        <th style={S.th}>Item</th><th style={S.th}>Descrição do serviço</th><th style={S.th}>Item serviço</th><th style={S.th}>Cód. municipal</th><th style={S.th}>Município (IBGE)</th>
+                                        <th style={{ ...S.th, textAlign: 'right' }}>Valor serviço</th><th style={{ ...S.th, textAlign: 'right' }}>Base ISS</th><th style={{ ...S.th, textAlign: 'right' }}>ISS</th>
+                                      </> : <>
+                                        <th style={S.th}>Item</th><th style={S.th}>Descrição</th><th style={S.th}>NCM</th><th style={S.th}>CFOP</th><th style={S.th}>CST/CSOSN</th>
+                                        <th style={{ ...S.th, textAlign: 'right' }}>Valor</th><th style={{ ...S.th, textAlign: 'right' }}>Base ICMS</th><th style={{ ...S.th, textAlign: 'right' }}>ICMS</th>
+                                      </>}
+                                    </tr></thead>
+                                    <tbody>{(itensDocumento[d.id] ?? []).map(item => (
+                                      <tr key={item.id}>
+                                        <td style={S.td}>{item.item_numero ?? '—'}</td>
+                                        {ehNfseFiscal(d) ? <>
+                                          <td style={{ ...S.td, whiteSpace: 'normal', lineHeight: 1.35 }}>{d.discriminacao_servico || item.descricao || 'Não informado'}</td>
+                                          <td style={S.td}>{d.codigo_servico || item.codigo_produto || '—'}</td>
+                                          <td style={S.td}>{d.codigo_tributacao_municipio || '—'}</td>
+                                          <td style={S.td}>{d.municipio_codigo || '—'}</td>
+                                          <td style={{ ...S.td, textAlign: 'right' }}>{fmoe(Number(d.valor_servicos ?? item.valor_total ?? 0))}</td>
+                                          <td style={{ ...S.td, textAlign: 'right' }}>{fmoe(Number(d.base_iss ?? 0))}</td>
+                                          <td style={{ ...S.td, textAlign: 'right' }} title={`${situacaoIssFiscal(d)} · Alíquota ${Number(d.aliquota_iss ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 4 })}% · Retido ${fmoe(Number(d.valor_iss_retido ?? 0))}`}>{fmoe(Number(d.valor_iss ?? 0))}</td>
+                                        </> : <>
+                                          <td style={S.td}>{item.descricao || 'Não informado'}</td>
+                                          <td style={S.td}>{item.ncm || '—'}</td>
+                                          <td style={S.td}>{item.cfop || '—'}</td>
+                                          <td style={S.td}>{item.cst_icms || item.csosn || '—'}</td>
+                                          <td style={{ ...S.td, textAlign: 'right' }}>{fmoe(Number(item.valor_total ?? 0))}</td>
+                                          <td style={{ ...S.td, textAlign: 'right' }}>{tributoFiscal(item.valor_bc_icms, item.cst_icms || item.csosn ? 'zero' : 'nao_informado')}</td>
+                                          <td style={{ ...S.td, textAlign: 'right' }}>{tributoFiscal(item.valor_icms, item.cst_icms || item.csosn ? 'zero' : 'nao_informado')}</td>
+                                        </>}
+                                      </tr>
+                                    ))}</tbody>
+                                  </table>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        ),
+                      ])}
                     </tbody>
                   </table>
                 )}
