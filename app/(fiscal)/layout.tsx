@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation'
 import SidebarFiscal from './SidebarFiscal'
 import TopbarFiscal from '@/components/TopbarFiscal'
 import { NotificationProvider } from '@/components/notifications/NotificationProvider'
+import { GlobalLoadingIndicator } from '@/components/ui/GlobalLoadingIndicator'
 
 export default async function FiscalLayout({
   children,
@@ -38,6 +39,7 @@ export default async function FiscalLayout({
 
   return (
     <NotificationProvider>
+      <GlobalLoadingIndicator />
       <div className="fiscal-shell">
         <SidebarFiscal allowedModules={allowedModules} />
         <div className="fiscal-area">
