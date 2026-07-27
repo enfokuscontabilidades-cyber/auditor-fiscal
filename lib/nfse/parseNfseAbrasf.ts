@@ -3,6 +3,22 @@ import { lerXmlDiagnostico } from '@/lib/fiscal/lerXmlDiagnostico'
 
 type XmlElement = Element | null | undefined
 
+export type NfseXmlLayout = 'nacional' | 'abrasf' | 'municipal'
+
+/**
+ * Aliases centralizados por papel. Para incluir um novo provedor municipal,
+ * basta acrescentar os nomes de seus blocos/campos nas listas correspondentes.
+ */
+const NFSE_XML_ALIASES = {
+  prestadorIdentificacao: ['IdentificacaoPrestador', 'Prestador', 'prest', 'emit', 'PrestadorServico', 'DadosPrestador'],
+  prestadorCadastro: ['PrestadorServico', 'DadosPrestador', 'emit', 'Prestador', 'prest', 'IdentificacaoPrestador'],
+  tomadorIdentificacao: ['IdentificacaoTomador', 'Tomador', 'toma', 'TomadorServico', 'DadosTomador'],
+  tomadorCadastro: ['TomadorServico', 'DadosTomador', 'toma', 'Tomador', 'IdentificacaoTomador'],
+  servico: ['Servico', 'DadosServico', 'serv', 'cServ'],
+  valoresServico: ['Valores', 'valores', 'vServPrest'],
+  valoresNota: ['ValoresNfse', 'ValoresNFSe', 'TotaisNfse', 'TotaisNFSe'],
+} as const
+
 function elementsByLocalName(node: Document | Element, name: string): Element[] {
   return Array.from(node.getElementsByTagName('*')).filter(el => el.localName === name)
 }
@@ -40,6 +56,24 @@ function textAny(node: XmlElement, names: string[]): string {
 function firstText(node: XmlElement, names: string[]): string {
   for (const name of names) {
     const value = textAny(node, [name])
+    if (value) return value
+  }
+  return ''
+}
+
+function candidateElements(node: XmlElement, names: readonly string[]): Element[] {
+  if (!node) return []
+  const candidates: Element[] = []
+  for (const name of names) {
+    const found = firstByLocalName(node, name)
+    if (found && !candidates.includes(found)) candidates.push(found)
+  }
+  return candidates
+}
+
+function firstTextAcross(nodes: XmlElement[], names: string[]): string {
+  for (const node of nodes) {
+    const value = firstText(node, names)
     if (value) return value
   }
   return ''
@@ -94,8 +128,8 @@ function rawCnpj(xmlTxt: string, role: 'prestador' | 'tomador') {
   const direto = rawTag(xmlTxt, roleTags)
   if (direto) return onlyDigits(direto)
   const bloco = rawTag(xmlTxt, role === 'prestador'
-    ? ['PrestadorServico', 'Prestador', 'DadosPrestador', 'IdentificacaoPrestador', 'emit', 'prest']
-    : ['TomadorServico', 'Tomador', 'DadosTomador', 'IdentificacaoTomador', 'toma'])
+    ? ['IdentificacaoPrestador', 'Prestador', 'prest', 'emit', 'PrestadorServico', 'DadosPrestador']
+    : ['IdentificacaoTomador', 'Tomador', 'toma', 'TomadorServico', 'DadosTomador'])
   return onlyDigits(rawTag(bloco, ['Cnpj', 'CNPJ', 'Cpf', 'CPF']))
 }
 
@@ -139,6 +173,34 @@ function findNome(node: XmlElement): string {
   return firstText(node, ['RazaoSocial', 'NomeRazaoSocial', 'NomePrestador', 'NomeTomador', 'xNome', 'Nome', 'NomeFantasia'])
 }
 
+function findParty(inf: Element, role: 'prestador' | 'tomador'): { documento: string; nome: string } {
+  const identificacaoAliases = role === 'prestador'
+    ? NFSE_XML_ALIASES.prestadorIdentificacao
+    : NFSE_XML_ALIASES.tomadorIdentificacao
+  const cadastroAliases = role === 'prestador'
+    ? NFSE_XML_ALIASES.prestadorCadastro
+    : NFSE_XML_ALIASES.tomadorCadastro
+  const identificacoes = candidateElements(inf, identificacaoAliases)
+  const cadastros = candidateElements(inf, cadastroAliases)
+
+  return {
+    documento: identificacoes.map(node => findCnpj(node, role)).find(Boolean) || findCnpj(inf, role),
+    nome: cadastros.map(findNome).find(Boolean) || identificacoes.map(findNome).find(Boolean) || '',
+  }
+}
+
+function detectarLayoutNfse(node: Document | Element): NfseXmlLayout {
+  const doc = (node.ownerDocument ?? node) as Document
+  const namespace = (doc.documentElement?.namespaceURI ?? '').toLowerCase()
+  if (namespace.includes('sped.fazenda.gov.br/nfse') || elementsByLocalName(doc, 'infNFSe').length > 0) {
+    return 'nacional'
+  }
+  if (namespace.includes('abrasf') || elementsByLocalName(doc, 'InfDeclaracaoPrestacaoServico').length > 0) {
+    return 'abrasf'
+  }
+  return 'municipal'
+}
+
 function municipioCodigo(inf: Element): string {
   const orgao = firstByLocalName(inf, 'OrgaoGerador')
   return onlyDigits(
@@ -149,7 +211,8 @@ function municipioCodigo(inf: Element): string {
   )
 }
 
-export interface NfseAbrasfMetadata {
+export interface NfseMetadata {
+  layout_xml: NfseXmlLayout
   numero: string
   codigo_verificacao: string
   data_emissao?: string
@@ -176,6 +239,9 @@ export interface NfseAbrasfMetadata {
   cancelada: boolean
 }
 
+/** @deprecated Use NfseMetadata. Mantido para compatibilidade. */
+export type NfseAbrasfMetadata = NfseMetadata
+
 export interface NfseParseResult {
   documento: Omit<DocumentoFiscalInput, 'empresa_id'>
   itens: Omit<DocumentoFiscalItemInput, 'empresa_id' | 'documento_id'>[]
@@ -187,10 +253,13 @@ export function chaveNfse(meta: Pick<NfseAbrasfMetadata, 'prestador_cnpj' | 'mun
 }
 
 function parseInfNfse(inf: Element, xmlTxt: string, nomeArquivo?: string): NfseParseResult | null {
-  const servico = firstByLocalNames(inf, ['Servico', 'DadosServico', 'serv', 'cServ'])
-  const valores = firstByLocalNames(inf, ['Valores', 'valores', 'vServPrest']) ?? inf
-  const prestador = firstByLocalNames(inf, ['PrestadorServico', 'Prestador', 'DadosPrestador', 'IdentificacaoPrestador', 'emit', 'prest']) ?? inf
-  const tomador = firstByLocalNames(inf, ['TomadorServico', 'Tomador', 'DadosTomador', 'IdentificacaoTomador', 'toma']) ?? inf
+  const servico = firstByLocalNames(inf, [...NFSE_XML_ALIASES.servico])
+  const valoresServico = firstByLocalNames(servico ?? inf, [...NFSE_XML_ALIASES.valoresServico])
+  const valoresNota = firstByLocalNames(inf, [...NFSE_XML_ALIASES.valoresNota])
+  const fontesValoresBrutos: XmlElement[] = [valoresServico, valoresNota, servico, inf]
+  const fontesValoresLiquidos: XmlElement[] = [valoresNota, valoresServico, inf]
+  const prestador = findParty(inf, 'prestador')
+  const tomador = findParty(inf, 'tomador')
   const data_emissao = dateIso(firstText(inf, ['DataEmissao', 'DataEmissaoNfse', 'DataEmissaoNFSe', 'DtEmissao', 'dhProc', 'dhEmi', 'dCompet']))
   const cancelElementNames = [
     'Cancelamento', 'Confirmacao', 'NfseCancelamento', 'NfseCanc',
@@ -221,36 +290,38 @@ function parseInfNfse(inf: Element, xmlTxt: string, nomeArquivo?: string): NfseP
     situacaoCancelada() ||
     temEventoCancelamento()
 
-  const indicadorRetencao = firstText(valores ?? inf, ['IssRetido', 'ISSRetido', 'RetencaoISS', 'RetemISS'])
+  const indicadorRetencao = firstTextAcross([servico, valoresServico, inf], ['IssRetido', 'ISSRetido', 'RetencaoISS', 'RetemISS'])
   const tipoRetencaoIss = firstText(inf, ['tpRetISSQN', 'TipoRetencaoISSQN', 'TipoRetencaoIss'])
-  const valorIss = numberXml(firstText(valores, ['ValorIss', 'ValorISS', 'vISSQN']))
+  const valorIss = numberXml(firstTextAcross(fontesValoresBrutos, ['ValorIss', 'ValorISS', 'vISSQN']))
   const issRetido = indicadorIssRetido(indicadorRetencao) || tipoRetencaoIssNacional(tipoRetencaoIss)
-  const valorIssRetidoInformado = numberXml(firstText(valores ?? inf, ['ValorIssRetido', 'ValorISSRetido', 'vISSQNRet', 'vISSRet']))
+  const valorIssRetidoInformado = numberXml(firstTextAcross(fontesValoresBrutos, ['ValorIssRetido', 'ValorISSRetido', 'vISSQNRet', 'vISSRet']))
+  const valorServicos = numberXml(firstTextAcross(fontesValoresBrutos, ['ValorServicos', 'ValorServico', 'ValorTotalServicos', 'vServ', 'vBC']))
 
   const metadados: NfseAbrasfMetadata = {
+    layout_xml: detectarLayoutNfse(inf),
     numero: firstText(inf, ['Numero', 'NumeroNfse', 'NumeroNFSe', 'NumeroNota', 'NumeroNotaFiscal', 'nNFSe', 'nDFSe', 'nDPS']),
     codigo_verificacao: firstText(inf, ['CodigoVerificacao', 'CodVerificacao', 'ChaveAutenticacao']),
     data_emissao,
     competencia: competenciaFrom(data_emissao, firstText(inf, ['Competencia', 'DataCompetencia', 'dCompet'])),
-    prestador_cnpj: findCnpj(prestador, 'prestador'),
-    prestador_nome: findNome(prestador),
-    tomador_cnpj: findCnpj(tomador, 'tomador'),
-    tomador_nome: findNome(tomador),
+    prestador_cnpj: prestador.documento,
+    prestador_nome: prestador.nome,
+    tomador_cnpj: tomador.documento,
+    tomador_nome: tomador.nome,
     municipio_codigo: municipioCodigo(inf),
     discriminacao: firstText(servico ?? inf, ['Discriminacao', 'DescricaoServico', 'Descricao', 'xDescServ', 'xTribMun', 'xTribNac']),
     item_lista_servico: firstText(servico, ['ItemListaServico', 'CodigoItemListaServico', 'cTribNac']),
     codigo_tributacao_municipio: firstText(servico, ['CodigoTributacaoMunicipio', 'cTribMun']),
-    valor_servicos: numberXml(firstText(valores, ['ValorServicos', 'ValorServico', 'ValorTotalServicos', 'vServ', 'vBC'])),
-    valor_deducoes: numberXml(firstText(valores, ['ValorDeducoes', 'ValorDeducao'])),
-    desconto_incondicionado: numberXml(firstText(valores, ['DescontoIncondicionado', 'ValorDescontoIncondicionado', 'vDescIncond'])),
-    desconto_condicionado: numberXml(firstText(valores, ['DescontoCondicionado', 'ValorDescontoCondicionado', 'vDescCond'])),
+    valor_servicos: valorServicos,
+    valor_deducoes: numberXml(firstTextAcross(fontesValoresBrutos, ['ValorDeducoes', 'ValorDeducao'])),
+    desconto_incondicionado: numberXml(firstTextAcross(fontesValoresBrutos, ['DescontoIncondicionado', 'ValorDescontoIncondicionado', 'vDescIncond'])),
+    desconto_condicionado: numberXml(firstTextAcross(fontesValoresBrutos, ['DescontoCondicionado', 'ValorDescontoCondicionado', 'vDescCond'])),
     valor_iss: valorIss,
-    base_calculo_iss: numberXml(firstText(valores, ['BaseCalculo', 'ValorBaseCalculo', 'vBC'])),
-    aliquota_iss: numberXml(firstText(valores, ['Aliquota', 'AliquotaServicos', 'pAliq', 'pISSQN'])),
+    base_calculo_iss: numberXml(firstTextAcross([valoresNota, valoresServico, servico, inf], ['BaseCalculo', 'ValorBaseCalculo', 'vBC'])),
+    aliquota_iss: numberXml(firstTextAcross(fontesValoresBrutos, ['Aliquota', 'AliquotaServicos', 'pAliq', 'pISSQN'])),
     valor_iss_retido: issRetido ? (valorIssRetidoInformado || valorIss) : 0,
     iss_retido: issRetido,
     tipo_retencao_iss: tipoRetencaoIss,
-    valor_liquido: numberXml(firstText(valores, ['ValorLiquidoNfse', 'ValorLiquidoNFSe', 'ValorLiquido', 'vLiq'])) || numberXml(firstText(valores, ['ValorServicos', 'ValorServico', 'ValorTotalServicos', 'vServ', 'vBC'])),
+    valor_liquido: numberXml(firstTextAcross(fontesValoresLiquidos, ['ValorLiquidoNfse', 'ValorLiquidoNFSe', 'ValorLiquido', 'vLiq'])) || valorServicos,
     cancelada,
   }
 
@@ -287,7 +358,7 @@ function parseInfNfse(inf: Element, xmlTxt: string, nomeArquivo?: string): NfseP
     origem_devolucao: 'nao_aplicavel',
     status: metadados.cancelada ? 'cancelada' : 'ok',
     nome_arquivo: nomeArquivo,
-    parsed_data: { tipo: 'nfse_abrasf', metadados, xml: xmlTxt },
+    parsed_data: { tipo: 'nfse_xml', layout: metadados.layout_xml, metadados, xml: xmlTxt },
   }
 
   const itens: Omit<DocumentoFiscalItemInput, 'empresa_id' | 'documento_id'>[] = metadados.cancelada ? [] : [{
@@ -318,7 +389,7 @@ function parseInfNfse(inf: Element, xmlTxt: string, nomeArquivo?: string): NfseP
     tipo_movimento: 'saida',
     impacto_receita: 'soma_receita',
     anexo_sugerido: 'III',
-    regra_aplicada: 'NFS-e ABRASF - anexo definido pela configuracao de servicos da empresa',
+    regra_aplicada: 'NFS-e - anexo definido pela configuracao de servicos da empresa',
     classificacao_manual: false,
   }]
 
@@ -333,6 +404,11 @@ function parseRawNfse(xmlTxt: string, nomeArquivo?: string): NfseParseResult | n
   const issRetido = indicadorIssRetido(indicadorRetencao) || tipoRetencaoIssNacional(tipoRetencaoIss)
   const valorIssRetidoInformado = numberXml(rawTag(xmlTxt, ['ValorIssRetido', 'ValorISSRetido', 'vISSQNRet', 'vISSRet']))
   const metadados: NfseAbrasfMetadata = {
+    layout_xml: /sped\.fazenda\.gov\.br\/nfse/i.test(xmlTxt)
+      ? 'nacional'
+      : /abrasf/i.test(xmlTxt)
+        ? 'abrasf'
+        : 'municipal',
     numero: rawTag(xmlTxt, ['NumeroNFSe', 'NumeroNfse', 'NumeroNotaFiscal', 'NumeroNota', 'Numero', 'nNFSe', 'nDFSe', 'nDPS']),
     codigo_verificacao: rawTag(xmlTxt, ['CodigoVerificacao', 'CodVerificacao', 'ChaveAutenticacao']),
     data_emissao,
@@ -404,7 +480,7 @@ function parseInfNfseFromMetadata(metadados: NfseAbrasfMetadata, xmlTxt: string,
     origem_devolucao: 'nao_aplicavel',
     status: metadados.cancelada ? 'cancelada' : 'ok',
     nome_arquivo: nomeArquivo,
-    parsed_data: { tipo: 'nfse_abrasf', metadados, xml: xmlTxt },
+    parsed_data: { tipo: 'nfse_xml', layout: metadados.layout_xml, metadados, xml: xmlTxt },
   }
 
   const itens: Omit<DocumentoFiscalItemInput, 'empresa_id' | 'documento_id'>[] = metadados.cancelada ? [] : [{
@@ -435,7 +511,7 @@ function parseInfNfseFromMetadata(metadados: NfseAbrasfMetadata, xmlTxt: string,
     tipo_movimento: 'saida',
     impacto_receita: 'soma_receita',
     anexo_sugerido: 'III',
-    regra_aplicada: 'NFS-e ABRASF - anexo definido pela configuracao de servicos da empresa',
+    regra_aplicada: 'NFS-e - anexo definido pela configuracao de servicos da empresa',
     classificacao_manual: false,
   }]
 
@@ -519,4 +595,14 @@ export function detectarXmlNfseAbrasf(xmlTxt: string): boolean {
   } catch {
     return false
   }
+}
+
+/** Nome genérico para novos consumidores; o export antigo continua compatível. */
+export function parseNfseXml(xmlTxt: string, cnpjEmpresa: string, nomeArquivo?: string): NfseParseResult[] {
+  return parseNfseAbrasf(xmlTxt, cnpjEmpresa, nomeArquivo)
+}
+
+/** Detecta NFS-e Nacional, ABRASF e layouts municipais conhecidos. */
+export function detectarXmlNfse(xmlTxt: string): boolean {
+  return detectarXmlNfseAbrasf(xmlTxt) || parseNfseAbrasf(xmlTxt, '').length > 0
 }

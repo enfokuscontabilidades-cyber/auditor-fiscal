@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Upload, AlertTriangle, CheckCircle2, Search, Download,
@@ -13,8 +13,10 @@ import { useEmpresaAtiva } from "@/lib/hooks/useEmpresaAtiva";
 import PageHeader from "@/components/ui/PageHeader";
 import PaginationControls, { getPageItems } from "@/components/ui/PaginationControls";
 import { extrairXmlsDeArquivos } from "@/lib/fiscal/xmlArchive";
-import { parseNfseAbrasf } from "@/lib/nfse/parseNfseAbrasf";
+import { parseNfseXml } from "@/lib/nfse/parseNfseAbrasf";
 import { parseNfeParaDocumento, type NfeParseResult } from "@/lib/nfe/parseNfe";
+import { identificadorNotaEntrada, itemEhEntradaDeTerceiro, resolverCfopEntradaEfetivo } from "@/lib/fiscal/cfopEntrada";
+import { valorFiscalNfse } from "@/lib/nfse/valorFiscalNfse";
 import { useNotifications } from "@/components/notifications/NotificationProvider";
 import {
   type ClassificacaoManualItem as ClassificacaoManual,
@@ -153,7 +155,7 @@ type Item0200 = { descricao: string; ncm: string };
 type Participante0150 = { nome: string };
 
 type NotaEntrada = {
-  chave: string; numero_nota: string; fornecedor: string; data: string;
+  id: string; chave: string; numero_nota: string; fornecedor: string; data: string;
   total_itens: number; total_contabil: number; total_base_icms: number; total_valor_icms: number;
   status: StatusValidacao; itens: LinhaEntrada[]; sugestoes: string[]; avisos: string[];
   classificacaoPredominante: ClassificacaoManual;
@@ -1119,6 +1121,11 @@ function sugerirCfopEntrada(cfopFornecedor: string, natureza: AnaliseSugestao["t
   }
 }
 
+function naturezaCfopDaClassificacao(classificacao: ClassificacaoManual): AnaliseSugestao["tipo"] {
+  if(classificacao==="uso_consumo"||classificacao==="imobilizado"||classificacao==="combustivel") return classificacao;
+  return null;
+}
+
 // Retorna todas as opções possíveis de CFOP de entrada para exibir no dropdown
 function getOpcoesEntrada(cfopFornecedor: string, natureza: AnaliseSugestao["tipo"], ehIndustrial: boolean): { cfop: string; tipo: string; descricao: string }[] {
   const base = cfopFornecedor.replace(/\D/g, "");
@@ -1794,14 +1801,16 @@ function vinculoUC(linhas: LinhaEntrada[]): LinhaEntrada[] {
   });
 }
 
-function reproc(linhas: LinhaEntrada[], perfil: PerfilEmpresa, ehInd=false): LinhaEntrada[] {
+function reproc(linhas: LinhaEntrada[], perfil: PerfilEmpresa, ehInd=false, vinculos: CfopVinculo[]=[]): LinhaEntrada[] {
   const p=linhas.map(l=>{
     const sug=l.fonte==="c190"?l.sugestao:analisarProduto(l.descricao,perfil,l.ncm);
     const u={...l,sugestao:sug};
     // Preserva classificação manual do usuário; recalcula se for sugestão automática
     const cl=l.classificacaoManual?l.classificacao:sugerirClass(u,ehInd), res=validarItem(u,ehInd);
     // Recalcula o CFOP de entrada quando o perfil muda; preserva seleção do modal se a regra geral não tiver mapeamento
-    const newCfop=l.tipo_nfe==="terceiro"?sugerirCfopEntrada(l.cfop,sug.tipo,ehInd):l.cfop_entrada_sugerido;
+    const newCfop=l.tipo_nfe==="terceiro"
+      ? resolverCfopEntradaEfetivo(l,vinculos,sugerirCfopEntrada(l.cfop,sug.tipo,ehInd))
+      : l.cfop_entrada_sugerido;
     const cfopSug=newCfop||l.cfop_entrada_sugerido;
     return {...u,...res,classificacao:cl,classificacaoManual:l.classificacaoManual,cfop_entrada_sugerido:cfopSug};
   });
@@ -1811,8 +1820,8 @@ function reproc(linhas: LinhaEntrada[], perfil: PerfilEmpresa, ehInd=false): Lin
 function agruparEntradas(linhas: LinhaEntrada[]): NotaEntrada[] {
   const m=new Map<string,NotaEntrada>();
   for(const l of linhas){
-    const c=`${l.numero_nota}__${l.fornecedor}`;
-    if(!m.has(c)) m.set(c,{chave:l.chave_nfe||"",numero_nota:l.numero_nota,fornecedor:l.fornecedor,data:l.data,total_itens:0,total_contabil:0,total_base_icms:0,total_valor_icms:0,status:"OK",itens:[],sugestoes:[],avisos:[],classificacaoPredominante:null});
+    const c=identificadorNotaEntrada(l);
+    if(!m.has(c)) m.set(c,{id:c,chave:l.chave_nfe||"",numero_nota:l.numero_nota,fornecedor:l.fornecedor,data:l.data,total_itens:0,total_contabil:0,total_base_icms:0,total_valor_icms:0,status:"OK",itens:[],sugestoes:[],avisos:[],classificacaoPredominante:null});
     const g=m.get(c)!;
     g.total_itens++;g.total_contabil+=l.valor_contabil;g.total_base_icms+=l.base_icms;g.total_valor_icms+=l.valor_icms;g.itens.push(l);
     if(l.status==="ALERTA") g.status="ALERTA";
@@ -1899,7 +1908,7 @@ function criarRelatorioImportacaoNfse(report: ImportacaoNfseReport) {
   };
 }
 
-function exportExcel(notas: NotaEntrada[], saidas: LinhaSaida[], emp: DadosEmpresa|null) {
+function exportExcel(notas: NotaEntrada[], saidas: LinhaSaida[], emp: DadosEmpresa|null, resolverCfopEntrada:(item:LinhaEntrada)=>string) {
   const wb=XLSX.utils.book_new();
   const CC="FF0D3340",CB="FFFFFFFF",CA="FFFFF3CD",CO="FFD4EDDA";
   const CCl: Record<string,string>={revenda:"FFD4EDDA",uso_consumo:"FFFDE8D8",imobilizado:"FFE8E0FA",combustivel:"FFFCE4EF",desconhece:"FFFAD7D7",nao_recebido:"FFFFF9D4",servico:"FFD8EBFD"};
@@ -1908,14 +1917,15 @@ function exportExcel(notas: NotaEntrada[], saidas: LinhaSaida[], emp: DadosEmpre
   const wr=(ws:XLSX.WorkSheet,rows:XLSX.CellObject[][])=>rows.forEach((row,r)=>row.forEach((cl,col)=>{ws[XLSX.utils.encode_cell({r,c:col})]=cl;}));
 
   // Notas Entradas — uma linha por nota+CFOP para mostrar breakdown por CFOP
-  const hE=["Nº Nota","Chave de Acesso","Data","Fornecedor","Itens","CFOP","Descrição CFOP","Valor (CFOP)","Base ICMS (CFOP)","ICMS (CFOP)","Valor Contábil Nota","Classificação","Alertas","Status"];
+  const hE=["Nº Nota","Chave de Acesso","Data","Fornecedor","Itens","CFOP Entrada","Descrição CFOP Entrada","CFOPs na NF-e","Valor (CFOP)","Base ICMS (CFOP)","ICMS (CFOP)","Valor Contábil Nota","Classificação","Alertas","Status"];
   const rE:XLSX.CellObject[][]=[hE.map(h)];
   for(const n of notas){
     // Agrupa itens por CFOP dentro da nota
-    const cfopMap=new Map<string,{valor:number;base:number;icms:number}>();
+    const cfopMap=new Map<string,{valor:number;base:number;icms:number;origens:Set<string>}>();
     for(const i of n.itens){
-      if(!cfopMap.has(i.cfop)) cfopMap.set(i.cfop,{valor:0,base:0,icms:0});
-      const g=cfopMap.get(i.cfop)!; g.valor+=i.valor_contabil; g.base+=i.base_icms; g.icms+=i.valor_icms;
+      const cfopEntrada=resolverCfopEntrada(i)||"SEM_VINCULO";
+      if(!cfopMap.has(cfopEntrada)) cfopMap.set(cfopEntrada,{valor:0,base:0,icms:0,origens:new Set()});
+      const g=cfopMap.get(cfopEntrada)!;if(itemEhEntradaDeTerceiro(i))g.origens.add(i.cfop);g.valor+=i.valor_contabil;g.base+=i.base_icms;g.icms+=i.valor_icms;
     }
     const cfopList=Array.from(cfopMap.entries());
     const cl=n.classificacaoPredominante;
@@ -1927,7 +1937,8 @@ function exportExcel(notas: NotaEntrada[], saidas: LinhaSaida[], emp: DadosEmpre
         c(idx===0?n.fornecedor:""),
         c(idx===0?n.total_itens:"",false,undefined,"0"),
         c(cfop,true,undefined),
-        c(DESC_CFOP[cfop]||`CFOP ${cfop}`),
+        c(cfop==="SEM_VINCULO"?"CFOP de entrada pendente de vinculação":DESC_CFOP[cfop]||`CFOP ${cfop}`),
+        c(Array.from(vals.origens).sort().join(", ")),
         c(vals.valor,false,undefined,"#,##0.00"),
         c(vals.base,false,undefined,"#,##0.00"),
         c(vals.icms,false,undefined,"#,##0.00"),
@@ -1938,12 +1949,12 @@ function exportExcel(notas: NotaEntrada[], saidas: LinhaSaida[], emp: DadosEmpre
       ]);
     });
   }
-  const wsE=XLSX.utils.aoa_to_sheet(rE.map(r=>r.map(x=>x.v)));wr(wsE,rE);wsE["!cols"]=[{wch:14},{wch:46},{wch:12},{wch:36},{wch:8},{wch:8},{wch:38},{wch:16},{wch:16},{wch:16},{wch:16},{wch:20},{wch:55},{wch:10}];
+  const wsE=XLSX.utils.aoa_to_sheet(rE.map(r=>r.map(x=>x.v)));wr(wsE,rE);wsE["!cols"]=[{wch:14},{wch:46},{wch:12},{wch:36},{wch:8},{wch:12},{wch:38},{wch:16},{wch:16},{wch:16},{wch:16},{wch:16},{wch:20},{wch:55},{wch:10}];
   XLSX.utils.book_append_sheet(wb,wsE,"Notas Entradas");
 
   const hI=["Nº Nota","Chave de Acesso","Data","Fornecedor","Cód.","Descrição","NCM","CFOP Forn.","CFOP Entrada","CST","Valor Produto","Frete Rateado","Despesas Rateadas","IPI Item","Desconto Rateado","Valor Contábil Total","Base ICMS","Alíq. ICMS","ICMS","Classificação","Sugestão","Confiança","Alertas","Status","Fonte"];
   const rI:XLSX.CellObject[][]=[hI.map(h)];
-  for(const n of notas)for(const i of n.itens){const cl=i.classificacao;const st=i.sugestao.tipo?`${i.sugestao.tipo==="uso_consumo"?"UC":i.sugestao.tipo==="imobilizado"?"Imobilizado":"Combustível"} – ${i.sugestao.motivo}`:"";const fl=i.fonte==="xml"?"XML NF-e":i.fonte==="c190"?"C190 (resumo)":"SPED C170";rI.push([c(n.numero_nota,true),c(n.chave),c(i.data),c(n.fornecedor),c(i.codigo_produto),c(i.descricao),c(i.ncm),c(i.cfop),c(i.tipo_nfe==="terceiro"?i.cfop_entrada_sugerido||"":"—"),c(i.cst_icms),c(i.valor_produto||i.valor_contabil,false,undefined,"#,##0.00"),c(i.valor_frete||0,false,undefined,"#,##0.00"),c(i.valor_despesas||0,false,undefined,"#,##0.00"),c(i.valor_ipi_item||0,false,undefined,"#,##0.00"),c(i.valor_desconto||0,false,undefined,"#,##0.00"),c(i.valor_contabil,false,undefined,"#,##0.00"),c(i.base_icms,false,undefined,"#,##0.00"),c(i.aliquota_icms,false,undefined,'0.00"%"'),c(i.valor_icms,false,undefined,"#,##0.00"),c(cl?CLASSIFICACAO_LABEL[cl]:"A classificar",false,cl?CCl[cl]:undefined),c(st),c(i.sugestao.confianca||""),c(i.avisos.filter(a=>a!=="Sem inconsistências.").join(" | ")),c(i.status,true,i.status==="ALERTA"?CA:CO),c(fl)]);}
+  for(const n of notas)for(const i of n.itens){const cl=i.classificacao;const st=i.sugestao.tipo?`${i.sugestao.tipo==="uso_consumo"?"UC":i.sugestao.tipo==="imobilizado"?"Imobilizado":"Combustível"} – ${i.sugestao.motivo}`:"";const fl=i.fonte==="xml"?"XML NF-e":i.fonte==="c190"?"C190 (resumo)":"SPED C170";rI.push([c(n.numero_nota,true),c(n.chave),c(i.data),c(n.fornecedor),c(i.codigo_produto),c(i.descricao),c(i.ncm),c(i.cfop),c(itemEhEntradaDeTerceiro(i)?resolverCfopEntrada(i)||"Pendente":"—"),c(i.cst_icms),c(i.valor_produto||i.valor_contabil,false,undefined,"#,##0.00"),c(i.valor_frete||0,false,undefined,"#,##0.00"),c(i.valor_despesas||0,false,undefined,"#,##0.00"),c(i.valor_ipi_item||0,false,undefined,"#,##0.00"),c(i.valor_desconto||0,false,undefined,"#,##0.00"),c(i.valor_contabil,false,undefined,"#,##0.00"),c(i.base_icms,false,undefined,"#,##0.00"),c(i.aliquota_icms,false,undefined,'0.00"%"'),c(i.valor_icms,false,undefined,"#,##0.00"),c(cl?CLASSIFICACAO_LABEL[cl]:"A classificar",false,cl?CCl[cl]:undefined),c(st),c(i.sugestao.confianca||""),c(i.avisos.filter(a=>a!=="Sem inconsistências.").join(" | ")),c(i.status,true,i.status==="ALERTA"?CA:CO),c(fl)]);}
   const wsI=XLSX.utils.aoa_to_sheet(rI.map(r=>r.map(x=>x.v)));wr(wsI,rI);wsI["!cols"]=[{wch:12},{wch:46},{wch:12},{wch:36},{wch:12},{wch:44},{wch:12},{wch:8},{wch:8},{wch:8},{wch:14},{wch:14},{wch:12},{wch:14},{wch:22},{wch:45},{wch:10},{wch:55},{wch:10},{wch:14}];
   XLSX.utils.book_append_sheet(wb,wsI,"Itens Entradas");
 
@@ -1988,13 +1999,12 @@ function exportExcel(notas: NotaEntrada[], saidas: LinhaSaida[], emp: DadosEmpre
   }
 
   // Aba Resumo por CFOP
-  const hCE=["CFOP","Descrição","Qtd. Notas","Qtd. Itens","Valor Contábil","Base ICMS","ICMS"];
+  const hCE=["CFOP Entrada","Descrição","CFOPs na NF-e","Qtd. Notas","Qtd. Itens","Valor Contábil","Base ICMS","ICMS"];
   const rCE:XLSX.CellObject[][]=[hCE.map(h)];
-  const cfopEfXls=(i:LinhaEntrada)=>i.tipo_nfe==="terceiro"?(i.cfop_entrada_sugerido||i.cfop):i.cfop;
-  const rcfopE=new Map<string,{qtd_notas:Set<string>;qtd_itens:number;valor:number;base:number;icms:number}>();
-  for(const n of notas)for(const i of n.itens){const ck=cfopEfXls(i);if(!rcfopE.has(ck))rcfopE.set(ck,{qtd_notas:new Set(),qtd_itens:0,valor:0,base:0,icms:0});const g=rcfopE.get(ck)!;g.qtd_notas.add(n.numero_nota);g.qtd_itens++;g.valor+=i.valor_contabil;g.base+=i.base_icms;g.icms+=i.valor_icms;}
-  Array.from(rcfopE.entries()).sort((a,b)=>a[0].localeCompare(b[0])).forEach(([cfop,g])=>{rCE.push([c(cfop,true),c(DESC_CFOP[cfop]||`CFOP ${cfop}`),c(g.qtd_notas.size,false,undefined,"0"),c(g.qtd_itens,false,undefined,"0"),c(g.valor,false,undefined,"#,##0.00"),c(g.base,false,undefined,"#,##0.00"),c(g.icms,false,undefined,"#,##0.00")]);});
-  const wsCE=XLSX.utils.aoa_to_sheet(rCE.map(r=>r.map(x=>x.v)));wr(wsCE,rCE);wsCE["!cols"]=[{wch:8},{wch:50},{wch:12},{wch:12},{wch:18},{wch:18},{wch:18}];
+  const rcfopE=new Map<string,{origens:Set<string>;qtd_notas:Set<string>;qtd_itens:number;valor:number;base:number;icms:number}>();
+  for(const n of notas)for(const i of n.itens){const ck=resolverCfopEntrada(i)||"SEM_VINCULO";if(!rcfopE.has(ck))rcfopE.set(ck,{origens:new Set(),qtd_notas:new Set(),qtd_itens:0,valor:0,base:0,icms:0});const g=rcfopE.get(ck)!;if(itemEhEntradaDeTerceiro(i))g.origens.add(i.cfop);g.qtd_notas.add(n.id);g.qtd_itens++;g.valor+=i.valor_contabil;g.base+=i.base_icms;g.icms+=i.valor_icms;}
+  Array.from(rcfopE.entries()).sort((a,b)=>a[0].localeCompare(b[0])).forEach(([cfop,g])=>{rCE.push([c(cfop,true),c(cfop==="SEM_VINCULO"?"CFOP de entrada pendente de vinculação":DESC_CFOP[cfop]||`CFOP ${cfop}`),c(Array.from(g.origens).sort().join(", ")),c(g.qtd_notas.size,false,undefined,"0"),c(g.qtd_itens,false,undefined,"0"),c(g.valor,false,undefined,"#,##0.00"),c(g.base,false,undefined,"#,##0.00"),c(g.icms,false,undefined,"#,##0.00")]);});
+  const wsCE=XLSX.utils.aoa_to_sheet(rCE.map(r=>r.map(x=>x.v)));wr(wsCE,rCE);wsCE["!cols"]=[{wch:12},{wch:50},{wch:18},{wch:12},{wch:12},{wch:18},{wch:18},{wch:18}];
   XLSX.utils.book_append_sheet(wb,wsCE,"Resumo CFOP Entradas");
   const hCS=["CFOP","Descrição","Qtd. Notas","Qtd. Itens","Valor Contábil","Base ICMS","ICMS"];
   const rCS:XLSX.CellObject[][]=[hCS.map(h)];
@@ -2164,7 +2174,7 @@ export default function ValidadorPage() {
       let documentos = 0;
       for(const arquivo of extraidos.arquivos){
         if(tipoImportacao === "nfse"){
-          const nfses = parseNfseAbrasf(arquivo.txt, "", arquivo.nome);
+          const nfses = parseNfseXml(arquivo.txt, "", arquivo.nome);
           documentos += nfses.length;
           for(const nfse of nfses){
             if(nfse.metadados.competencia) periodos.add(nfse.metadados.competencia);
@@ -2283,7 +2293,7 @@ export default function ValidadorPage() {
     return municipioCodigo?.startsWith("52") ? "5933" : "6933";
   }
 
-  function nfseParseResultParaLinha(nfse: ReturnType<typeof parseNfseAbrasf>[number]): LinhaNfse {
+  function nfseParseResultParaLinha(nfse: ReturnType<typeof parseNfseXml>[number]): LinhaNfse {
     const meta = nfse.metadados;
     const chave = nfse.documento.chave_acesso ?? `NFSE:${meta.prestador_cnpj}:${meta.numero}:${meta.codigo_verificacao}`;
     return {
@@ -2429,11 +2439,12 @@ export default function ValidadorPage() {
             valor_despesas: (item.valor_seguro ?? 0) + (item.valor_outras_despesas ?? 0),
             valor_ipi_item: item.valor_ipi ?? 0,
             status: "OK", avisos: [],
-            sugestao: { tipo: null, motivo: "", confianca: null },
+            sugestao: { tipo: naturezaCfopDaClassificacao(combinarClassificacaoManual(item.classificacao, item.situacao_classificacao)), motivo: "", confianca: null },
             classificacao: combinarClassificacaoManual(item.classificacao, item.situacao_classificacao),
             classificacaoManual: item.classificacao_manual ?? false,
             fonte: "xml",
             tipo_nfe: "terceiro",
+            cfop_entrada_sugerido: sugerirCfopEntrada(cfopStr,naturezaCfopDaClassificacao(combinarClassificacaoManual(item.classificacao,item.situacao_classificacao)),ehIndustrial),
           });
         }
       }
@@ -2560,11 +2571,12 @@ export default function ValidadorPage() {
                     valor_despesas: (item.valor_seguro ?? 0) + (item.valor_outras_despesas ?? 0),
                     valor_ipi_item: item.valor_ipi ?? 0,
                     status: 'OK', avisos: [],
-                    sugestao: { tipo: null, motivo: '', confianca: null },
+                    sugestao: { tipo: naturezaCfopDaClassificacao(combinarClassificacaoManual(item.classificacao,item.situacao_classificacao)), motivo: '', confianca: null },
                     classificacao: combinarClassificacaoManual(item.classificacao, item.situacao_classificacao),
                     classificacaoManual: item.classificacao_manual ?? false,
                     fonte: 'xml',
                     tipo_nfe: 'terceiro',
+                    cfop_entrada_sugerido: sugerirCfopEntrada(cfopStr,naturezaCfopDaClassificacao(combinarClassificacaoManual(item.classificacao,item.situacao_classificacao)),ehIndustrial),
                   });
                 }
               }
@@ -2784,7 +2796,7 @@ export default function ValidadorPage() {
               ...item,
               chave_nfe: chaveNFe,
               tipo_nfe:"terceiro" as TipoNFe,
-              cfop_entrada_sugerido: sugerirCfopEntrada(item.cfop, item.sugestao.tipo, ehIndustrial),
+              cfop_entrada_sugerido: cfopEntradaEfetivo({...item,tipo_nfe:"terceiro"}),
               ...(temDev ? {
                 status: "ALERTA" as StatusValidacao,
                 avisos: [...item.avisos.filter(a => a !== "Sem inconsistências."), AVISO_DEV],
@@ -2980,6 +2992,7 @@ export default function ValidadorPage() {
       }
       return item;
     });
+    salvarVinculosCfop(cfopMapeamento.map(item=>({cfopSaida:item.cfopForn,cfopEntrada:item.cfopSel})));
     setModalCfopAberto(false);
     finalizarImportacao(neAtualizado, pendingNs.current, pendingMeta.current, pendingDevRefs.current, pendingImportReport.current ?? undefined);
     pendingImportReport.current = null;
@@ -3017,7 +3030,7 @@ export default function ValidadorPage() {
     let detectadas = 0;
     let canceladas = 0;
     for(const file of extraidos.arquivos){
-      const todasNfse = parseNfseAbrasf(file.txt, "", file.nome);
+      const todasNfse = parseNfseXml(file.txt, "", file.nome);
       const parsed = todasNfse.filter(nfse => nfse.metadados.prestador_cnpj === cnpj);
       if(todasNfse.length===0){
         rejeitados.push(`${file.nome}: XML de NFS-e nao reconhecido ou sem dados do prestador.`);
@@ -3474,13 +3487,16 @@ export default function ValidadorPage() {
     setLinhas(p=>p.map(l=>l.id===id?{...l,classificacao:cl,classificacaoManual:true}:l));
     void persistirClassificacaoItem(id,cl).catch(err=>setErroSalvar(`Classificação alterada na tela, mas não foi salva: ${err instanceof Error?err.message:String(err)}`));
   }
-  function setClassNota(chave:string,cl:ClassificacaoManual){
-    const[n,...rf]=chave.split("__");const forn=rf.join("__");
-    const ids=linhas.filter(l=>l.numero_nota===n&&l.fornecedor===forn).map(l=>l.id);
-    setLinhas(p=>p.map(l=>l.numero_nota===n&&l.fornecedor===forn?{...l,classificacao:cl,classificacaoManual:true}:l));
+  function setClassNota(idNota:string,cl:ClassificacaoManual){
+    const ids=linhas.filter(l=>identificadorNotaEntrada(l)===idNota).map(l=>l.id);
+    setLinhas(p=>p.map(l=>identificadorNotaEntrada(l)===idNota?{...l,classificacao:cl,classificacaoManual:true}:l));
     void Promise.all(ids.map(id=>persistirClassificacaoItem(id,cl))).catch(err=>setErroSalvar(`Classificação da nota alterada na tela, mas não foi salva: ${err instanceof Error?err.message:String(err)}`));
   }
-  function setCfopEntrada(id:string,cfop:string){setLinhas(p=>p.map(l=>l.id===id?{...l,cfop_entrada_sugerido:cfop}:l));}
+  function setCfopEntrada(id:string,cfop:string){
+    const item=linhas.find(l=>l.id===id);
+    setLinhas(p=>p.map(l=>l.id===id?{...l,cfop_entrada_sugerido:cfop}:l));
+    if(item) salvarVinculosCfop([{cfopSaida:item.cfop,cfopEntrada:cfop}]);
+  }
   function limpar(){setLinhas([]);setSaidas([]);setNfses([]);setErro("");setInfoCanc("");setPerfil("geral");setExpandidas(new Set());setExpandidasS(new Set());setExpandidasNfse(new Set());setFiltros({somenteAlertas:false,cfop:"",ncm:"",busca:"",classificacao:""});if(refXmlTerceiros.current)refXmlTerceiros.current.value="";if(refXmlProprio.current)refXmlProprio.current.value="";if(refXmlUnificado.current)refXmlUnificado.current.value="";setSalvouComSucesso(false);}
   async function limparCompetenciaDb(){
     if(!sessaoAtual||!empresa) return;
@@ -3685,7 +3701,10 @@ export default function ValidadorPage() {
       setErro("Não foi possível limpar o período selecionado.");
     }finally{setLimpandoDb(false);}
   }
-  function changePerfil(p:PerfilEmpresa){setPerfil(p);setLinhas(prev=>reproc(prev,p,ehIndustrial));}
+  const cfopEntradaEfetivo=useCallback((item:LinhaEntrada):string=>{
+    return resolverCfopEntradaEfetivo(item,cfopVinculos,sugerirCfopEntrada(item.cfop,item.sugestao.tipo,ehIndustrial));
+  },[cfopVinculos,ehIndustrial]);
+  function changePerfil(p:PerfilEmpresa){setPerfil(p);setLinhas(prev=>reproc(prev,p,ehIndustrial,cfopVinculos));}
   function toggleE(c:string){setExpandidas(p=>{const n=new Set(p);n.has(c)?n.delete(c):n.add(c);return n;});}
   function toggleS(c:string){setExpandidasS(p=>{const n=new Set(p);n.has(c)?n.delete(c):n.add(c);return n;});}
   function toggleI(id:string){setExpandidasI(p=>{const n=new Set(p);n.has(id)?n.delete(id):n.add(id);return n;});}
@@ -3694,18 +3713,19 @@ export default function ValidadorPage() {
   // Filtro especial: "nao_classificado" = classificacao === null
   const lf=useMemo(()=>linhas.filter(l=>{
     if(filtros.somenteAlertas&&l.status!=="ALERTA")return false;
-    if(filtros.cfop&&!l.cfop.includes(filtros.cfop.replace(/\D/g,"")))return false;
+    const cfopEntrada=cfopEntradaEfetivo(l);
+    if(filtros.cfop&&!`${cfopEntrada} ${l.cfop}`.includes(filtros.cfop.replace(/\D/g,"")))return false;
     if(filtros.ncm&&!l.ncm.toLowerCase().includes(filtros.ncm.toLowerCase()))return false;
     // "nao_classificado" é o valor especial para itens sem classificação
     if(filtros.classificacao==="nao_classificado"&&l.classificacao!==null)return false;
     else if(filtros.classificacao&&filtros.classificacao!=="nao_classificado"&&l.classificacao!==filtros.classificacao)return false;
-    if(filtros.busca){const t=`${l.numero_nota} ${l.fornecedor} ${l.descricao} ${l.ncm} ${l.cfop} ${l.codigo_produto}`.toLowerCase();if(!t.includes(filtros.busca.toLowerCase()))return false;}
+    if(filtros.busca){const t=`${l.numero_nota} ${l.fornecedor} ${l.descricao} ${l.ncm} ${cfopEntrada} ${l.cfop} ${l.codigo_produto}`.toLowerCase();if(!t.includes(filtros.busca.toLowerCase()))return false;}
     return true;
-  }),[linhas,filtros]);
+  }),[linhas,filtros,cfopEntradaEfetivo]);
 
   const res=useMemo(()=>({
-    totalNotas:new Set(linhas.map(l=>`${l.numero_nota}__${l.fornecedor}`)).size,
-    notasAlerta:new Set(linhas.filter(l=>l.status==="ALERTA").map(l=>`${l.numero_nota}__${l.fornecedor}`)).size,
+    totalNotas:new Set(linhas.map(identificadorNotaEntrada)).size,
+    notasAlerta:new Set(linhas.filter(l=>l.status==="ALERTA").map(identificadorNotaEntrada)).size,
     totalValor:linhas.reduce((a,l)=>a+l.valor_contabil,0),
     totalIcms:linhas.reduce((a,l)=>a+l.valor_icms,0),
     totalItens:linhas.length,
@@ -3718,20 +3738,20 @@ export default function ValidadorPage() {
   // Para itens de terceiros usa cfop_entrada_sugerido (CFOP real de lançamento);
   // para SPED e próprios usa o cfop original do item.
   const resumoCfopEntradas=useMemo(()=>{
-    const cfopEfetivo=(l:LinhaEntrada)=>l.tipo_nfe==="terceiro"?(l.cfop_entrada_sugerido||l.cfop):l.cfop;
-    const m=new Map<string,{cfop:string;descricao:string;qtd_notas:number;qtd_itens:number;valor_contabil:number;base_icms:number;valor_icms:number}>();
+    const m=new Map<string,{cfop:string;descricao:string;cfops_origem:Set<string>;qtd_notas:number;qtd_itens:number;valor_contabil:number;base_icms:number;valor_icms:number}>();
     for(const l of linhas){
-      const k=cfopEfetivo(l);
-      if(!m.has(k)) m.set(k,{cfop:k,descricao:descCFOP(k),qtd_notas:0,qtd_itens:0,valor_contabil:0,base_icms:0,valor_icms:0});
+      const k=cfopEntradaEfetivo(l)||"SEM_VINCULO";
+      if(!m.has(k)) m.set(k,{cfop:k,descricao:k==="SEM_VINCULO"?"CFOP de entrada pendente de vinculação":descCFOP(k),cfops_origem:new Set(),qtd_notas:0,qtd_itens:0,valor_contabil:0,base_icms:0,valor_icms:0});
       const g=m.get(k)!;
+      if(itemEhEntradaDeTerceiro(l)&&l.cfop) g.cfops_origem.add(l.cfop);
       g.qtd_itens++; g.valor_contabil+=l.valor_contabil; g.base_icms+=l.base_icms; g.valor_icms+=l.valor_icms;
     }
     // contar notas únicas por CFOP efetivo
     const notasPorCfop=new Map<string,Set<string>>();
-    for(const l of linhas){const k=cfopEfetivo(l);if(!notasPorCfop.has(k))notasPorCfop.set(k,new Set());notasPorCfop.get(k)!.add(l.numero_nota);}
+    for(const l of linhas){const k=cfopEntradaEfetivo(l)||"SEM_VINCULO";if(!notasPorCfop.has(k))notasPorCfop.set(k,new Set());notasPorCfop.get(k)!.add(identificadorNotaEntrada(l));}
     for(const [cfop,g] of m.entries()) g.qtd_notas=notasPorCfop.get(cfop)?.size||0;
     return Array.from(m.values()).sort((a,b)=>a.cfop.localeCompare(b.cfop));
-  },[linhas]);
+  },[linhas,cfopEntradaEfetivo]);
 
   // Resumo por CFOP — saídas
   const resumoCfopSaidas=useMemo(()=>{
@@ -3744,7 +3764,7 @@ export default function ValidadorPage() {
     for(const n of nfses){
       if(!m.has(n.cfop)) m.set(n.cfop,{cfop:n.cfop,descricao:descCFOP(n.cfop),qtd_notas:0,qtd_itens:0,valor_contabil:0,base_icms:0,valor_icms:0});
       const g=m.get(n.cfop)!;
-      g.qtd_itens++; g.valor_contabil+=n.valorLiquido || n.valorServicos; g.base_icms+=0; g.valor_icms+=0;
+      g.qtd_itens++; g.valor_contabil+=valorFiscalNfse(n); g.base_icms+=0; g.valor_icms+=0;
     }
     const notasPorCfop=new Map<string,Set<string>>();
     for(const s of saidas){if(!notasPorCfop.has(s.cfop))notasPorCfop.set(s.cfop,new Set());notasPorCfop.get(s.cfop)!.add(s.numero_nota);}
@@ -3769,7 +3789,7 @@ export default function ValidadorPage() {
     return t.includes(buscaNfse.toLowerCase());
   }),[nfses,buscaNfse]);
   const nfsesPagina=getPageItems(nfsesFiltradas,paginaNfse,linhasPorPagina);
-  const totalNfseValor=useMemo(()=>nfses.reduce((a,n)=>n.status==="cancelada"?a:a+(n.valorLiquido || n.valorServicos),0),[nfses]);
+  const totalNfseValor=useMemo(()=>nfses.reduce((total,nfse)=>total+valorFiscalNfse(nfse),0),[nfses]);
 
   // ── TOKENS DE TEMA ────────────────────────────────────────────────────────
   const T = D ? {
@@ -3852,18 +3872,18 @@ export default function ValidadorPage() {
   }
 
   function SelCfopEntrada({item}:{item:LinhaEntrada}) {
-    if(item.tipo_nfe!=="terceiro") return <span style={{color:T.accentDim}}>—</span>;
+    if(!itemEhEntradaDeTerceiro(item)) return <span style={{color:T.accentDim}}>—</span>;
     const opcoes = getOpcoesEntrada(item.cfop, item.sugestao.tipo, ehIndustrial);
-    const valor = item.cfop_entrada_sugerido || opcoes[0]?.cfop || "";
+    const valor = cfopEntradaEfetivo(item);
+    const valorForaDasOpcoes = valor && !opcoes.some(opcao=>opcao.cfop===valor);
     const optBg = D?"#0b1726":"#ffffff";
     const optClr = D?"#e5eef8":"#0f172a";
     return (
       <div style={{display:"flex",flexDirection:"column" as const,gap:2,minWidth:110}}>
-        <span style={{fontSize:9,color:T.accentDim,letterSpacing:"0.04em",textTransform:"uppercase" as const}}>
-          {item.cfop} <span style={{color:"rgba(39,199,216,0.5)"}}>→</span>
-        </span>
+        <span style={{fontSize:9,color:T.accentDim,letterSpacing:"0.04em",textTransform:"uppercase" as const}}>CFOP de entrada</span>
         <select value={valor} onChange={e=>setCfopEntrada(item.id,e.target.value)}
           style={{background:T.inpBg,border:`1px solid rgba(39,199,216,0.35)`,borderRadius:7,color:D?"#67e8f9":"#0e7490",padding:"3px 6px",fontSize:11,fontWeight:700,cursor:"pointer",outline:"none",colorScheme:D?"dark":"light"}}>
+          {valorForaDasOpcoes&&<option value={valor} style={{background:optBg,color:optClr}}>{valor} — Vínculo da empresa</option>}
           {opcoes.map(o=>(
             <option key={o.cfop} value={o.cfop} style={{background:optBg,color:optClr}}>
               {o.cfop} — {o.tipo}
@@ -3872,6 +3892,7 @@ export default function ValidadorPage() {
           {!opcoes.length&&<option value={valor}>{valor||"—"}</option>}
         </select>
         {valor&&<span style={{fontSize:9,color:T.accentDim,lineHeight:1.3,maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" as const}}>{descCFOP(valor)}</span>}
+        <span style={{fontSize:9,color:D?"#fb923c":"#c2410c",lineHeight:1.3}}>Na NF-e: {item.cfop} — {descCFOP(item.cfop)}</span>
       </div>
     );
   }
@@ -4004,7 +4025,7 @@ export default function ValidadorPage() {
               <Upload size={18} style={{color:"var(--af-primary)"}}/>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:16,fontWeight:800,color:T.pageClr}}>Importar NF-e / NFS-e</div>
-                <div style={{fontSize:12,color:T.accentDim,marginTop:2}}>Escolha entrada ou saida para NF-e, ou importe NFS-e ABRASF de servicos prestados.</div>
+                <div style={{fontSize:12,color:T.accentDim,marginTop:2}}>Escolha entrada ou saida para NF-e, ou importe NFS-e Nacional, ABRASF e de provedores municipais.</div>
               </div>
               <button type="button" onClick={()=>{setModalImportAberto(false);setArquivosImportacao([]);setArrastandoImport(false);}} style={{background:"transparent",border:"none",color:T.accentDim,cursor:"pointer",padding:4}}><X size={18}/></button>
             </div>
@@ -4014,7 +4035,7 @@ export default function ValidadorPage() {
                 {([
                   ["terceiro","Entrada / Terceiros", "XMLs recebidos de fornecedores"],
                   ["proprio","Saida / Proprios", "XMLs emitidos pela propria empresa"],
-                  ["nfse","Servico / NFS-e", "XMLs ABRASF de servicos prestados"],
+                  ["nfse","Servico / NFS-e", "XMLs de servicos prestados (Nacional, ABRASF ou municipal)"],
                 ] as const).map(([tipo,label,desc])=>(
                   <button key={tipo} type="button" onClick={()=>setTipoImportacao(tipo)} style={{textAlign:"left" as const,borderRadius:10,border:tipoImportacao===tipo?"1px solid var(--af-primary)":"1px solid var(--af-border)",background:tipoImportacao===tipo?"var(--af-primary-soft)":T.bGbg,padding:"12px 14px",cursor:"pointer",color:T.pageClr}}>
                     <div style={{fontSize:13,fontWeight:800,marginBottom:3}}>{label}</div>
@@ -4093,7 +4114,7 @@ export default function ValidadorPage() {
       {/* ── CABEÇALHO ─────────────────────────────────────────────────────────── */}
       <PageHeader
         title="Validador NF-e / NFS-e"
-        subtitle="Importe XMLs de NF-e e NFS-e ABRASF para analise fiscal, CFOP, NCM, beneficios e apuracao do Simples."
+        subtitle="Importe XMLs de NF-e e NFS-e Nacional, ABRASF ou municipal para analise fiscal, CFOP, NCM, beneficios e apuracao do Simples."
       />
 
       <button
@@ -4138,7 +4159,7 @@ export default function ValidadorPage() {
             successTitle: "Excel do Validador pronto",
             errorTitle: "Erro ao gerar Excel",
           }, async()=>{
-            const arquivo = exportExcel(nf, saidas, null);
+            const arquivo = exportExcel(nf, saidas, null, cfopEntradaEfetivo);
             return {
               message: "Clique para baixar o relatorio de validacao fiscal.",
               action: {
@@ -4277,36 +4298,38 @@ export default function ValidadorPage() {
         {abaE==="notas"&&<div style={{...S.card,overflow:"hidden"}}>
           <div style={{overflowX:"auto" as const}}>
             <table style={{width:"100%",borderCollapse:"collapse" as const,fontSize:12}}>
-              <thead><tr><th style={{...S.th,width:32}}></th>{["Nota","Data","Fornecedor","Itens","Valor","Base ICMS","ICMS","Classificação","Sugestões","Alertas","Status"].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+              <thead><tr><th style={{...S.th,width:32}}></th>{["Nota","Data","Fornecedor","CFOP Entrada","CFOP na NF-e","Itens","Valor","Base ICMS","ICMS","Classificação","Sugestões","Alertas","Status"].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
               <tbody>
-                {!nf.length?<tr><td colSpan={12} style={{padding:"60px 20px",textAlign:"center",color:D?"var(--af-muted)":"rgba(10,102,116,0.4)",fontSize:14}}>{linhas.length===0?"Importe um SPED ou XMLs para iniciar.":"Nenhuma nota corresponde aos filtros."}</td></tr>
-                :nfPagina.map(nota=>{const exp=expandidas.has(nota.chave);return(
-                  <React.Fragment key={nota.chave}>
+                {!nf.length?<tr><td colSpan={14} style={{padding:"60px 20px",textAlign:"center",color:D?"var(--af-muted)":"rgba(10,102,116,0.4)",fontSize:14}}>{linhas.length===0?"Importe um SPED ou XMLs para iniciar.":"Nenhuma nota corresponde aos filtros."}</td></tr>
+                :nfPagina.map(nota=>{const exp=expandidas.has(nota.id);const cfopsEntrada=Array.from(new Set(nota.itens.map(cfopEntradaEfetivo).filter(Boolean)));const cfopsNfe=Array.from(new Set(nota.itens.filter(itemEhEntradaDeTerceiro).map(i=>i.cfop).filter(Boolean)));return(
+                  <React.Fragment key={nota.id}>
                     <tr style={{background:nota.itens.some(i=>i.cancelada)?D?"rgba(167,139,250,0.04)":"rgba(167,139,250,0.08)":nota.status==="OK"?D?"rgba(34,197,94,0.025)":"rgba(34,197,94,0.06)":D?"rgba(251,191,36,0.04)":"rgba(251,191,36,0.09)"}}>
-                      <td style={{...S.td,textAlign:"center" as const,cursor:"pointer"}} onClick={()=>toggleE(nota.chave)}>{exp?<ChevronDown size={14} color="var(--af-primary)"/>:<ChevronRight size={14} color="var(--af-muted)"/>}</td>
+                      <td style={{...S.td,textAlign:"center" as const,cursor:"pointer"}} onClick={()=>toggleE(nota.id)}>{exp?<ChevronDown size={14} color="var(--af-primary)"/>:<ChevronRight size={14} color="var(--af-muted)"/>}</td>
                       <td style={{...S.td,fontWeight:700,color:D?"var(--af-text)":T.pageClr}}>{nota.numero_nota}</td>
                       <td style={{...S.td,color:D?"rgba(238,246,251,0.7)":T.accentDim}}>{nota.data}</td>
                       <td style={{...S.td,maxWidth:260,color:T.pageClr}}>{nota.fornecedor}</td>
+                      <td style={{...S.td,fontWeight:800,color:T.accent}}>{cfopsEntrada.join(", ")||"Pendente"}</td>
+                      <td style={{...S.td,fontSize:11,color:D?"#fb923c":"#c2410c"}}>{cfopsNfe.join(", ")||"—"}</td>
                       <td style={{...S.td,textAlign:"center" as const,color:"var(--af-primary)"}}>{nota.total_itens}</td>
                       <td style={S.td}>{fmoe(nota.total_contabil)}</td>
                       <td style={S.td}>{fmoe(nota.total_base_icms)}</td>
                       <td style={S.td}>{fmoe(nota.total_valor_icms)}</td>
-                      <td style={S.td}><SelCl val={nota.classificacaoPredominante} onChange={v=>setClassNota(nota.chave,v)}/></td>
+                      <td style={S.td}><SelCl val={nota.classificacaoPredominante} onChange={v=>setClassNota(nota.id,v)}/></td>
                       <td style={S.td}><div style={{display:"flex",flexWrap:"wrap" as const,gap:4}}>{nota.sugestoes.length?nota.sugestoes.map((s,i)=><span key={i} style={{background:D?"rgba(39,199,216,0.09)":"rgba(10,102,116,0.10)",border:D?"1px solid var(--af-border)":"1px solid rgba(10,102,116,0.25)",borderRadius:20,padding:"2px 9px",fontSize:11,color:T.accent}}>{s}</span>):<span style={{color:D?"var(--af-muted)":"rgba(10,102,116,0.35)",fontSize:11}}>—</span>}</div></td>
                       <td style={S.td}><div style={{display:"flex",flexWrap:"wrap" as const,gap:4}}>{nota.avisos.filter(a=>a!=="Sem inconsistências.").slice(0,2).map((a,i)=><span key={i} style={{background:D?"rgba(251,191,36,0.07)":"rgba(180,120,0,0.09)",border:D?"1px solid rgba(251,191,36,0.16)":"1px solid rgba(180,120,0,0.25)",borderRadius:20,padding:"2px 9px",fontSize:11,color:D?"var(--af-warning)":"#7a5000"}}>{a.slice(0,55)}{a.length>55?"…":""}</span>)}{!nota.avisos.filter(a=>a!=="Sem inconsistências.").length&&<span style={{color:D?"var(--af-muted)":"rgba(10,102,116,0.35)",fontSize:11}}>—</span>}</div></td>
                       <td style={S.td}><Tg st={nota.status} cancelada={nota.itens.every(i=>i.cancelada)}/></td>
                     </tr>
-                    {exp&&<tr style={{background:"rgba(5,18,28,0.6)"}}><td colSpan={12} style={{padding:"0 12px 12px 44px"}}>
+                    {exp&&<tr style={{background:"rgba(5,18,28,0.6)"}}><td colSpan={14} style={{padding:"0 12px 12px 44px"}}>
                       <div style={{borderRadius:12,background:D?"rgba(39,199,216,0.03)":"#ffffff",border:D?"1px solid rgba(127,221,228,0.09)":"1px solid #cbd5e1",overflowX:"auto",overflowY:"hidden",maxWidth:"100%",marginTop:6}}>
                         <table style={{minWidth:1580,width:"max-content",borderCollapse:"collapse" as const}}>
-                          <thead><tr style={{background:"rgba(5,18,28,0.7)"}}>{["Cód.","Descrição","NCM","CFOP Forn.","CFOP Entrada","CST","Valor","Base ICMS","Alíq.","ICMS","Classificação","Sugestão","Status"].map(h=><th key={h} style={S.thSub}>{h}</th>)}</tr></thead>
+                          <thead><tr style={{background:"rgba(5,18,28,0.7)"}}>{["Cód.","Descrição","NCM","CFOP Entrada (principal)","CFOP na NF-e","CST","Valor","Base ICMS","Alíq.","ICMS","Classificação","Sugestão","Status"].map(h=><th key={h} style={S.thSub}>{h}</th>)}</tr></thead>
                           <tbody>{nota.itens.map(item=>(
                             <tr key={item.id}>
                               <td style={{...S.tdSub,color:D?"rgba(238,246,251,0.6)":T.accentDim}}>{item.codigo_produto||"—"}</td>
                               <td style={{...S.tdSub,maxWidth:260,color:T.pageClr,lineHeight:1.4}}>{item.descricao}</td>
                               <td style={{...S.tdSub,color:D?"rgba(238,246,251,0.7)":T.accentDim}}>{item.ncm||"—"}</td>
-                              <td style={{...S.tdSub,color:T.accent,fontWeight:600}}>{item.cfop}</td>
                               <td style={S.tdSub}><SelCfopEntrada item={item}/></td>
+                              <td style={{...S.tdSub,color:D?"#fb923c":"#c2410c",fontWeight:600}}>{item.cfop}</td>
                               <td style={{...S.tdSub,color:D?"rgba(238,246,251,0.7)":T.accentDim}}>{item.cst_icms||"—"}</td>
                               <td style={S.tdSub}><ComposicaoValor item={item}/></td>
                               <td style={S.tdSub}>{fmoe(item.base_icms)}</td>
@@ -4571,14 +4594,15 @@ export default function ValidadorPage() {
             </div>
             <div style={{overflowX:"auto" as const}}>
               <table style={{width:"100%",borderCollapse:"collapse" as const,fontSize:12}}>
-                <thead><tr>{["CFOP","Descrição","Notas","Itens","Valor Contábil","Base ICMS","ICMS"].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+                <thead><tr>{["CFOP Entrada","Descrição","CFOPs na NF-e","Notas","Itens","Valor Contábil","Base ICMS","ICMS"].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
                 <tbody>
                   {!resumoCfopEntradas.length
-                    ?<tr><td colSpan={7} style={{padding:"40px",textAlign:"center",color:T.accentDim}}>Importe um SPED para ver o resumo.</td></tr>
+                    ?<tr><td colSpan={8} style={{padding:"40px",textAlign:"center",color:T.accentDim}}>Importe um SPED ou XML para ver o resumo.</td></tr>
                     :resumoCfopEntradas.map(r=>(
                       <tr key={r.cfop} style={{borderTop:S.td.borderTop}}>
                         <td style={{...S.td,fontWeight:700,color:T.accent}}>{r.cfop}</td>
                         <td style={{...S.td,maxWidth:280,color:T.pageClr,fontSize:11,lineHeight:1.4}}>{r.descricao}</td>
+                        <td style={{...S.td,fontSize:11,color:D?"#fb923c":"#c2410c"}}>{Array.from(r.cfops_origem).sort().join(", ")||"—"}</td>
                         <td style={{...S.td,textAlign:"center" as const,color:T.pageClr}}>{r.qtd_notas}</td>
                         <td style={{...S.td,textAlign:"center" as const,color:T.pageClr}}>{r.qtd_itens}</td>
                         <td style={{...S.td,fontWeight:600,color:T.pageClr}}>{fmoe(r.valor_contabil)}</td>
@@ -4588,7 +4612,7 @@ export default function ValidadorPage() {
                     ))
                   }
                   {resumoCfopEntradas.length>0&&<tr style={{background:D?"rgba(39,199,216,0.05)":"rgba(10,102,116,0.05)"}}>
-                    <td colSpan={4} style={{...S.td,fontWeight:700,color:T.accent,fontSize:11,textTransform:"uppercase" as const,letterSpacing:"0.05em"}}>Total</td>
+                    <td colSpan={5} style={{...S.td,fontWeight:700,color:T.accent,fontSize:11,textTransform:"uppercase" as const,letterSpacing:"0.05em"}}>Total</td>
                     <td style={{...S.td,fontWeight:700,color:T.pageClr}}>{fmoe(resumoCfopEntradas.reduce((a,r)=>a+r.valor_contabil,0))}</td>
                     <td style={{...S.td,fontWeight:700,color:T.pageClr}}>{fmoe(resumoCfopEntradas.reduce((a,r)=>a+r.base_icms,0))}</td>
                     <td style={{...S.td,fontWeight:700,color:T.pageClr}}>{fmoe(resumoCfopEntradas.reduce((a,r)=>a+r.valor_icms,0))}</td>

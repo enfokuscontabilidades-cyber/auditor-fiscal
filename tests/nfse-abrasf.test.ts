@@ -5,7 +5,7 @@
  * padrão de globals usado em tests/importador-xml.test.ts.
  */
 
-import { parseNfseAbrasf, chaveNfse } from '../lib/nfse/parseNfseAbrasf'
+import { detectarXmlNfse, parseNfseAbrasf, parseNfseXml, chaveNfse } from '../lib/nfse/parseNfseAbrasf'
 
 const CNPJ_EMPRESA = '12345678000190'
 
@@ -124,6 +124,80 @@ describe('parseNfseAbrasf', () => {
     expect(result.documento.valor_servicos).toBe(900.5)
   })
 
+  test('detecta provedor municipal por campos fiscais mesmo com raiz desconhecida', () => {
+    const xml = `<DocumentoServico>
+      <NumeroNotaFiscal>44</NumeroNotaFiscal>
+      <DataEmissao>2024-02-10</DataEmissao>
+      <CNPJPrestador>${CNPJ_EMPRESA}</CNPJPrestador>
+      <ValorServicos>250.00</ValorServicos>
+      <DescricaoServico>Consultoria</DescricaoServico>
+    </DocumentoServico>`
+
+    expect(detectarXmlNfse(xml)).toBe(true)
+    expect(parseNfseXml(xml, CNPJ_EMPRESA)[0].metadados.layout_xml).toBe('municipal')
+  })
+
+  test('suporta ABRASF antigo com cadastro e identificacao do prestador em blocos separados', () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<ConsultarNfseServicoPrestadoResposta xmlns="http://www.abrasf.org.br/nfse.xsd">
+  <ListaNfse>
+    <CompNfse>
+      <Nfse>
+        <InfNfse>
+          <Numero>27</Numero>
+          <CodigoVerificacao>OLD123</CodigoVerificacao>
+          <DataEmissao>2025-01-20T08:30:00</DataEmissao>
+          <ValoresNfse>
+            <BaseCalculo>980.00</BaseCalculo>
+            <ValorLiquidoNfse>950.00</ValorLiquidoNfse>
+          </ValoresNfse>
+          <PrestadorServico>
+            <RazaoSocial>Empresa Prestadora LTDA</RazaoSocial>
+          </PrestadorServico>
+          <OrgaoGerador><CodigoMunicipio>5208707</CodigoMunicipio></OrgaoGerador>
+          <DeclaracaoPrestacaoServico>
+            <InfDeclaracaoPrestacaoServico>
+              <Competencia>2025-01-01</Competencia>
+              <Servico>
+                <Valores>
+                  <ValorServicos>1000.00</ValorServicos>
+                  <ValorDeducoes>20.00</ValorDeducoes>
+                  <ValorIss>30.00</ValorIss>
+                  <Aliquota>0.03</Aliquota>
+                  <DescontoIncondicionado>10.00</DescontoIncondicionado>
+                </Valores>
+                <IssRetido>1</IssRetido>
+                <ItemListaServico>17.12</ItemListaServico>
+                <CodigoTributacaoMunicipio>1712</CodigoTributacaoMunicipio>
+                <Discriminacao>Administracao de bens</Discriminacao>
+              </Servico>
+              <Prestador>
+                <CpfCnpj><Cnpj>${CNPJ_EMPRESA}</Cnpj></CpfCnpj>
+              </Prestador>
+              <TomadorServico>
+                <IdentificacaoTomador><CpfCnpj><Cnpj>99887766000155</Cnpj></CpfCnpj></IdentificacaoTomador>
+                <RazaoSocial>Cliente Tomador SA</RazaoSocial>
+              </TomadorServico>
+            </InfDeclaracaoPrestacaoServico>
+          </DeclaracaoPrestacaoServico>
+        </InfNfse>
+      </Nfse>
+    </CompNfse>
+  </ListaNfse>
+</ConsultarNfseServicoPrestadoResposta>`
+
+    const [result] = parseNfseXml(xml, CNPJ_EMPRESA, 'nfse-antiga.xml')
+    expect(result.metadados.layout_xml).toBe('abrasf')
+    expect(result.metadados.prestador_cnpj).toBe(CNPJ_EMPRESA)
+    expect(result.metadados.prestador_nome).toBe('Empresa Prestadora LTDA')
+    expect(result.metadados.tomador_cnpj).toBe('99887766000155')
+    expect(result.documento.data_competencia).toBe('01/2025')
+    expect(result.documento.valor_servicos).toBe(1000)
+    expect(result.metadados.valor_liquido).toBe(950)
+    expect(result.metadados.base_calculo_iss).toBe(980)
+    expect(result.metadados.iss_retido).toBe(true)
+  })
+
   test('suporta NFS-e nacional com infNFSe, emit, toma e DPS', () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <ConsultarNfseServicoPrestadoResposta xmlns="http://www.sped.fazenda.gov.br/nfse">
@@ -192,6 +266,7 @@ describe('parseNfseAbrasf', () => {
 </ConsultarNfseServicoPrestadoResposta>`
     const [result] = parseNfseAbrasf(xml, CNPJ_EMPRESA, '4830083_NotaFiscaldeServicoEletronicaNFSe_000898.xml')
     expect(result.metadados.numero).toBe('898')
+    expect(result.metadados.layout_xml).toBe('nacional')
     expect(result.metadados.prestador_cnpj).toBe(CNPJ_EMPRESA)
     expect(result.documento.data_competencia).toBe('06/2026')
     expect(result.documento.valor_servicos).toBe(128.88)

@@ -4,7 +4,7 @@ import { useRef, useState } from 'react'
 import { Upload, Loader2, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { extrairXmlsDeArquivos } from '@/lib/fiscal/xmlArchive'
 import { detectarCancelamento, parseNfeParaDocumento } from '@/lib/nfe/parseNfe'
-import { detectarXmlNfseAbrasf, parseNfseAbrasf } from '@/lib/nfse/parseNfseAbrasf'
+import { detectarXmlNfse, parseNfseXml } from '@/lib/nfse/parseNfseAbrasf'
 import type { DocumentoFiscalInput, DocumentoFiscalItemInput } from '@/lib/types'
 
 interface ImportadorXmlReformaProps {
@@ -44,8 +44,8 @@ export default function ImportadorXmlReforma({ empresaId, cnpjEmpresa, cnaePrinc
         }
         // Alguns XMLs municipais possuem tags genéricas como `ide`; identificar
         // NFS-e primeiro evita que sejam interpretados indevidamente como NF-e.
-        const resultadosNfse = detectarXmlNfseAbrasf(arquivo.txt)
-          ? parseNfseAbrasf(arquivo.txt, cnpjLimpo, arquivo.nome)
+        const resultadosNfse = detectarXmlNfse(arquivo.txt)
+          ? parseNfseXml(arquivo.txt, cnpjLimpo, arquivo.nome)
           : []
         const resultadoNfe = resultadosNfse.length === 0
           ? parseNfeParaDocumento(arquivo.txt, cnpjLimpo, ehIndustrial, arquivo.nome)
