@@ -13,6 +13,9 @@ import { extrairXmlsDeArquivos } from "@/lib/fiscal/xmlArchive"
 import type { SnDeclaracao, SnParsedData, ArquivoXml, DocumentoFiscal, DocumentoFiscalItem, DocumentoFiscalItemInput, SnReceitaMensal, SnFolhaMensal, SnConfigServicoAtividade } from "@/lib/types"
 import type { ResultadoApuracao, ResultadoDas, ConfigServicoAtividade } from "@/lib/simples/calcularSimples"
 import type { NfeParseResult } from "@/lib/nfe/parseNfe"
+import type { ResultadoConsultaCnae } from "@/lib/tributario/cnae"
+import { avaliarSugestaoCnae } from "@/lib/simples/sugestaoCnae"
+import { resolverIdentidadeServicoNfse, type OrigemCodigoServicoNfse } from "@/lib/simples/codigoServicoNfse"
 import PageHeader from "@/components/ui/PageHeader"
 
 // ─── Estilos ──────────────────────────────────────────────────────────────────
@@ -30,6 +33,40 @@ const S = {
 
 const money = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" })
 const pct   = (v: number) => (v * 100).toFixed(2).replace('.', ',') + '%'
+
+type ConfigAtividadeForm = {
+  modo_tributacao: 'anexo_fixo' | 'fator_r'
+  anexo_fixo: 'III' | 'IV' | 'V'
+  cnae_vinculado: string
+}
+
+type SugestaoCnaeServico = {
+  carregando: boolean
+  resultado?: ResultadoConsultaCnae
+  erro?: string
+}
+
+type ServicoNfseDetectado = {
+  chave_servico: string
+  codigo_servico: string
+  origem_codigo_servico: OrigemCodigoServicoNfse
+  municipio_codigo?: string
+  descricao_servico: string
+  count_nfse: number
+  valor_total: number
+  config: SnConfigServicoAtividade | null
+}
+
+type SugestaoVinculoServicoCnae = {
+  carregando: boolean
+  encontrado?: boolean
+  conclusivo?: boolean
+  confianca?: 'alta' | 'media' | 'baixa'
+  explicacao?: string
+  candidatos?: ResultadoConsultaCnae[]
+  aviso?: string
+  erro?: string
+}
 
 function normalizaCnpj(cnpj: string | undefined | null) {
   return (cnpj ?? '').replace(/\D/g, '')
@@ -1882,15 +1919,11 @@ export default function SimplesNacionalPage() {
 
   // ── Configuração por código de serviço (NFS-e) ──────────────────────────
   const [configServicosAtividade, setConfigServicosAtividade] = useState<SnConfigServicoAtividade[]>([])
-  const [servicosNfseDetectados, setServicosNfseDetectados] = useState<Array<{
-    codigo_servico: string
-    descricao_servico: string
-    count_nfse: number
-    valor_total: number
-    config: SnConfigServicoAtividade | null
-  }>>([])
+  const [servicosNfseDetectados, setServicosNfseDetectados] = useState<ServicoNfseDetectado[]>([])
   const [salvandoConfigAtividades, setSalvandoConfigAtividades] = useState(false)
-  const [configAtividadesForms, setConfigAtividadesForms] = useState<Record<string, { modo_tributacao: 'anexo_fixo' | 'fator_r'; anexo_fixo: 'III' | 'IV' | 'V' }>>({})
+  const [configAtividadesForms, setConfigAtividadesForms] = useState<Record<string, ConfigAtividadeForm>>({})
+  const [sugestoesCnaeServicos, setSugestoesCnaeServicos] = useState<Record<string, SugestaoCnaeServico>>({})
+  const [sugestoesVinculoServicos, setSugestoesVinculoServicos] = useState<Record<string, SugestaoVinculoServicoCnae>>({})
 
   // ── Configuração de CFOP considerado faturamento ────────────────────────
   const [cfopConfigs, setCfopConfigs] = useState<Array<{ cfop: string; descricao: string; considerar_faturamento: boolean; origem: 'padrao' | 'usuario' }>>([])
@@ -2061,34 +2094,110 @@ export default function SimplesNacionalPage() {
     }
   }, [])
 
+  const consultarSugestaoCnaeServico = useCallback(async (codigoServico: string, cnaeInformado: string) => {
+    const cnae = cnaeInformado.replace(/\D/g, '')
+    if (cnae.length !== 7) {
+      setSugestoesCnaeServicos(prev => {
+        const proximo = { ...prev }
+        delete proximo[codigoServico]
+        return proximo
+      })
+      return
+    }
+
+    setSugestoesCnaeServicos(prev => ({ ...prev, [codigoServico]: { carregando: true } }))
+    try {
+      const res = await fetch(`/api/consulta-tributaria/cnae?codigo=${encodeURIComponent(cnae)}`)
+      const body = await res.json() as { resultado?: ResultadoConsultaCnae; error?: string }
+      if (!res.ok || !body.resultado) throw new Error(body.error ?? 'Não foi possível consultar o CNAE.')
+      setSugestoesCnaeServicos(prev => ({
+        ...prev,
+        [codigoServico]: { carregando: false, resultado: body.resultado },
+      }))
+    } catch (error) {
+      setSugestoesCnaeServicos(prev => ({
+        ...prev,
+        [codigoServico]: {
+          carregando: false,
+          erro: error instanceof Error ? error.message : 'Falha ao consultar o CNAE.',
+        },
+      }))
+    }
+  }, [])
+
+  const consultarVinculoServicoCnae = useCallback(async (servico: ServicoNfseDetectado) => {
+    setSugestoesVinculoServicos(prev => ({ ...prev, [servico.chave_servico]: { carregando: true } }))
+    try {
+      const params = new URLSearchParams({
+        codigo: servico.codigo_servico,
+        origem: servico.origem_codigo_servico,
+        descricao: servico.descricao_servico,
+      })
+      if (servico.municipio_codigo) params.set('municipio_codigo', servico.municipio_codigo)
+      const res = await fetch(`/api/consulta-tributaria/servico-cnae?${params.toString()}`)
+      const body = await res.json() as Omit<SugestaoVinculoServicoCnae, 'carregando'> & { error?: string }
+      if (!res.ok) throw new Error(body.error ?? 'Não foi possível consultar o vínculo do serviço.')
+      setSugestoesVinculoServicos(prev => ({
+        ...prev,
+        [servico.chave_servico]: { carregando: false, ...body },
+      }))
+    } catch (error) {
+      setSugestoesVinculoServicos(prev => ({
+        ...prev,
+        [servico.chave_servico]: {
+          carregando: false,
+          erro: error instanceof Error ? error.message : 'Falha ao consultar o vínculo do serviço.',
+        },
+      }))
+    }
+  }, [])
+
   const carregarConfigServicosAtividade = useCallback(async (empresaId: string) => {
     try {
       const res = await fetch(`/api/simples/config-servicos-atividade?empresa_id=${empresaId}`)
       if (!res.ok) return
       const data = await res.json() as {
         configs: SnConfigServicoAtividade[]
-        servicos: Array<{ codigo_servico: string; descricao_servico: string; count_nfse: number; valor_total: number; config: SnConfigServicoAtividade | null }>
+        servicos: ServicoNfseDetectado[]
       }
       setConfigServicosAtividade(data.configs ?? [])
       setServicosNfseDetectados(data.servicos ?? [])
-      const forms: Record<string, { modo_tributacao: 'anexo_fixo' | 'fator_r'; anexo_fixo: 'III' | 'IV' | 'V' }> = {}
+      const forms: Record<string, ConfigAtividadeForm> = {}
       for (const s of (data.servicos ?? [])) {
-        forms[s.codigo_servico] = s.config
-          ? { modo_tributacao: s.config.modo_tributacao, anexo_fixo: s.config.anexo_fixo ?? 'III' }
-          : { modo_tributacao: 'fator_r', anexo_fixo: 'III' }
+        forms[s.chave_servico] = s.config
+          ? {
+              modo_tributacao: s.config.modo_tributacao,
+              anexo_fixo: s.config.anexo_fixo ?? 'III',
+              cnae_vinculado: s.config.cnae_vinculado ?? '',
+            }
+          : { modo_tributacao: 'fator_r', anexo_fixo: 'III', cnae_vinculado: '' }
       }
       setConfigAtividadesForms(forms)
+      const consultas = Object.entries(forms)
+        .filter(([, form]) => form.cnae_vinculado.replace(/\D/g, '').length === 7)
+        .map(([codigoServico, form]) => consultarSugestaoCnaeServico(codigoServico, form.cnae_vinculado))
+      const consultasVinculo = (data.servicos ?? [])
+        .filter(servico => !forms[servico.chave_servico]?.cnae_vinculado)
+        .map(servico => consultarVinculoServicoCnae(servico))
+      await Promise.all([...consultas, ...consultasVinculo])
     } catch { /* silencioso */ }
-  }, [])
+  }, [consultarSugestaoCnaeServico, consultarVinculoServicoCnae])
 
   const handleSalvarConfigAtividades = useCallback(async () => {
     if (!empresaAtiva) return
     setSalvandoConfigAtividades(true)
     try {
       const configs = servicosNfseDetectados.map(s => ({
+        chave_servico: s.chave_servico,
         codigo_servico: s.codigo_servico,
+        origem_codigo_servico: s.origem_codigo_servico,
+        municipio_codigo: s.municipio_codigo,
         descricao_servico: s.descricao_servico,
-        ...(configAtividadesForms[s.codigo_servico] ?? { modo_tributacao: 'fator_r' as const, anexo_fixo: 'III' as const }),
+        ...(configAtividadesForms[s.chave_servico] ?? { modo_tributacao: 'fator_r' as const, anexo_fixo: 'III' as const, cnae_vinculado: '' }),
+        tratamento_sugerido: sugestoesCnaeServicos[s.chave_servico]?.resultado?.enquadramento.tratamento ?? null,
+        anexo_sugerido: sugestoesCnaeServicos[s.chave_servico]?.resultado?.enquadramento.anexo_indicativo ?? null,
+        confianca_sugestao: sugestoesCnaeServicos[s.chave_servico]?.resultado?.enquadramento.confianca ?? null,
+        regra_cnae_versao: sugestoesCnaeServicos[s.chave_servico]?.resultado?.enquadramento.versao_regra ?? null,
       })) as ConfigServicoAtividade[]
       const res = await fetch('/api/simples/config-servicos-atividade', {
         method: 'POST',
@@ -2103,7 +2212,7 @@ export default function SimplesNacionalPage() {
       await carregarConfigServicosAtividade(empresaAtiva.id)
     } catch { alert('Erro ao salvar configuração de serviços.') }
     finally { setSalvandoConfigAtividades(false) }
-  }, [empresaAtiva, servicosNfseDetectados, configAtividadesForms, carregarConfigServicosAtividade])
+  }, [empresaAtiva, servicosNfseDetectados, configAtividadesForms, sugestoesCnaeServicos, carregarConfigServicosAtividade])
 
   const carregarConfigCfop = useCallback(async (empresaId: string) => {
     try {
@@ -2377,17 +2486,28 @@ export default function SimplesNacionalPage() {
       item.anexo_sugerido === 'IV' ||
       item.anexo_sugerido === 'V'
     )
-    const temServicoSemCodigo = itensServico.some(item => !item.codigo_produto?.trim()) || itensServico.length === 0
-    const codigosComConfig = new Set(configServicosAtividade.map(c => c.codigo_servico))
-    const codigosNasNotas = [...new Set(
-      itensServico.map(item => item.codigo_produto?.trim()).filter((codigo): codigo is string => Boolean(codigo))
-    )]
-    const codigosSemConfig = codigosNasNotas.filter(codigo => !codigosComConfig.has(codigo))
+    const documentosPorId = new Map(xmlDocumentos.map(doc => [doc.id, doc]))
+    const identidadesNasNotas = itensServico.map(item =>
+      resolverIdentidadeServicoNfse(item, documentosPorId.get(item.documento_id))
+    )
+    const temServicoSemCodigo = identidadesNasNotas.some(identidade => !identidade) || itensServico.length === 0
+    const chavesComConfig = new Set(
+      configServicosAtividade.map(c => c.chave_servico).filter((chave): chave is string => Boolean(chave))
+    )
+    const identidadesUnicas = [...new Map(
+      identidadesNasNotas.filter((identidade): identidade is NonNullable<typeof identidade> => Boolean(identidade))
+        .map(identidade => [identidade.chave, identidade])
+    ).values()]
+    const codigosSemConfig = identidadesUnicas.filter(identidade =>
+      !chavesComConfig.has(identidade.chave)
+    )
 
     if (temServicoSemCodigo || codigosSemConfig.length > 0) {
       const detalhes = [
         temServicoSemCodigo ? 'NFS-e sem código de serviço identificável' : null,
-        codigosSemConfig.length > 0 ? `códigos sem configuração: ${codigosSemConfig.join(', ')}` : null,
+        codigosSemConfig.length > 0
+          ? `serviços sem configuração: ${codigosSemConfig.map(item => item.codigo).join(', ')}`
+          : null,
       ].filter((detalhe): detalhe is string => Boolean(detalhe)).join('; ')
       return {
         anexoServico: undefined,
@@ -3125,7 +3245,7 @@ export default function SimplesNacionalPage() {
                 <span style={{ fontWeight: 700, fontSize: 15 }}>Serviços das NFS-e</span>
               </div>
               <div style={{ fontSize: 12, color: 'var(--af-muted)', marginBottom: 16 }}>
-                Serviços detectados nas NFS-e importadas. Configure o anexo de cada código de serviço individualmente para uma apuração precisa.
+                O cálculo usa o serviço informado na NFS-e. Relacione um CNAE apenas para conferir a escolha: ele não substitui o código da nota nem altera automaticamente o regime ou o anexo.
               </div>
 
               {servicosNfseDetectados.length === 0 ? (
@@ -3138,8 +3258,10 @@ export default function SimplesNacionalPage() {
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                       <thead>
                         <tr>
-                          <th style={S.th}>Código</th>
+                          <th style={S.th}>Serviço da NFS-e</th>
                           <th style={S.th}>Descrição</th>
+                          <th style={{ ...S.th, width: 140 }}>CNAE relacionado</th>
+                          <th style={{ ...S.th, width: 155 }}>Sugestão fiscal</th>
                           <th style={{ ...S.thR }}>NFS-e</th>
                           <th style={{ ...S.thR }}>Total</th>
                           <th style={S.th}>Regime</th>
@@ -3149,22 +3271,128 @@ export default function SimplesNacionalPage() {
                       </thead>
                       <tbody>
                         {servicosNfseDetectados.map(servico => {
-                          const form = configAtividadesForms[servico.codigo_servico] ?? { modo_tributacao: 'fator_r' as const, anexo_fixo: 'III' as const }
-                          const configurado = !!configServicosAtividade.find(c => c.codigo_servico === servico.codigo_servico)
+                          const chaveServico = servico.chave_servico
+                          const form = configAtividadesForms[chaveServico] ?? { modo_tributacao: 'fator_r' as const, anexo_fixo: 'III' as const, cnae_vinculado: '' }
+                          const configurado = configServicosAtividade.some(c => c.chave_servico === chaveServico)
+                          const sugestao = sugestoesCnaeServicos[chaveServico]
+                          const sugestaoVinculo = sugestoesVinculoServicos[chaveServico]
+                          const avaliacao = avaliarSugestaoCnae(form, sugestao?.resultado?.enquadramento)
+                          const cnaeCompleto = form.cnae_vinculado.replace(/\D/g, '').length === 7
                           return (
-                            <tr key={servico.codigo_servico}>
+                            <tr key={chaveServico}>
                               <td style={S.td}>
                                 <span style={{ fontFamily: 'monospace', color: 'var(--af-primary)', fontWeight: 700 }}>{servico.codigo_servico}</span>
+                                <span style={{ display: 'block', marginTop: 3, color: 'var(--af-muted)', fontSize: 9.5, whiteSpace: 'nowrap' }}>
+                                  {servico.origem_codigo_servico === 'lista_nacional'
+                                    ? 'Lista nacional'
+                                    : servico.origem_codigo_servico === 'municipal'
+                                      ? `Código municipal${servico.municipio_codigo ? ` · IBGE ${servico.municipio_codigo}` : ''}`
+                                      : 'Origem não identificada'}
+                                </span>
                               </td>
                               <td style={{ ...S.td, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={servico.descricao_servico}>
                                 {servico.descricao_servico || '—'}
+                              </td>
+                              <td style={S.td}>
+                                <input
+                                  value={form.cnae_vinculado}
+                                  onChange={e => {
+                                    const valor = e.target.value.replace(/\D/g, '').slice(0, 7)
+                                    setConfigAtividadesForms(prev => ({ ...prev, [chaveServico]: { ...form, cnae_vinculado: valor } }))
+                                    setSugestoesCnaeServicos(prev => {
+                                      const proximo = { ...prev }
+                                      delete proximo[chaveServico]
+                                      return proximo
+                                    })
+                                  }}
+                                  onBlur={() => consultarSugestaoCnaeServico(chaveServico, form.cnae_vinculado)}
+                                  placeholder="7 dígitos"
+                                  inputMode="numeric"
+                                  style={{ width: 98, background: 'var(--af-surface-2)', border: '1px solid var(--af-border)', borderRadius: 8, padding: '5px 8px', color: 'var(--af-text)', fontSize: 12, fontFamily: 'monospace' }}
+                                />
+                                {!form.cnae_vinculado && empresaAtiva?.cnae_principal && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const principal = (empresaAtiva.cnae_principal ?? '').replace(/\D/g, '').slice(0, 7)
+                                      setConfigAtividadesForms(prev => ({ ...prev, [chaveServico]: { ...form, cnae_vinculado: principal } }))
+                                      void consultarSugestaoCnaeServico(chaveServico, principal)
+                                    }}
+                                    style={{ display: 'block', marginTop: 4, padding: 0, border: 0, background: 'transparent', color: 'var(--af-primary)', fontSize: 9.5, cursor: 'pointer' }}
+                                  >
+                                    Usar CNAE principal
+                                  </button>
+                                )}
+                                {!form.cnae_vinculado && sugestaoVinculo?.carregando && (
+                                  <span style={{ display: 'block', marginTop: 5, color: 'var(--af-muted)', fontSize: 9.5 }}>
+                                    Procurando CNAE compatível...
+                                  </span>
+                                )}
+                                {!form.cnae_vinculado && !sugestaoVinculo?.carregando && (sugestaoVinculo?.candidatos?.length ?? 0) > 0 && (
+                                  <div style={{ marginTop: 6, display: 'grid', gap: 4 }} title={sugestaoVinculo.explicacao}>
+                                    <span style={{ color: 'var(--af-muted)', fontSize: 9.5, fontWeight: 700 }}>
+                                      {sugestaoVinculo.conclusivo ? 'CNAE compatível encontrado' : 'CNAEs possíveis — confirme a atividade'}
+                                    </span>
+                                    {sugestaoVinculo.candidatos?.slice(0, 3).map(candidato => {
+                                      const codigoCnae = candidato.cnae.id.replace(/\D/g, '')
+                                      return (
+                                        <button
+                                          key={codigoCnae}
+                                          type="button"
+                                          title={`${candidato.cnae.descricao}. ${sugestaoVinculo.explicacao ?? ''}`}
+                                          onClick={() => {
+                                            setConfigAtividadesForms(prev => ({ ...prev, [chaveServico]: { ...form, cnae_vinculado: codigoCnae } }))
+                                            void consultarSugestaoCnaeServico(chaveServico, codigoCnae)
+                                          }}
+                                          style={{
+                                            width: 128, padding: '4px 6px', borderRadius: 6,
+                                            border: '1px solid rgba(39,199,216,0.28)', background: 'rgba(39,199,216,0.08)',
+                                            color: 'var(--af-primary)', fontSize: 9.5, fontWeight: 700, cursor: 'pointer',
+                                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'left',
+                                          }}
+                                        >
+                                          Usar {codigoCnae}
+                                        </button>
+                                      )
+                                    })}
+                                  </div>
+                                )}
+                                {!form.cnae_vinculado && !sugestaoVinculo?.carregando && sugestaoVinculo?.encontrado === false && (
+                                  <span title={sugestaoVinculo.aviso} style={{ display: 'block', marginTop: 5, color: 'var(--af-muted)', fontSize: 9.5 }}>
+                                    Sem vínculo automático seguro
+                                  </span>
+                                )}
+                              </td>
+                              <td style={S.td}>
+                                {sugestao?.carregando ? (
+                                  <span style={{ color: 'var(--af-muted)', fontSize: 10 }}>Consultando...</span>
+                                ) : sugestao?.erro ? (
+                                  <span title={sugestao.erro} style={{ color: '#dc2626', fontSize: 10, fontWeight: 700 }}>Consulta indisponível</span>
+                                ) : sugestao?.resultado ? (
+                                  <div title={`${sugestao.resultado.enquadramento.titulo}. ${sugestao.resultado.enquadramento.explicacao}`}>
+                                    <span style={{
+                                      display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 7px', borderRadius: 6,
+                                      background: avaliacao.divergente ? 'rgba(220,38,38,0.10)' : avaliacao.exigeAnalise ? 'rgba(245,158,11,0.12)' : 'rgba(34,197,94,0.12)',
+                                      color: avaliacao.divergente ? '#dc2626' : avaliacao.exigeAnalise ? '#b45309' : 'var(--af-success, #16a34a)',
+                                      fontSize: 10, fontWeight: 800,
+                                    }}>
+                                      {avaliacao.divergente ? <AlertTriangle size={11} /> : avaliacao.exigeAnalise ? <Info size={11} /> : <CheckCircle2 size={11} />}
+                                      {avaliacao.rotulo}
+                                    </span>
+                                    <div style={{ marginTop: 3, color: 'var(--af-muted)', fontSize: 9.5 }}>
+                                      {avaliacao.divergente ? 'Diverge da seleção' : avaliacao.exigeAnalise ? 'Validar condições' : 'Seleção compatível'}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <span style={{ color: 'var(--af-muted)', fontSize: 10 }}>{cnaeCompleto ? 'Consultar ao sair do campo' : 'Informe o CNAE'}</span>
+                                )}
                               </td>
                               <td style={S.tdNum}>{servico.count_nfse}</td>
                               <td style={S.tdNum}>{money.format(servico.valor_total)}</td>
                               <td style={S.td}>
                                 <select
                                   value={form.modo_tributacao}
-                                  onChange={e => setConfigAtividadesForms(prev => ({ ...prev, [servico.codigo_servico]: { ...form, modo_tributacao: e.target.value as 'anexo_fixo' | 'fator_r' } }))}
+                                  onChange={e => setConfigAtividadesForms(prev => ({ ...prev, [chaveServico]: { ...form, modo_tributacao: e.target.value as 'anexo_fixo' | 'fator_r' } }))}
                                   style={{ background: 'var(--af-surface-2)', border: '1px solid var(--af-border)', borderRadius: 8, padding: '5px 8px', color: 'var(--af-text)', fontSize: 12, width: '100%' }}
                                 >
                                   <option value="fator_r">Fator R (III/V)</option>
@@ -3175,7 +3403,7 @@ export default function SimplesNacionalPage() {
                                 {form.modo_tributacao === 'anexo_fixo' ? (
                                   <select
                                     value={form.anexo_fixo}
-                                    onChange={e => setConfigAtividadesForms(prev => ({ ...prev, [servico.codigo_servico]: { ...form, anexo_fixo: e.target.value as 'III' | 'IV' | 'V' } }))}
+                                    onChange={e => setConfigAtividadesForms(prev => ({ ...prev, [chaveServico]: { ...form, anexo_fixo: e.target.value as 'III' | 'IV' | 'V' } }))}
                                     style={{ background: 'var(--af-surface-2)', border: '1px solid var(--af-border)', borderRadius: 8, padding: '5px 8px', color: 'var(--af-text)', fontSize: 12, width: '100%' }}
                                   >
                                     <option value="III">Anexo III</option>
@@ -3189,10 +3417,10 @@ export default function SimplesNacionalPage() {
                               <td style={S.td}>
                                 <span style={{
                                   display: 'inline-block', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6,
-                                  background: configurado ? 'rgba(34,197,94,0.12)' : 'rgba(251,191,36,0.12)',
-                                  color: configurado ? 'var(--af-success, #22c55e)' : 'var(--af-warning)',
+                                  background: avaliacao.divergente ? 'rgba(220,38,38,0.10)' : configurado ? 'rgba(34,197,94,0.12)' : 'rgba(251,191,36,0.12)',
+                                  color: avaliacao.divergente ? '#dc2626' : configurado ? 'var(--af-success, #22c55e)' : 'var(--af-warning)',
                                 }}>
-                                  {configurado ? 'Configurado' : 'Pendente'}
+                                  {avaliacao.divergente ? 'Divergência' : configurado ? 'Configurado' : 'Pendente'}
                                 </span>
                               </td>
                             </tr>

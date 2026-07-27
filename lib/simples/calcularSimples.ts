@@ -3,6 +3,7 @@
 
 import type { DocumentoFiscal, DocumentoFiscalItem, OrigemRbt12 } from '@/lib/types'
 import { anexoVendaMercadoriaPorCfop } from './cfopReceita'
+import { resolverIdentidadeServicoNfse } from './codigoServicoNfse'
 import {
   TABELAS_ANEXOS,
   DISTRIBUICOES_ANEXOS,
@@ -156,8 +157,16 @@ export function calcularDas(
 // Configuração por código de serviço (NFS-e) para apuração granular
 export interface ConfigServicoAtividade {
   codigo_servico: string
+  chave_servico?: string
+  origem_codigo_servico?: 'lista_nacional' | 'municipal' | 'legado'
+  municipio_codigo?: string
   modo_tributacao: 'anexo_fixo' | 'fator_r'
   anexo_fixo?: 'III' | 'IV' | 'V'
+  cnae_vinculado?: string
+  tratamento_sugerido?: 'anexo_i' | 'anexo_ii' | 'anexo_iii' | 'anexo_iv' | 'fator_r' | 'inconclusivo' | null
+  anexo_sugerido?: 'I' | 'II' | 'III' | 'IV' | 'V' | null
+  confianca_sugestao?: 'alta' | 'media' | 'baixa' | null
+  regra_cnae_versao?: string | null
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -276,7 +285,7 @@ export function apurarSimples(params: {
 
           if (item.impacto_receita !== 'soma_receita') continue
           valorReceitaDoc += vItem
-          const chaveReceita = acumularReceita(item, vItem, ehIndustrial, anexoServico,
+          const chaveReceita = acumularReceita(item, doc, vItem, ehIndustrial, anexoServico,
             receitas_por_anexo, incrementarSt, incrementarExp,
             configServicosAtividade, fatorRAnexo)
           if (itemEhServicoSimples(item)) {
@@ -473,6 +482,7 @@ function somarBreakdown(breakdown: Record<keyof DistribuicaoSimples, number>): n
 
 function acumularReceita(
   item: DocumentoFiscalItem,
+  documento: DocumentoFiscal,
   valor: number,
   ehIndustrial: boolean,
   anexoServico: AnexoSimples | undefined,
@@ -500,9 +510,9 @@ function acumularReceita(
 
   // Configuração por código de serviço (NFS-e): toma prioridade sobre a config por empresa
   if (itemEhServico && configServicosAtividade) {
-    const codigoServico = item.codigo_produto
-    const cfgServico = codigoServico
-      ? configServicosAtividade.find(c => c.codigo_servico === codigoServico)
+    const identidade = resolverIdentidadeServicoNfse(item, documento)
+    const cfgServico = identidade
+      ? configServicosAtividade.find(c => c.chave_servico === identidade.chave)
       : undefined
 
     if (!cfgServico) {

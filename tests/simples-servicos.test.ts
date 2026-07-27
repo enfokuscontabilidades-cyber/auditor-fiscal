@@ -3,6 +3,7 @@
  */
 
 import { apurarSimples, calcularDas } from '../lib/simples/calcularSimples'
+import { criarChaveServicoNfse, resolverIdentidadeServicoNfse } from '../lib/simples/codigoServicoNfse'
 import type { DocumentoFiscal, DocumentoFiscalItem } from '../lib/types'
 
 function docServico(): DocumentoFiscal {
@@ -89,6 +90,77 @@ function apurar(anexoServico?: 'III' | 'IV' | 'V', fatorR?: Parameters<typeof ap
 }
 
 describe('Simples Nacional - servicos', () => {
+  test('normaliza o item nacional e distingue códigos municipais por município', () => {
+    expect(criarChaveServicoNfse({ codigo: '10.05', origem: 'lista_nacional' }))
+      .toBe('lista_nacional:1005')
+    expect(criarChaveServicoNfse({ codigo: '123', origem: 'municipal', municipioCodigo: '5208707' }))
+      .not.toBe(criarChaveServicoNfse({ codigo: '123', origem: 'municipal', municipioCodigo: '3550308' }))
+  })
+
+  test('prioriza o item nacional da nota sobre o código municipal', () => {
+    const identidade = resolverIdentidadeServicoNfse(
+      { codigo_produto: '10.05' },
+      { parsed_data: { metadados: {
+        item_lista_servico: '10.05',
+        codigo_tributacao_municipio: '1005001',
+        municipio_codigo: '5208707',
+      } } },
+    )
+    expect(identidade).toMatchObject({
+      chave: 'lista_nacional:1005',
+      origem: 'lista_nacional',
+      codigo: '10.05',
+    })
+  })
+
+  test('apura pelo serviço da NFS-e e não deixa a sugestão do CNAE sobrepor a escolha', () => {
+    const docGo = {
+      ...docServico(),
+      parsed_data: { metadados: { codigo_tributacao_municipio: '123', municipio_codigo: '5208707' } },
+    }
+    const docSp = {
+      ...docServico(),
+      id: 'doc-nfse-2',
+      chave_acesso: 'NFSE:123:3550308:2:XYZ',
+      numero: '2',
+      parsed_data: { metadados: { codigo_tributacao_municipio: '123', municipio_codigo: '3550308' } },
+    }
+    const itemGo = { ...itemServico(), codigo_produto: '123' }
+    const itemSp = { ...itemServico(), id: 'item-2', documento_id: docSp.id, codigo_produto: '123' }
+
+    const result = apurarSimples({
+      documentos: [docGo, docSp],
+      itens: [itemGo, itemSp],
+      rbt12: 240000,
+      origem_rbt12: 'manual',
+      cnpjEmpresa: '12345678000190',
+      competencia: '05/2026',
+      configServicosAtividade: [
+        {
+          codigo_servico: '123',
+          chave_servico: 'municipal:5208707:123',
+          origem_codigo_servico: 'municipal',
+          municipio_codigo: '5208707',
+          modo_tributacao: 'anexo_fixo',
+          anexo_fixo: 'III',
+          cnae_vinculado: '6911701',
+          anexo_sugerido: 'IV',
+        },
+        {
+          codigo_servico: '123',
+          chave_servico: 'municipal:3550308:123',
+          origem_codigo_servico: 'municipal',
+          municipio_codigo: '3550308',
+          modo_tributacao: 'anexo_fixo',
+          anexo_fixo: 'IV',
+        },
+      ],
+    })
+
+    expect(result.por_anexo.III.receita).toBe(10000)
+    expect(result.por_anexo.IV.receita).toBe(10000)
+  })
+
   test('apura NFS-e em Anexo III fixo', () => {
     const result = apurar('III', { modo_servico: 'anexo_fixo', anexo_servico: 'III' })
     expect(result.por_anexo.III.receita).toBe(10000)

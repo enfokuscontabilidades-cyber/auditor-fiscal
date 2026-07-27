@@ -19,6 +19,7 @@ import {
   HelpCircle,
   Lock,
   ShieldCheck,
+  LibraryBig,
 } from 'lucide-react'
 import type { ModuloFiscal } from '@/lib/planos/acessoReformaTributaria'
 
@@ -31,6 +32,7 @@ const LINKS: { href: string; label: string; icon: typeof LayoutDashboard; modulo
   { href: '/editor_sped', label: 'Editor SPED', icon: FilePen, modulo: 'editor_sped' },
   { href: '/validador_entradas', label: 'Validador NF-e', icon: FileText, modulo: 'validador_entradas' },
   { href: '/simples_nacional', label: 'Simples Nacional', icon: Receipt, modulo: 'simples_nacional' },
+  { href: '/consulta_tributaria', label: 'Consulta Tributária', icon: LibraryBig, modulo: 'consulta_tributaria' },
   { href: '/inconsistencias', label: 'Relatórios', icon: BarChart3, modulo: 'inconsistencias' },
   { href: '/reforma_tributaria', label: 'Reforma Tributária', icon: Scale, modulo: 'reforma_tributaria' },
   { href: '/planejamento', label: 'Planejamento Tributário', icon: Calculator, modulo: 'planejamento' },

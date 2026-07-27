@@ -8,7 +8,7 @@ export type ProdutoEscopo = 'full_platform' | 'tax_reform_only'
 export type ModuloFiscal =
   | 'dashboard' | 'empresas' | 'reforma_tributaria' | 'assinatura' | 'configuracoes' | 'suporte'
   | 'auditor_fiscal' | 'editor_sped' | 'validador_entradas' | 'simples_nacional'
-  | 'inconsistencias' | 'planejamento' | 'obrigacoes' | 'cobrancas' | 'leads_reforma_tributaria'
+  | 'consulta_tributaria' | 'inconsistencias' | 'planejamento' | 'obrigacoes' | 'cobrancas' | 'leads_reforma_tributaria'
 
 export const MODULOS_TAX_REFORM_ONLY: ModuloFiscal[] = [
   'dashboard', 'empresas', 'reforma_tributaria', 'assinatura', 'configuracoes', 'suporte',

@@ -1,0 +1,67 @@
+import { NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
+import type { TributarioNcmOperacao, TributarioNcmPerfil } from '@/lib/types'
+import { analisarNcmComCatalogo, normalizarNcm } from '@/lib/tributario/ncm'
+import { carregarRegrasNcmVigentes } from '@/lib/tributario/ncmCatalogoServer'
+import { consultarNcmOficial, FONTE_NCM_OFICIAL } from '@/lib/tributario/ncmOficial'
+
+const PERFIS: TributarioNcmPerfil[] = ['fabricante', 'importador', 'atacadista', 'varejista', 'consumidor_final']
+const OPERACOES: TributarioNcmOperacao[] = ['venda_producao', 'importacao', 'revenda', 'venda_consumidor', 'qualquer']
+
+function perfilValido(valor: string): valor is TributarioNcmPerfil {
+  return PERFIS.includes(valor as TributarioNcmPerfil)
+}
+
+function operacaoValida(valor: string): valor is TributarioNcmOperacao {
+  return OPERACOES.includes(valor as TributarioNcmOperacao)
+}
+
+export async function GET(request: Request) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
+
+  const { searchParams } = new URL(request.url)
+  const ncm = normalizarNcm(searchParams.get('ncm') ?? '')
+  const perfilInformado = searchParams.get('perfil') ?? 'varejista'
+  const operacaoInformada = searchParams.get('operacao') ?? 'revenda'
+  const descricao = searchParams.get('descricao')?.trim() ?? ''
+  const dataReferencia = searchParams.get('data')?.trim() || new Date().toISOString().slice(0, 10)
+
+  if (ncm.length !== 8) {
+    return NextResponse.json({ error: 'Informe um NCM completo com 8 dígitos.' }, { status: 400 })
+  }
+  if (!perfilValido(perfilInformado)) {
+    return NextResponse.json({ error: 'Perfil da empresa inválido.' }, { status: 400 })
+  }
+  if (!operacaoValida(operacaoInformada)) {
+    return NextResponse.json({ error: 'Tipo de operação inválido.' }, { status: 400 })
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dataReferencia) || Number.isNaN(Date.parse(`${dataReferencia}T00:00:00Z`))) {
+    return NextResponse.json({ error: 'Data de referência inválida.' }, { status: 400 })
+  }
+
+  const [regras, classificacao] = await Promise.all([
+    carregarRegrasNcmVigentes(supabase, dataReferencia),
+    consultarNcmOficial(ncm).catch(() => null),
+  ])
+
+  const resultado = analisarNcmComCatalogo({
+    ncm,
+    perfil: perfilInformado,
+    operacao: operacaoInformada,
+    descricao,
+    classificacaoOficial: classificacao,
+    regras,
+  })
+
+  if (regras.length === 0) {
+    resultado.avisos.unshift('O catálogo tributário de NCM ainda não está disponível no banco. Aplique a migração correspondente no Supabase.')
+  }
+
+  return NextResponse.json({
+    fonte: FONTE_NCM_OFICIAL,
+    data_referencia: dataReferencia,
+    resultado,
+  })
+}

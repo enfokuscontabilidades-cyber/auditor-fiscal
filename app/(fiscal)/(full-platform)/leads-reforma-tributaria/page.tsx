@@ -2,8 +2,11 @@
 
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import * as XLSX from 'xlsx'
-import { Download, FileText, Lock, Mail, MessageCircle, Search, X } from 'lucide-react'
+import { Download, FileText, Lock, Mail, MessageCircle, Search, UsersRound, X } from 'lucide-react'
 import { useTheme } from '@/components/ThemeProvider'
+import EmptyState from '@/components/ui/EmptyState'
+import GlassCard from '@/components/ui/GlassCard'
+import PageHeader from '@/components/ui/PageHeader'
 import { formatarCnpj, formatarTelefoneBr } from '@/lib/validacao/documentos'
 
 type ResumoAnalise = {
@@ -332,109 +335,124 @@ export default function LeadsReformaTributariaPage() {
   }
 
   return (
-    <main style={{ padding: 24, color: cor.texto }}>
-      <div style={{ marginBottom: 22 }}>
-        <h1 style={{ margin: 0, fontSize: 28, fontWeight: 850 }}>Leads</h1>
-        <p style={{ margin: '6px 0 0', color: cor.textoSuave, fontSize: 14 }}>
-          Acompanhe separadamente os contatos do diagnóstico da Reforma Tributária e as solicitações de acesso antecipado.
-        </p>
-      </div>
-
-      <section style={{ ...card, padding: 8, marginBottom: 16, display: 'inline-flex', gap: 8 }}>
-        {([
-          ['reforma_tributaria', 'Reforma Tributária'],
-          ['acesso_antecipado', 'Acesso antecipado'],
-        ] as const).map(([tipo, label]) => {
-          const ativo = tipoLead === tipo
-          return (
-            <button
-              key={tipo}
-              type="button"
-              onClick={() => {
-                setTipoLead(tipo)
-                setSelecionado(null)
-                setStatusFiltro('')
-                setRegimeFiltro('')
-                setPerfilFiltro('')
-                setFinalidadeFiltro('')
-              }}
-              style={{
-                border: `1px solid ${ativo ? cor.ciano : cor.borda}`,
-                borderRadius: 9,
-                padding: '10px 15px',
-                background: ativo ? (escuro ? 'rgba(34,211,238,.14)' : '#e6f8fb') : 'transparent',
-                color: ativo ? cor.ciano : cor.textoSuave,
-                fontWeight: 850,
-                cursor: 'pointer',
-              }}
-            >
-              {label}
-            </button>
-          )
-        })}
-      </section>
-
-      <section style={{ ...card, padding: 16, marginBottom: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-        {[
-          ['Total de leads', String(totais.total)],
-          ['Em funil', String(totais.aguardando)],
-          ['Convertidos', String(totais.convertidos)],
-        ].map(([label, value]) => (
-          <div key={label} style={{ border: `1px solid ${cor.borda}`, borderRadius: 10, padding: 14 }}>
-            <div style={{ fontSize: 11, textTransform: 'uppercase', color: cor.textoFraco, fontWeight: 800 }}>{label}</div>
-            <div style={{ marginTop: 8, fontSize: 22, fontWeight: 850 }}>{value}</div>
+    <main className="af-page" style={{ color: cor.texto }}>
+      <PageHeader
+        title="Leads comerciais"
+        subtitle="Acompanhe os contatos do diagnóstico da Reforma Tributária e as solicitações de acesso antecipado."
+        style={{ marginBottom: 14 }}
+        actions={(
+          <div className="leads-segmented" aria-label="Origem dos leads">
+            {([
+              ['reforma_tributaria', 'Reforma Tributária'],
+              ['acesso_antecipado', 'Acesso antecipado'],
+            ] as const).map(([tipo, label]) => {
+              const ativo = tipoLead === tipo
+              return (
+                <button
+                  key={tipo}
+                  type="button"
+                  aria-pressed={ativo}
+                  className="leads-tab"
+                  onClick={() => {
+                    setTipoLead(tipo)
+                    setSelecionado(null)
+                    setStatusFiltro('')
+                    setRegimeFiltro('')
+                    setPerfilFiltro('')
+                    setFinalidadeFiltro('')
+                  }}
+                  style={{
+                    borderColor: ativo ? 'var(--af-primary)' : 'transparent',
+                    background: ativo ? 'var(--af-primary-soft)' : 'transparent',
+                    color: ativo ? 'var(--af-primary)' : 'var(--af-muted)',
+                  }}
+                >
+                  {label}
+                </button>
+              )
+            })}
           </div>
-        ))}
-      </section>
+        )}
+      />
 
-      <section style={{ ...card, padding: 16, marginBottom: 16 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px,1.4fr) repeat(auto-fit, minmax(140px, 170px))', gap: 10, alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Search size={15} color={cor.ciano} />
-            <input value={busca} onChange={e => setBusca(e.target.value)} onKeyDown={e => e.key === 'Enter' && carregar()} placeholder={tipoLead === 'acesso_antecipado' ? 'Nome, escritório, cargo, telefone ou e-mail' : 'Nome, empresa, CNPJ, telefone ou e-mail'} style={{ ...inputStyle, flex: 1 }} />
+      <GlassCard padding={0} style={{ marginBottom: 12 }}>
+        <div className="leads-metrics">
+          {[
+            ['Total de leads', String(totais.total)],
+            ['Em acompanhamento', String(totais.aguardando)],
+            ['Convertidos', String(totais.convertidos)],
+          ].map(([label, value]) => (
+            <div key={label} className="leads-metric">
+              <span>{label}</span>
+              <strong>{value}</strong>
+            </div>
+          ))}
+        </div>
+      </GlassCard>
+
+      <GlassCard padding={12} style={{ marginBottom: 12 }}>
+        <div className="leads-filterbar">
+          <div className="leads-search">
+            <Search size={15} aria-hidden="true" />
+            <input
+              className="af-input"
+              value={busca}
+              onChange={e => setBusca(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && carregar()}
+              placeholder={tipoLead === 'acesso_antecipado' ? 'Nome, escritório, cargo, telefone ou e-mail' : 'Nome, empresa, CNPJ, telefone ou e-mail'}
+            />
           </div>
-          <select value={statusFiltro} onChange={e => setStatusFiltro(e.target.value)} style={inputStyle}>
+          <select className="af-select leads-filter" value={statusFiltro} onChange={e => setStatusFiltro(e.target.value)}>
             <option value="">Todos os status</option>
             {statusOpcoesAtuais.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
           </select>
           {tipoLead === 'reforma_tributaria' ? (
-            <select value={regimeFiltro} onChange={e => setRegimeFiltro(e.target.value)} style={inputStyle}>
+            <select className="af-select leads-filter" value={regimeFiltro} onChange={e => setRegimeFiltro(e.target.value)}>
               <option value="">Todos os regimes</option>
               {REGIMES.map(r => <option key={r} value={r}>{r}</option>)}
             </select>
           ) : (
             <>
-              <select value={perfilFiltro} onChange={e => setPerfilFiltro(e.target.value)} style={inputStyle}>
+              <select className="af-select leads-filter" value={perfilFiltro} onChange={e => setPerfilFiltro(e.target.value)}>
                 <option value="">Todos os perfis</option>
                 {PERFIS.map(([valor, label]) => <option key={valor} value={valor}>{label}</option>)}
               </select>
-              <select value={finalidadeFiltro} onChange={e => setFinalidadeFiltro(e.target.value)} style={inputStyle}>
+              <select className="af-select leads-filter leads-filter-wide" value={finalidadeFiltro} onChange={e => setFinalidadeFiltro(e.target.value)}>
                 <option value="">Todas as finalidades</option>
                 {FINALIDADES.map(([valor, label]) => <option key={valor} value={valor}>{label}</option>)}
               </select>
             </>
           )}
-          <input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} style={inputStyle} />
-          <input type="date" value={dataFim} onChange={e => setDataFim(e.target.value)} style={inputStyle} />
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button type="button" onClick={carregar} style={{ border: 0, borderRadius: 9, padding: '10px 14px', background: 'linear-gradient(90deg, #0ea5e9, #06b6d4)', color: '#fff', fontWeight: 800, cursor: 'pointer' }}>Filtrar</button>
-            <button type="button" onClick={exportarExcel} disabled={!leads.length} style={{ border: `1px solid ${cor.bordaForte}`, borderRadius: 9, padding: '10px 12px', background: 'transparent', color: cor.texto, fontWeight: 800, cursor: leads.length ? 'pointer' : 'not-allowed', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <input aria-label="Data inicial" className="af-input leads-date" type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} />
+          <input aria-label="Data final" className="af-input leads-date" type="date" value={dataFim} onChange={e => setDataFim(e.target.value)} />
+          <div className="leads-filter-actions">
+            <button type="button" className="af-btn af-btn-primary" onClick={carregar} disabled={carregando}>
+              <Search size={14} /> {carregando ? 'Filtrando...' : 'Filtrar'}
+            </button>
+            <button type="button" className="af-btn af-btn-secondary" onClick={exportarExcel} disabled={!leads.length}>
               <Download size={14} /> Excel
             </button>
           </div>
         </div>
-      </section>
+      </GlassCard>
 
-      <section style={{ ...card, overflow: 'hidden' }}>
+      <GlassCard
+        title={tipoLead === 'acesso_antecipado' ? 'Solicitações de acesso antecipado' : 'Leads do diagnóstico da Reforma Tributária'}
+        titleRight={<span className="af-help">{carregando ? 'Atualizando...' : `${leads.length} ${leads.length === 1 ? 'lead' : 'leads'}`}</span>}
+        padding={0}
+      >
         {erro ? (
-          <div style={{ padding: 24, color: '#f87171' }}>{erro}</div>
+          <div className="af-alert af-alert-danger" style={{ margin: 14 }}>{erro}</div>
         ) : !leads.length ? (
-          <div style={{ padding: 34, textAlign: 'center', color: cor.textoFraco }}>
-            {carregando ? 'Carregando...' : 'Nenhum lead encontrado para os filtros selecionados.'}
-          </div>
+          <EmptyState
+            icon={<UsersRound size={22} />}
+            title={carregando ? 'Carregando leads...' : 'Nenhum lead encontrado'}
+            description={carregando ? 'Aguarde enquanto atualizamos a listagem.' : 'Tente ajustar ou remover alguns dos filtros selecionados.'}
+            style={{ padding: '32px 20px' }}
+          />
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ minWidth: 1100, width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+          <div className="af-table-wrap">
+            <table className="af-table" style={{ minWidth: 1100, fontSize: 12.5 }}>
               <thead>
                 <tr style={{ background: cor.cabecalhoTabela }}>
                   {(tipoLead === 'acesso_antecipado'
@@ -519,25 +537,142 @@ export default function LeadsReformaTributariaPage() {
             </table>
           </div>
         )}
-      </section>
+      </GlassCard>
+
+      <style>{`
+        .leads-segmented {
+          display: inline-flex;
+          align-items: center;
+          gap: 3px;
+          padding: 3px;
+          border: 1px solid var(--af-border);
+          border-radius: 11px;
+          background: var(--af-surface-2);
+        }
+        .leads-tab {
+          min-height: 32px;
+          padding: 6px 11px;
+          border: 1px solid transparent;
+          border-radius: 8px;
+          font: inherit;
+          font-size: 12.5px;
+          font-weight: 650;
+          line-height: 1;
+          white-space: nowrap;
+          cursor: pointer;
+          transition: background .16s ease, border-color .16s ease, color .16s ease;
+        }
+        .leads-metrics {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+        .leads-metric {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 16px;
+          min-height: 62px;
+          padding: 11px 15px;
+        }
+        .leads-metric + .leads-metric {
+          border-left: 1px solid var(--af-border);
+        }
+        .leads-metric span {
+          color: var(--af-muted);
+          font-size: 10.5px;
+          font-weight: 700;
+          letter-spacing: .035em;
+          text-transform: uppercase;
+        }
+        .leads-metric strong {
+          color: var(--af-text);
+          font-size: 20px;
+          font-weight: 750;
+          line-height: 1;
+        }
+        .leads-filterbar {
+          display: flex;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+        .leads-search {
+          position: relative;
+          flex: 1 1 260px;
+          min-width: 220px;
+        }
+        .leads-search svg {
+          position: absolute;
+          top: 50%;
+          left: 11px;
+          z-index: 1;
+          color: var(--af-primary);
+          transform: translateY(-50%);
+          pointer-events: none;
+        }
+        .leads-search .af-input {
+          width: 100%;
+          padding-left: 34px;
+        }
+        .leads-filter {
+          flex: 0 1 174px;
+          width: 174px;
+        }
+        .leads-filter-wide {
+          flex-basis: 192px;
+          width: 192px;
+        }
+        .leads-date {
+          flex: 0 1 146px;
+          width: 146px;
+        }
+        .leads-filter-actions {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-left: auto;
+        }
+        @media (max-width: 760px) {
+          .leads-segmented { width: 100%; }
+          .leads-tab { flex: 1; }
+          .leads-metrics { grid-template-columns: 1fr; }
+          .leads-metric + .leads-metric {
+            border-top: 1px solid var(--af-border);
+            border-left: 0;
+          }
+          .leads-search,
+          .leads-filter,
+          .leads-filter-wide,
+          .leads-date {
+            flex: 1 1 100%;
+            width: 100%;
+          }
+          .leads-filter-actions {
+            width: 100%;
+            margin-left: 0;
+          }
+          .leads-filter-actions .af-btn { flex: 1; }
+        }
+      `}</style>
 
       {selecionado && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.55)', display: 'flex', justifyContent: 'flex-end', zIndex: 60 }} onClick={() => setSelecionado(null)}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.55)', backdropFilter: 'blur(3px)', display: 'flex', justifyContent: 'flex-end', zIndex: 60 }} onClick={() => setSelecionado(null)}>
           <div
-            style={{ width: 'min(460px, 100%)', height: '100%', background: escuro ? '#0b1220' : '#fff', borderLeft: `1px solid ${cor.borda}`, padding: 22, overflowY: 'auto', color: cor.texto }}
+            style={{ width: 'min(440px, 100%)', height: '100%', background: escuro ? '#0b1220' : '#fff', borderLeft: `1px solid ${cor.borda}`, boxShadow: '-18px 0 42px rgba(2,6,23,.18)', overflowY: 'auto', color: cor.texto }}
             onClick={e => e.stopPropagation()}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div style={{ position: 'sticky', top: 0, zIndex: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '16px 18px', borderBottom: `1px solid ${cor.borda}`, background: escuro ? 'rgba(11,18,32,.96)' : 'rgba(255,255,255,.96)', backdropFilter: 'blur(12px)' }}>
               <div>
-                <h2 style={{ margin: 0, fontSize: 19 }}>{selecionado.nome}</h2>
+                <h2 style={{ margin: 0, fontSize: 17, fontWeight: 750 }}>{selecionado.nome}</h2>
                 <p style={{ margin: '4px 0 0', color: cor.textoSuave, fontSize: 13 }}>
                   {selecionado.empresa || (selecionado.tipo_lead === 'acesso_antecipado' ? perfilLabel(selecionado.perfil_profissional) : '')}
                 </p>
               </div>
-              <button type="button" onClick={() => setSelecionado(null)} style={{ border: 0, background: 'transparent', cursor: 'pointer', color: cor.textoFraco }}><X size={18} /></button>
+              <button type="button" aria-label="Fechar detalhes" onClick={() => setSelecionado(null)} style={{ width: 32, height: 32, border: `1px solid ${cor.borda}`, borderRadius: 9, background: 'transparent', cursor: 'pointer', color: cor.textoFraco, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><X size={16} /></button>
             </div>
 
-            <div style={{ marginTop: 18, display: 'grid', gap: 8, fontSize: 13 }}>
+            <div style={{ padding: '16px 18px 22px' }}>
+            <div style={{ display: 'grid', gap: 8, padding: 13, border: `1px solid ${cor.borda}`, borderRadius: 11, background: escuro ? 'rgba(2,6,23,.24)' : '#f8fbfd', fontSize: 13 }}>
               <div><strong>WhatsApp:</strong> {formatarTelefoneBr(selecionado.telefone)}</div>
               <div><strong>E-mail:</strong> {selecionado.email}</div>
               {selecionado.tipo_lead === 'acesso_antecipado' ? (
@@ -615,6 +750,7 @@ export default function LeadsReformaTributariaPage() {
               <button type="button" onClick={salvarObservacoes} disabled={salvando} style={{ marginTop: 8, border: 0, borderRadius: 9, padding: '9px 14px', background: 'linear-gradient(90deg, #0ea5e9, #06b6d4)', color: '#fff', fontWeight: 800, cursor: 'pointer', opacity: salvando ? .7 : 1 }}>
                 Salvar observações
               </button>
+            </div>
             </div>
           </div>
         </div>

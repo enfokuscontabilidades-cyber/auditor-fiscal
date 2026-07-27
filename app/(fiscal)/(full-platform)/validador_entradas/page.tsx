@@ -4560,7 +4560,7 @@ export default function ValidadorPage() {
 
       {/* ═══════════════════ RESUMO POR CFOP ═══════════════════ */}
       {modulo==="cfop"&&<>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+        <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr)",gap:20}}>
 
           {/* CFOP ENTRADAS */}
           <div style={{...S.card,overflow:"hidden"}}>

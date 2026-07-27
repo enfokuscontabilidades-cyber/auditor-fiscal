@@ -668,6 +668,149 @@ export interface SnReceitaMensal {
 
 export type SnModoServico = 'anexo_fixo' | 'fator_r'
 
+// Catálogo jurídico global e versionado para enquadramento indicativo por CNAE.
+// Diferente das configurações abaixo, estas regras não pertencem a uma empresa/org.
+export type TributarioCnaeTipoCorrespondencia = 'exato' | 'prefixo' | 'secao' | 'divisao' | 'grupo'
+export type TributarioCnaeTratamento = 'anexo_i' | 'anexo_ii' | 'anexo_iii' | 'anexo_iv' | 'fator_r' | 'inconclusivo'
+export type TributarioCnaeNatureza = 'comercio' | 'industria' | 'servico' | 'construcao' | 'transporte' | 'agropecuaria' | 'extracao' | 'financeira' | 'administracao_publica' | 'outros'
+export type TributarioCnaeConfianca = 'alta' | 'media' | 'baixa'
+
+export interface TributarioCnaeFonte {
+  titulo: string
+  referencia: string
+  url: string
+}
+
+export type TributarioCnaeEfeitoEntendimento =
+  | 'confirma_regra'
+  | 'condiciona_enquadramento'
+  | 'distingue_receitas'
+  | 'risco_exclusao'
+
+export interface TributarioCnaeEntendimento {
+  tipo: 'solucao_consulta_cosit' | 'solucao_consulta_disit' | 'solucao_divergencia' | 'ato_interpretativo'
+  identificacao: string
+  data_publicacao: string
+  efeito: TributarioCnaeEfeitoEntendimento
+  titulo: string
+  resumo: string
+  aplicacao: string[]
+  fonte: TributarioCnaeFonte
+}
+
+export interface TributarioCnaeExcecao {
+  tratamento: TributarioCnaeTratamento
+  anexo: 'I' | 'II' | 'III' | 'IV' | 'V'
+  titulo: string
+  quando: string
+  explicacao: string
+  alertas: string[]
+  fontes: TributarioCnaeFonte[]
+}
+
+export interface TributarioCnaeRegra {
+  id: string
+  codigo_regra: string
+  versao: number
+  tipo_correspondencia: TributarioCnaeTipoCorrespondencia
+  padroes: string[]
+  prioridade: number
+  natureza: TributarioCnaeNatureza
+  tratamento_principal: TributarioCnaeTratamento
+  anexo_principal: 'I' | 'II' | 'III' | 'IV' | 'V' | null
+  titulo: string
+  explicacao: string
+  confianca: TributarioCnaeConfianca
+  conclusivo: boolean
+  condicoes: string[]
+  alertas: string[]
+  excecoes: TributarioCnaeExcecao[]
+  entendimentos: TributarioCnaeEntendimento[]
+  fontes: TributarioCnaeFonte[]
+  vigencia_inicio: string
+  vigencia_fim: string | null
+  ativo: boolean
+  created_at: string
+  updated_at: string
+}
+
+export type TributarioServicoCnaeTipoCodigo = 'subitem_lc116' | 'codigo_nacional' | 'codigo_municipal'
+
+export interface TributarioServicoCnaeVinculo {
+  id: string
+  codigo_regra: string
+  versao: number
+  tipo_codigo: TributarioServicoCnaeTipoCodigo
+  codigo_padrao: string
+  municipio_codigo: string | null
+  cnaes: string[]
+  palavras_incluir: string[]
+  palavras_excluir: string[]
+  prioridade: number
+  confianca: TributarioCnaeConfianca
+  conclusivo: boolean
+  explicacao: string
+  fontes: TributarioCnaeFonte[]
+  vigencia_inicio: string
+  vigencia_fim: string | null
+  ativo: boolean
+  created_at: string
+  updated_at: string
+}
+
+// Catálogo jurídico global e versionado para tratamento tributário por NCM.
+// O NCM identifica a mercadoria; o resultado depende também do papel da
+// empresa e da operação realizada.
+export type TributarioNcmTributo = 'pis' | 'cofins' | 'icms' | 'ipi'
+export type TributarioNcmTipoCorrespondencia = 'exato' | 'prefixo'
+export type TributarioNcmPerfil = 'fabricante' | 'importador' | 'atacadista' | 'varejista' | 'consumidor_final'
+export type TributarioNcmOperacao = 'venda_producao' | 'importacao' | 'revenda' | 'venda_consumidor' | 'qualquer'
+export type TributarioNcmTratamento =
+  | 'tributacao_concentrada'
+  | 'aliquota_zero'
+  | 'substituicao_tributaria'
+  | 'suspensao'
+  | 'isencao'
+  | 'tributacao_normal'
+  | 'inconclusivo'
+
+export interface TributarioNcmResultadoRegra {
+  perfis: Array<TributarioNcmPerfil | 'qualquer'>
+  operacoes: TributarioNcmOperacao[]
+  tratamento: TributarioNcmTratamento
+  titulo: string
+  explicacao: string
+  orientacao_simples: string
+  aliquota_pis?: number | null
+  aliquota_cofins?: number | null
+}
+
+export interface TributarioNcmRegra {
+  id: string
+  codigo_regra: string
+  versao: number
+  tributos: TributarioNcmTributo[]
+  tipo_correspondencia: TributarioNcmTipoCorrespondencia
+  padroes: string[]
+  padroes_excluir: string[]
+  prioridade: number
+  categoria: string
+  titulo: string
+  explicacao: string
+  descricao_obrigatoria: boolean
+  palavras_incluir: string[]
+  palavras_excluir: string[]
+  resultados: TributarioNcmResultadoRegra[]
+  condicoes: string[]
+  alertas: string[]
+  fontes: TributarioCnaeFonte[]
+  vigencia_inicio: string
+  vigencia_fim: string | null
+  ativo: boolean
+  created_at: string
+  updated_at: string
+}
+
 export interface SnConfigServicosEmpresa {
   id: string
   org_id: string
@@ -685,9 +828,17 @@ export interface SnConfigServicoAtividade {
   org_id: string
   empresa_id: string
   codigo_servico: string
+  chave_servico?: string
+  origem_codigo_servico?: 'lista_nacional' | 'municipal' | 'legado'
+  municipio_codigo?: string
   descricao_servico?: string
   modo_tributacao: 'anexo_fixo' | 'fator_r'
   anexo_fixo?: 'III' | 'IV' | 'V'
+  cnae_vinculado?: string
+  tratamento_sugerido?: TributarioCnaeTratamento
+  anexo_sugerido?: 'I' | 'II' | 'III' | 'IV' | 'V'
+  confianca_sugestao?: TributarioCnaeConfianca
+  regra_cnae_versao?: string
   observacoes?: string
   created_at: string
   updated_at: string
