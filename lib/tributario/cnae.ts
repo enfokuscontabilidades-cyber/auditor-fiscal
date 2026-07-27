@@ -105,6 +105,11 @@ export const FONTES_CNAE = {
     referencia: 'Arts. 25 e 26 — segregação de receitas e Fator R',
     url: 'https://normas.receita.fazenda.gov.br/sijut2consulta/link.action?idAto=92278',
   },
+  ripi: {
+    titulo: 'Decreto nº 7.212/2010 — RIPI',
+    referencia: 'Art. 5º, I e II — preparo de alimentos em restaurantes, bares e similares',
+    url: 'https://www.planalto.gov.br/ccivil_03/_ato2007-2010/2010/decreto/d7212.htm',
+  },
   perguntao: {
     titulo: 'Perguntas e Respostas do Simples Nacional',
     referencia: 'Item 5.11 — Fator R',
@@ -212,7 +217,7 @@ export const FONTES_CNAE = {
   },
 } satisfies Record<string, FonteLegalCnae>
 
-const VERSAO_REGRA = 'SN-CNAE-2026.07.4'
+const VERSAO_REGRA = 'SN-CNAE-2026.07.5'
 
 const CNAES_ANEXO_IV_EXATOS = new Set([
   '6911701', // serviços advocatícios
@@ -231,7 +236,18 @@ const CNAES_FATOR_R_EXATOS = new Set([
   '9313100', // atividades de condicionamento físico
   '6822600', // gestão e administração da propriedade imobiliária
   '7410203', // design de produto
+  '4512901', // representantes e agentes do comércio de veículos
+  '4530706', // representantes e agentes do comércio de autopeças
+  '4542101', // representantes e agentes do comércio de motocicletas e peças
 ])
+
+const CNAES_COMERCIO_AUTOMOTIVO = new Set([
+  '4511101', '4511102', '4511103', '4511104', '4511105', '4511106',
+  '4530701', '4530702', '4530703', '4530704', '4530705',
+  '4541201', '4541202', '4541203', '4541204', '4541205', '4541206', '4541207',
+])
+
+const CNAES_CONSIGNACAO_AUTOMOTIVA = new Set(['4512902', '4542102'])
 
 const CNAES_CONSTRUCAO_ANEXO_III_EXATOS = new Set([
   '4321500', // instalação e manutenção elétrica
@@ -1016,6 +1032,106 @@ export function analisarCnae(cnae: CnaeIbge): EnquadramentoCnae {
       ),
       fontes: [FONTES_CNAE.ibge, FONTES_CNAE.lc123, FONTES_CNAE.resolucao140, FONTES_CNAE.perguntao],
     }
+  }
+
+  if (divisao === '56') {
+    return {
+      ...baseEnquadramento(
+        'comercio', 'anexo_i', 'I', 'Regra principal: fornecimento de alimentação no Anexo I',
+        'A receita de venda e fornecimento de alimentos e bebidas por restaurantes, bares, lanchonetes, estabelecimentos ambulantes, cozinhas, cantinas e similares é, em regra, tributada pelo Anexo I.',
+        'alta', true,
+        [
+          'Confirmar que a receita decorre do fornecimento de alimentos ou bebidas ao consumidor ou para consumo pelos destinatários.',
+          'O preparo não deve resultar em produto industrializado acondicionado em embalagem de apresentação.',
+          'Segregar receitas autônomas de entretenimento, organização de eventos, locação ou outros serviços.',
+        ],
+        [
+          'Fabricação industrial própria, inclusive de bebidas ou alimentos acondicionados em embalagem de apresentação, pode exigir segregação no Anexo II.',
+          'A denominação “serviço de alimentação” na CNAE não desloca, por si só, a receita principal para o Anexo III.',
+        ],
+      ),
+      fontes: [FONTES_CNAE.ibge, FONTES_CNAE.lc123, FONTES_CNAE.resolucao140, FONTES_CNAE.ripi],
+      excecoes: [
+        {
+          tratamento: 'anexo_ii',
+          anexo: 'II',
+          titulo: 'Exceção: produto industrializado pelo estabelecimento',
+          quando: 'Quando houver fabricação de produto próprio caracterizada como industrialização, inclusive alimento ou bebida acondicionado em embalagem de apresentação.',
+          explicacao: 'A receita da venda do produto industrializado pelo próprio contribuinte deve ser segregada no Anexo II.',
+          alertas: ['Não aplicar esta exceção ao simples preparo de refeições e bebidas abrangido pelas exclusões do art. 5º do RIPI.'],
+          fontes: [FONTES_CNAE.lc123, FONTES_CNAE.resolucao140, FONTES_CNAE.ripi],
+        },
+        {
+          tratamento: 'anexo_iii',
+          anexo: 'III',
+          titulo: 'Segregação: entretenimento ou serviço autônomo',
+          quando: 'Quando houver receita própria e destacável de apresentação artística, entretenimento, produção ou organização de evento, além do fornecimento de alimentação.',
+          explicacao: 'A parcela correspondente ao serviço autônomo deve ser analisada e segregada segundo sua natureza; produções artísticas e culturais admitidas no Simples são, em regra, tratadas no Anexo III.',
+          alertas: ['A simples existência de música ambiente ou entretenimento acessório não autoriza presumir uma segunda receita sem verificar a cobrança e o objeto efetivo.'],
+          fontes: [FONTES_CNAE.lc123, FONTES_CNAE.resolucao140],
+        },
+      ],
+    }
+  }
+
+  if (divisao === '55') {
+    return {
+      ...baseEnquadramento(
+        'servico', 'anexo_iii', 'III', 'Regra principal: hospedagem no Anexo III',
+        'As receitas próprias de hospedagem e alojamento são, em regra, tributadas pelo Anexo III como serviços não sujeitos ao Fator R.',
+        'alta', true,
+        [
+          'Confirmar que a receita corresponde à hospedagem ou ao alojamento.',
+          'Segregar a venda autônoma de mercadorias, alimentos e bebidas quando houver cobrança destacada.',
+        ],
+      ),
+      excecoes: [{
+        tratamento: 'anexo_i',
+        anexo: 'I',
+        titulo: 'Segregação: venda autônoma de alimentos, bebidas ou mercadorias',
+        quando: 'Quando o estabelecimento auferir receita destacável de fornecimento de alimentação, bebidas ou revenda de mercadorias, separada da hospedagem.',
+        explicacao: 'A receita comercial deve ser segregada no Anexo I, sem alterar o Anexo III aplicável à hospedagem.',
+        alertas: ['Verificar a composição do preço e a documentação fiscal antes de separar receitas incluídas na diária.'],
+        fontes: [FONTES_CNAE.lc123, FONTES_CNAE.resolucao140],
+      }],
+    }
+  }
+
+  if (CNAES_CONSIGNACAO_AUTOMOTIVA.has(codigo)) {
+    return baseEnquadramento(
+      'comercio', 'inconclusivo', null, 'Consignação de veículos: confirmar a modalidade contratual',
+      'O tratamento varia conforme a venda seja realizada por contrato estimatório, tributável pelo Anexo I sobre o produto da venda, ou por contrato de comissão, cuja comissão é tributável pelo Anexo III.',
+      'alta', false,
+      [
+        'Contrato estimatório e venda em nome próprio: Anexo I sobre o produto da venda.',
+        'Contrato de comissão e venda em nome próprio: Anexo III sobre a comissão.',
+        'Distinguir essas modalidades da simples intermediação em nome de terceiro.',
+      ],
+    )
+  }
+
+  if (CNAES_COMERCIO_AUTOMOTIVO.has(codigo)) {
+    return baseEnquadramento(
+      'comercio', 'anexo_i', 'I', 'Comércio automotivo — indicação de Anexo I',
+      'A receita de venda, por conta própria, de veículos, motocicletas, peças e acessórios novos ou usados é tributada pelo Anexo I.',
+      'alta', true,
+      [
+        'A indicação vale para compra e venda por conta própria.',
+        'Reparação, representação, intermediação e consignação devem ser segregadas e analisadas separadamente.',
+      ],
+    )
+  }
+
+  if (codigo.startsWith('45200') || codigo === '4543900') {
+    return baseEnquadramento(
+      'servico', 'anexo_iii', 'III', 'Reparação automotiva — indicação de Anexo III',
+      'A receita dos serviços de manutenção e reparação de veículos automotores ou motocicletas é, em regra, tributada pelo Anexo III.',
+      'alta', true,
+      [
+        'Segregar as peças ou mercadorias vendidas autonomamente no Anexo I.',
+        'Confirmar a documentação fiscal e a composição da receita quando peças forem aplicadas no reparo.',
+      ],
+    )
   }
 
   if (divisao === '46' || divisao === '47' || texto.includes('COMÉRCIO ATACADISTA') || texto.includes('COMÉRCIO VAREJISTA')) {

@@ -3,7 +3,7 @@
 import { FormEvent, useState } from 'react'
 import { AlertTriangle, BookOpen, CheckCircle2, Info, PackageSearch, Search } from 'lucide-react'
 import GlassCard from '@/components/ui/GlassCard'
-import type { TributarioNcmOperacao, TributarioNcmPerfil, TributarioNcmTratamento } from '@/lib/types'
+import type { TributarioNcmOperacao, TributarioNcmPerfil, TributarioNcmPosicaoIcms, TributarioNcmTratamento } from '@/lib/types'
 import type { ConsultaNcmResultado } from '@/lib/tributario/ncm'
 
 interface ConsultaNcmResponse {
@@ -42,11 +42,22 @@ function formatarAliquota(valor: number | null): string {
   return `${valor.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`
 }
 
+function formatarCest(valor: string): string {
+  const codigo = valor.replace(/\D/g, '')
+  return codigo.length === 7 ? `${codigo.slice(0, 2)}.${codigo.slice(2, 5)}.${codigo.slice(5)}` : valor
+}
+
+const UFS = ['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO']
+
 export default function ConsultaNcm() {
   const [ncm, setNcm] = useState('')
   const [descricao, setDescricao] = useState('')
   const [perfil, setPerfil] = useState<TributarioNcmPerfil>('varejista')
   const [operacao, setOperacao] = useState<TributarioNcmOperacao>('revenda')
+  const [cest, setCest] = useState('')
+  const [ufOrigem, setUfOrigem] = useState('GO')
+  const [ufDestino, setUfDestino] = useState('GO')
+  const [posicaoIcms, setPosicaoIcms] = useState<TributarioNcmPosicaoIcms>('substituido')
   const [resultado, setResultado] = useState<ConsultaNcmResponse | null>(null)
   const [erro, setErro] = useState('')
   const [carregando, setCarregando] = useState(false)
@@ -59,10 +70,22 @@ export default function ConsultaNcm() {
 
   function alterarPerfil(novoPerfil: TributarioNcmPerfil) {
     setPerfil(novoPerfil)
-    if (novoPerfil === 'fabricante') setOperacao('venda_producao')
-    else if (novoPerfil === 'importador') setOperacao('importacao')
-    else if (novoPerfil === 'consumidor_final') setOperacao('venda_consumidor')
-    else setOperacao('revenda')
+    if (novoPerfil === 'fabricante') {
+      setOperacao('venda_producao')
+      setPosicaoIcms('substituto')
+    } else if (novoPerfil === 'importador') {
+      setOperacao('importacao')
+      setPosicaoIcms('substituto')
+    } else if (novoPerfil === 'varejista') {
+      setOperacao('revenda')
+      setPosicaoIcms('substituido')
+    } else if (novoPerfil === 'consumidor_final') {
+      setOperacao('venda_consumidor')
+      setPosicaoIcms('nao_informada')
+    } else {
+      setOperacao('revenda')
+      setPosicaoIcms('nao_informada')
+    }
   }
 
   async function consultar(event: FormEvent) {
@@ -76,8 +99,16 @@ export default function ConsultaNcm() {
     setCarregando(true)
     setErro('')
     try {
-      const params = new URLSearchParams({ ncm: codigo, perfil, operacao })
+      const params = new URLSearchParams({
+        ncm: codigo,
+        perfil,
+        operacao,
+        uf_origem: ufOrigem,
+        uf_destino: ufDestino,
+        posicao_icms: posicaoIcms,
+      })
       if (descricao.trim()) params.set('descricao', descricao.trim())
+      if (cest.trim()) params.set('cest', cest.trim())
       const response = await fetch(`/api/consulta-tributaria/ncm?${params.toString()}`)
       const data = await response.json() as ConsultaNcmResponse
       if (!response.ok) throw new Error(data.error || 'Não foi possível consultar o NCM.')
@@ -137,6 +168,39 @@ export default function ConsultaNcm() {
               <Search size={16} /> {carregando ? 'Consultando...' : 'Consultar NCM'}
             </button>
           </div>
+
+          <div style={{ marginTop: 2, padding: '11px 12px', borderRadius: 10, border: '1px solid var(--af-border)', background: 'var(--af-surface-2)', display: 'grid', gap: 9 }}>
+            <div style={{ color: 'var(--af-text)', fontSize: 10.5, fontWeight: 800 }}>Contexto para ICMS-ST</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(150px, 1fr) minmax(110px, 0.55fr) minmax(110px, 0.55fr) minmax(220px, 1.25fr)', gap: 9 }}>
+              <label style={{ display: 'grid', gap: 5, color: 'var(--af-muted)', fontSize: 9.5, fontWeight: 700 }}>
+                CEST DA MERCADORIA
+                <input value={cest} onChange={event => setCest(event.target.value)} placeholder="Ex.: 16.001.00" inputMode="numeric" style={inputStyle} />
+              </label>
+              <label style={{ display: 'grid', gap: 5, color: 'var(--af-muted)', fontSize: 9.5, fontWeight: 700 }}>
+                UF DE ORIGEM
+                <select value={ufOrigem} onChange={event => setUfOrigem(event.target.value)} style={inputStyle}>
+                  {UFS.map(uf => <option key={uf} value={uf}>{uf}</option>)}
+                </select>
+              </label>
+              <label style={{ display: 'grid', gap: 5, color: 'var(--af-muted)', fontSize: 9.5, fontWeight: 700 }}>
+                UF DE DESTINO
+                <select value={ufDestino} onChange={event => setUfDestino(event.target.value)} style={inputStyle}>
+                  {UFS.map(uf => <option key={uf} value={uf}>{uf}</option>)}
+                </select>
+              </label>
+              <label style={{ display: 'grid', gap: 5, color: 'var(--af-muted)', fontSize: 9.5, fontWeight: 700 }}>
+                POSIÇÃO NA OPERAÇÃO
+                <select value={posicaoIcms} onChange={event => setPosicaoIcms(event.target.value as TributarioNcmPosicaoIcms)} style={inputStyle}>
+                  <option value="nao_informada">Ainda não identificada</option>
+                  <option value="substituto">Substituto — retém/recolhe o ICMS-ST</option>
+                  <option value="substituido">Substituído — recebe com ICMS retido</option>
+                </select>
+              </label>
+            </div>
+            <div style={{ color: 'var(--af-muted)', fontSize: 10, lineHeight: 1.45 }}>
+              A posição sugerida pelo perfil é apenas um ponto de partida. Contrato, fornecedor, protocolo aplicável e natureza da operação podem alterar a responsabilidade.
+            </div>
+          </div>
         </form>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 11, color: 'var(--af-muted)', fontSize: 11, lineHeight: 1.5 }}>
           <Info size={14} style={{ flexShrink: 0, marginTop: 1 }} />
@@ -160,6 +224,12 @@ export default function ConsultaNcm() {
               </h2>
               {resultado.resultado.classificacao_oficial && descricao && (
                 <div style={{ marginTop: 4, color: 'var(--af-muted)', fontSize: 10.5 }}>Produto informado: {descricao}</div>
+              )}
+              {(resultado.resultado.contexto_icms.cest || resultado.resultado.contexto_icms.uf_destino) && (
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 7 }}>
+                  {resultado.resultado.contexto_icms.cest && <span style={{ padding: '3px 7px', borderRadius: 6, background: 'var(--af-surface-2)', color: 'var(--af-muted)', fontSize: 9.8 }}>CEST {formatarCest(resultado.resultado.contexto_icms.cest)}</span>}
+                  {resultado.resultado.contexto_icms.uf_origem && <span style={{ padding: '3px 7px', borderRadius: 6, background: 'var(--af-surface-2)', color: 'var(--af-muted)', fontSize: 9.8 }}>{resultado.resultado.contexto_icms.uf_origem} → {resultado.resultado.contexto_icms.uf_destino}</span>}
+                </div>
               )}
             </div>
             <a href={resultado.fonte.url} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', gap: 5, alignItems: 'center', color: 'var(--af-primary)', textDecoration: 'none', fontSize: 10.5, fontWeight: 700 }}>
@@ -188,6 +258,14 @@ export default function ConsultaNcm() {
                       <div style={{ padding: '7px 10px', borderRadius: 8, background: 'var(--af-surface)', fontSize: 10.5 }}><strong>PIS:</strong> {formatarAliquota(item.aliquota_pis)}</div>
                       <div style={{ padding: '7px 10px', borderRadius: 8, background: 'var(--af-surface)', fontSize: 10.5 }}><strong>Cofins:</strong> {formatarAliquota(item.aliquota_cofins)}</div>
                       <div style={{ padding: '7px 10px', borderRadius: 8, background: 'var(--af-surface)', color: 'var(--af-muted)', fontSize: 10.5 }}>Alíquotas nominais; conferir exceções e bases reduzidas.</div>
+                    </div>
+                  )}
+
+                  {item.tributos.includes('icms') && (item.descricao_legal || item.cests.length > 0) && (
+                    <div style={{ marginTop: 11, padding: '10px 11px', borderRadius: 9, border: '1px solid var(--af-border)', background: 'var(--af-surface)' }}>
+                      <div style={{ color: 'var(--af-muted)', fontSize: 9.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Enquadramento estadual validado</div>
+                      {item.descricao_legal && <div style={{ marginTop: 4, color: 'var(--af-text-soft)', fontSize: 10.5, lineHeight: 1.45 }}>{item.descricao_legal}</div>}
+                      {item.cests.length > 0 && <div style={{ marginTop: 5, color: 'var(--af-muted)', fontSize: 9.8 }}>CESTs alcançados em Goiás: {item.cests.map(formatarCest).join(', ')}</div>}
                     </div>
                   )}
 

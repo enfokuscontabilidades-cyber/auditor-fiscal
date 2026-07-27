@@ -765,6 +765,7 @@ export type TributarioNcmTributo = 'pis' | 'cofins' | 'icms' | 'ipi'
 export type TributarioNcmTipoCorrespondencia = 'exato' | 'prefixo'
 export type TributarioNcmPerfil = 'fabricante' | 'importador' | 'atacadista' | 'varejista' | 'consumidor_final'
 export type TributarioNcmOperacao = 'venda_producao' | 'importacao' | 'revenda' | 'venda_consumidor' | 'qualquer'
+export type TributarioNcmPosicaoIcms = 'substituto' | 'substituido' | 'nao_informada'
 export type TributarioNcmTratamento =
   | 'tributacao_concentrada'
   | 'aliquota_zero'
@@ -777,12 +778,22 @@ export type TributarioNcmTratamento =
 export interface TributarioNcmResultadoRegra {
   perfis: Array<TributarioNcmPerfil | 'qualquer'>
   operacoes: TributarioNcmOperacao[]
+  posicoes_icms?: TributarioNcmPosicaoIcms[]
   tratamento: TributarioNcmTratamento
   titulo: string
   explicacao: string
   orientacao_simples: string
   aliquota_pis?: number | null
   aliquota_cofins?: number | null
+}
+
+export interface TributarioNcmCestCorrespondencia {
+  cests: string[]
+  tipo_correspondencia: TributarioNcmTipoCorrespondencia
+  padroes: string[]
+  padroes_excluir?: string[]
+  palavras_incluir?: string[]
+  palavras_excluir?: string[]
 }
 
 export interface TributarioNcmRegra {
@@ -800,6 +811,11 @@ export interface TributarioNcmRegra {
   descricao_obrigatoria: boolean
   palavras_incluir: string[]
   palavras_excluir: string[]
+  cests?: string[]
+  correspondencias_cest?: TributarioNcmCestCorrespondencia[]
+  ufs_destino?: string[]
+  exige_cest?: boolean
+  descricao_legal?: string | null
   resultados: TributarioNcmResultadoRegra[]
   condicoes: string[]
   alertas: string[]

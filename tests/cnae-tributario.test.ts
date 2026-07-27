@@ -42,6 +42,70 @@ describe('consulta tributária por CNAE', () => {
     expect(resultado.condicoes.join(' ')).toContain('revenda')
   })
 
+  test('classifica bares, restaurantes e lanchonetes no Anexo I como regra principal', () => {
+    const restaurante = analisarCnae(cnae({
+      id: '5611201', descricao: 'RESTAURANTES E SIMILARES', secao: 'I', divisao: '56', grupo: '561',
+    }))
+    const bar = analisarCnae(cnae({
+      id: '5611204', descricao: 'BARES E OUTROS ESTABELECIMENTOS ESPECIALIZADOS EM SERVIR BEBIDAS, SEM ENTRETENIMENTO', secao: 'I', divisao: '56', grupo: '561',
+    }))
+    const lanchonete = analisarCnae(cnae({
+      id: '5611203', descricao: 'LANCHONETES, CASAS DE CHA, DE SUCOS E SIMILARES', secao: 'I', divisao: '56', grupo: '561',
+    }))
+
+    for (const resultado of [restaurante, bar, lanchonete]) {
+      expect(resultado).toMatchObject({ natureza: 'comercio', tratamento: 'anexo_i', anexo_indicativo: 'I', confianca: 'alta', conclusivo: true })
+      expect(resultado.excecoes).toEqual(expect.arrayContaining([
+        expect.objectContaining({ tratamento: 'anexo_ii', anexo: 'II' }),
+        expect.objectContaining({ tratamento: 'anexo_iii', anexo: 'III' }),
+      ]))
+    }
+  })
+
+  test('aplica a mesma regra principal do Anexo I aos demais fornecimentos de alimentacao da divisao 56', () => {
+    const resultado = analisarCnae(cnae({
+      id: '5620104', descricao: 'FORNECIMENTO DE ALIMENTOS PREPARADOS PARA CONSUMO DOMICILIAR', secao: 'I', divisao: '56', grupo: '562',
+    }))
+
+    expect(resultado).toMatchObject({ tratamento: 'anexo_i', anexo_indicativo: 'I', conclusivo: true })
+    expect(resultado.alertas.join(' ')).toContain('embalagem')
+  })
+
+  test('classifica hospedagem no Anexo III e separa venda autonoma de alimentacao no Anexo I', () => {
+    const resultado = analisarCnae(cnae({
+      id: '5510801', descricao: 'HOTEIS', secao: 'I', divisao: '55', grupo: '551',
+    }))
+
+    expect(resultado).toMatchObject({ tratamento: 'anexo_iii', anexo_indicativo: 'III', conclusivo: true })
+    expect(resultado.excecoes[0]).toMatchObject({ tratamento: 'anexo_i', anexo: 'I' })
+  })
+
+  test('distingue comercio, reparacao e representacao no setor automotivo', () => {
+    const comercio = analisarCnae(cnae({
+      id: '4530703', descricao: 'COMERCIO A VAREJO DE PECAS E ACESSORIOS NOVOS PARA VEICULOS AUTOMOTORES', secao: 'G', divisao: '45', grupo: '453',
+    }))
+    const reparacao = analisarCnae(cnae({
+      id: '4520001', descricao: 'SERVICOS DE MANUTENCAO E REPARACAO MECANICA DE VEICULOS AUTOMOTORES', secao: 'G', divisao: '45', grupo: '452',
+    }))
+    const representacao = analisarCnae(cnae({
+      id: '4530706', descricao: 'REPRESENTANTES COMERCIAIS E AGENTES DO COMERCIO DE PECAS PARA VEICULOS', secao: 'G', divisao: '45', grupo: '453',
+    }))
+
+    expect(comercio).toMatchObject({ tratamento: 'anexo_i', anexo_indicativo: 'I', conclusivo: true })
+    expect(reparacao).toMatchObject({ tratamento: 'anexo_iii', anexo_indicativo: 'III', conclusivo: true })
+    expect(representacao).toMatchObject({ tratamento: 'fator_r', anexo_indicativo: null, conclusivo: true })
+  })
+
+  test('mantem consignacao automotiva inconclusiva ate identificar o contrato', () => {
+    const resultado = analisarCnae(cnae({
+      id: '4512902', descricao: 'COMERCIO SOB CONSIGNACAO DE VEICULOS AUTOMOTORES', secao: 'G', divisao: '45', grupo: '451',
+    }))
+
+    expect(resultado).toMatchObject({ tratamento: 'inconclusivo', anexo_indicativo: null, confianca: 'alta', conclusivo: false })
+    expect(resultado.condicoes.join(' ')).toContain('Anexo I')
+    expect(resultado.condicoes.join(' ')).toContain('Anexo III')
+  })
+
   test('indica Anexo II para venda de produção própria industrial', () => {
     const resultado = analisarCnae(cnae({
       id: '2222600', descricao: 'FABRICAÇÃO DE EMBALAGENS DE MATERIAL PLÁSTICO', secao: 'C', divisao: '22',
