@@ -1,9 +1,11 @@
 import type {
   TributarioCnaeFonte,
+  TributarioNcmContextoProduto,
   TributarioNcmContextoOperacao,
   TributarioNcmOperacao,
   TributarioNcmPerfil,
   TributarioNcmPosicaoIcms,
+  TributarioNcmRegimeApuracao,
   TributarioNcmRegra,
   TributarioNcmResultadoRegra,
   TributarioNcmTributo,
@@ -35,6 +37,9 @@ export interface ResultadoTributoNcm {
   orientacao_simples: string
   aliquota_pis: number | null
   aliquota_cofins: number | null
+  valor_pis_unidade: number | null
+  valor_cofins_unidade: number | null
+  unidade_medida: 'm3' | 'tonelada' | null
   cst_saida: string | null
   codigo_natureza_receita: string | null
   tabela_efd: string | null
@@ -54,6 +59,8 @@ export interface ConsultaNcmResultado {
   escopo_tributos: TributarioNcmTributo[]
   perfil: TributarioNcmPerfil
   operacao: TributarioNcmOperacao
+  regime_apuracao: TributarioNcmRegimeApuracao
+  contexto_produto: TributarioNcmContextoProduto
   contexto_operacao: TributarioNcmContextoOperacao
   contexto_icms: {
     cest: string
@@ -142,15 +149,22 @@ function resultadoAplicavel(
   perfil: TributarioNcmPerfil,
   operacao: TributarioNcmOperacao,
   posicaoIcms: TributarioNcmPosicaoIcms,
+  regimeApuracao: TributarioNcmRegimeApuracao,
+  contextoProduto: TributarioNcmContextoProduto,
   contextoOperacao: TributarioNcmContextoOperacao,
 ): TributarioNcmResultadoRegra | null {
   return regra.resultados.find(resultado => {
     const perfilCompativel = resultado.perfis.includes('qualquer') || resultado.perfis.includes(perfil)
     const operacaoCompativel = resultado.operacoes.includes('qualquer') || resultado.operacoes.includes(operacao)
+    const regimeCompativel = !resultado.regimes_apuracao?.length
+      || resultado.regimes_apuracao.includes(regimeApuracao)
+    const produtoCompativel = !resultado.contextos_produto?.length
+      || resultado.contextos_produto.includes(contextoProduto)
     const posicaoCompativel = !resultado.posicoes_icms?.length || resultado.posicoes_icms.includes(posicaoIcms)
     const contextoCompativel = !resultado.contextos_operacao?.length
       || resultado.contextos_operacao.includes(contextoOperacao)
-    return perfilCompativel && operacaoCompativel && posicaoCompativel && contextoCompativel
+    return perfilCompativel && operacaoCompativel && regimeCompativel
+      && produtoCompativel && posicaoCompativel && contextoCompativel
   }) ?? null
 }
 
@@ -163,6 +177,8 @@ export function analisarNcmComCatalogo(params: {
   ufOrigem?: string
   ufDestino?: string
   posicaoIcms?: TributarioNcmPosicaoIcms
+  regimeApuracao?: TributarioNcmRegimeApuracao
+  contextoProduto?: TributarioNcmContextoProduto
   contextoOperacao?: TributarioNcmContextoOperacao
   classificacaoOficial?: NcmOficial | null
   tipiOficial?: TipiOficial | null
@@ -175,6 +191,8 @@ export function analisarNcmComCatalogo(params: {
   const ufOrigem = (params.ufOrigem ?? '').trim().toUpperCase()
   const ufDestino = (params.ufDestino ?? '').trim().toUpperCase()
   const posicaoIcms = params.posicaoIcms ?? 'nao_informada'
+  const regimeApuracao = params.regimeApuracao ?? 'nao_informado'
+  const contextoProduto = params.contextoProduto ?? 'nao_informado'
   const contextoOperacao = params.contextoOperacao ?? 'nao_informado'
   const todosTributos: TributarioNcmTributo[] = ['pis', 'cofins', 'icms', 'ipi']
   const escopoTributos = params.escopoTributos?.length
@@ -217,7 +235,15 @@ export function analisarNcmComCatalogo(params: {
     if (regraIcms && regra.exige_cest && !cest) faltasContexto.push('CEST')
     if (regra.descricao_obrigatoria && !descricao) faltasContexto.push('descrição comercial')
 
-    const resultado = resultadoAplicavel(regra, params.perfil, params.operacao, posicaoIcms, contextoOperacao)
+    const resultado = resultadoAplicavel(
+      regra,
+      params.perfil,
+      params.operacao,
+      posicaoIcms,
+      regimeApuracao,
+      contextoProduto,
+      contextoOperacao,
+    )
     if (!resultado) continue
 
     const resultadoFinal: TributarioNcmResultadoRegra = faltasContexto.length > 0
@@ -241,6 +267,9 @@ export function analisarNcmComCatalogo(params: {
       orientacao_simples: resultadoFinal.orientacao_simples,
       aliquota_pis: resultadoFinal.aliquota_pis ?? null,
       aliquota_cofins: resultadoFinal.aliquota_cofins ?? null,
+      valor_pis_unidade: resultadoFinal.valor_pis_unidade ?? null,
+      valor_cofins_unidade: resultadoFinal.valor_cofins_unidade ?? null,
+      unidade_medida: resultadoFinal.unidade_medida ?? null,
       cst_saida: resultadoFinal.cst_saida ?? null,
       codigo_natureza_receita: resultadoFinal.codigo_natureza_receita ?? null,
       tabela_efd: resultadoFinal.tabela_efd ?? null,
@@ -275,6 +304,8 @@ export function analisarNcmComCatalogo(params: {
     escopo_tributos: escopoTributos,
     perfil: params.perfil,
     operacao: params.operacao,
+    regime_apuracao: regimeApuracao,
+    contexto_produto: contextoProduto,
     contexto_operacao: contextoOperacao,
     contexto_icms: {
       cest,

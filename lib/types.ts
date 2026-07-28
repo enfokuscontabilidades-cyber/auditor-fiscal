@@ -765,6 +765,8 @@ export type TributarioNcmTributo = 'pis' | 'cofins' | 'icms' | 'ipi'
 export type TributarioNcmTipoCorrespondencia = 'exato' | 'prefixo'
 export type TributarioNcmPerfil = 'fabricante' | 'importador' | 'distribuidor' | 'atacadista' | 'varejista' | 'consumidor_final'
 export type TributarioNcmOperacao = 'venda_producao' | 'importacao' | 'revenda' | 'venda_consumidor' | 'qualquer'
+export type TributarioNcmRegimeApuracao = 'nao_informado' | 'percentual' | 'especial_unidade'
+export type TributarioNcmContextoProduto = 'nao_informado' | 'glp_domestico_ate_13kg' | 'demais'
 export type TributarioNcmContextoOperacao =
   | 'nao_informado'
   | 'fabricante_veiculos'
@@ -784,6 +786,8 @@ export type TributarioNcmTratamento =
 export interface TributarioNcmResultadoRegra {
   perfis: Array<TributarioNcmPerfil | 'qualquer'>
   operacoes: TributarioNcmOperacao[]
+  regimes_apuracao?: TributarioNcmRegimeApuracao[]
+  contextos_produto?: TributarioNcmContextoProduto[]
   contextos_operacao?: TributarioNcmContextoOperacao[]
   posicoes_icms?: TributarioNcmPosicaoIcms[]
   tratamento: TributarioNcmTratamento
@@ -792,6 +796,9 @@ export interface TributarioNcmResultadoRegra {
   orientacao_simples: string
   aliquota_pis?: number | null
   aliquota_cofins?: number | null
+  valor_pis_unidade?: number | null
+  valor_cofins_unidade?: number | null
+  unidade_medida?: 'm3' | 'tonelada' | null
   // Metadados de escritura da EFD-Contribuições. O CST e a natureza da
   // receita pertencem ao resultado (etapa da cadeia), não apenas ao NCM.
   cst_saida?: string | null

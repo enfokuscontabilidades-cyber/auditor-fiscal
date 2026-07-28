@@ -215,6 +215,34 @@ const regraCombustiveisPetroleo: TributarioNcmRegra = {
     {
       perfis: ['fabricante'],
       operacoes: ['venda_producao'],
+      regimes_apuracao: ['percentual'],
+      tratamento: 'tributacao_concentrada',
+      titulo: 'Regime percentual do diesel',
+      explicacao: 'Alíquotas sobre a receita.',
+      orientacao_simples: 'Confirmar o regime.',
+      aliquota_pis: 4.21,
+      aliquota_cofins: 19.42,
+      cst_saida: '02',
+      tabela_efd: '4.3.10',
+    },
+    {
+      perfis: ['fabricante'],
+      operacoes: ['venda_producao'],
+      regimes_apuracao: ['especial_unidade'],
+      tratamento: 'tributacao_concentrada',
+      titulo: 'Regime por unidade do diesel',
+      explicacao: 'Valores por metro cúbico.',
+      orientacao_simples: 'Confirmar a vigência.',
+      valor_pis_unidade: 62.61,
+      valor_cofins_unidade: 288.89,
+      unidade_medida: 'm3',
+      cst_saida: '03',
+      tabela_efd: '4.3.11',
+    },
+    {
+      perfis: ['fabricante'],
+      operacoes: ['venda_producao'],
+      regimes_apuracao: ['nao_informado'],
       tratamento: 'inconclusivo',
       titulo: 'Produtor ou refinaria: confirmar regime e vigência',
       explicacao: 'A etapa concentrada pode depender de regime especial e coeficiente.',
@@ -254,8 +282,18 @@ const regraEtanol: TributarioNcmRegra = {
   palavras_excluir: ['bebida', 'perfumaria', 'limpeza'],
   resultados: [
     {
+      perfis: ['importador'],
+      operacoes: ['importacao'],
+      tratamento: 'tributacao_concentrada',
+      titulo: 'Importação de etanol',
+      explicacao: 'Alíquotas próprias da importação.',
+      orientacao_simples: 'Apurar fora do DAS.',
+      aliquota_pis: 2.1,
+      aliquota_cofins: 9.65,
+    },
+    {
       perfis: ['fabricante', 'importador'],
-      operacoes: ['venda_producao', 'importacao'],
+      operacoes: ['venda_producao'],
       tratamento: 'inconclusivo',
       titulo: 'Etapa concentrada',
       explicacao: 'Confirmar regime especial.',
@@ -271,6 +309,59 @@ const regraEtanol: TributarioNcmRegra = {
       cst_saida: '04',
       codigo_natureza_receita: '001',
       tabela_efd: '4.3.10',
+    },
+  ],
+}
+
+const regraGlp: TributarioNcmRegra = {
+  ...regraPneus,
+  id: 'regra-glp',
+  codigo_regra: 'PISCOFINS_GLP_PRIMEIRA_ETAPA_2026',
+  tipo_correspondencia: 'exato',
+  padroes: ['27111910'],
+  padroes_excluir: [],
+  categoria: 'GLP',
+  palavras_incluir: ['glp', 'gas de cozinha'],
+  resultados: [
+    {
+      perfis: ['fabricante'],
+      operacoes: ['venda_producao'],
+      regimes_apuracao: ['especial_unidade'],
+      contextos_produto: ['glp_domestico_ate_13kg'],
+      tratamento: 'aliquota_zero',
+      titulo: 'GLP doméstico até 13 kg',
+      explicacao: 'Valores zerados.',
+      orientacao_simples: 'Comprovar destinação e recipiente.',
+      valor_pis_unidade: 0,
+      valor_cofins_unidade: 0,
+      unidade_medida: 'tonelada',
+      cst_saida: '03',
+      tabela_efd: '4.3.11',
+    },
+    {
+      perfis: ['fabricante'],
+      operacoes: ['venda_producao'],
+      regimes_apuracao: ['especial_unidade'],
+      contextos_produto: ['demais'],
+      tratamento: 'tributacao_concentrada',
+      titulo: 'Demais GLP',
+      explicacao: 'Valores por tonelada.',
+      orientacao_simples: 'Aplicar ao peso.',
+      valor_pis_unidade: 29.85,
+      valor_cofins_unidade: 137.85,
+      unidade_medida: 'tonelada',
+      cst_saida: '03',
+      tabela_efd: '4.3.11',
+    },
+    {
+      perfis: ['fabricante'],
+      operacoes: ['venda_producao'],
+      regimes_apuracao: ['especial_unidade'],
+      contextos_produto: ['nao_informado'],
+      tratamento: 'inconclusivo',
+      titulo: 'Condição do GLP pendente',
+      explicacao: 'Informar acondicionamento.',
+      orientacao_simples: 'Não concluir.',
     },
   ],
 }
@@ -393,6 +484,73 @@ describe('consulta tributária por NCM', () => {
 
     expect(refinaria.resultados[0]?.tratamento).toBe('inconclusivo')
     expect(importador.resultados[0]?.tratamento).toBe('inconclusivo')
+  })
+
+  it('diferencia o regime percentual do regime por unidade na primeira etapa do diesel', () => {
+    const percentual = analisarNcmComCatalogo({
+      ncm: '27101921', perfil: 'fabricante', operacao: 'venda_producao',
+      regimeApuracao: 'percentual', descricao: 'Óleo diesel',
+      regras: [regraCombustiveisPetroleo], escopoTributos: ['pis', 'cofins'],
+    })
+    const porUnidade = analisarNcmComCatalogo({
+      ncm: '27101921', perfil: 'fabricante', operacao: 'venda_producao',
+      regimeApuracao: 'especial_unidade', descricao: 'Óleo diesel',
+      regras: [regraCombustiveisPetroleo], escopoTributos: ['pis', 'cofins'],
+    })
+
+    expect(percentual.resultados[0]).toMatchObject({
+      tratamento: 'tributacao_concentrada', aliquota_pis: 4.21,
+      aliquota_cofins: 19.42, cst_saida: '02', tabela_efd: '4.3.10',
+    })
+    expect(porUnidade.resultados[0]).toMatchObject({
+      tratamento: 'tributacao_concentrada', valor_pis_unidade: 62.61,
+      valor_cofins_unidade: 288.89, unidade_medida: 'm3',
+      cst_saida: '03', tabela_efd: '4.3.11',
+    })
+  })
+
+  it('aplica zero ao GLP doméstico até 13 kg sem estender aos demais acondicionamentos', () => {
+    const domestico = analisarNcmComCatalogo({
+      ncm: '27111910', perfil: 'fabricante', operacao: 'venda_producao',
+      regimeApuracao: 'especial_unidade', contextoProduto: 'glp_domestico_ate_13kg',
+      descricao: 'GLP gás de cozinha', regras: [regraGlp], escopoTributos: ['pis', 'cofins'],
+    })
+    const demais = analisarNcmComCatalogo({
+      ncm: '27111910', perfil: 'fabricante', operacao: 'venda_producao',
+      regimeApuracao: 'especial_unidade', contextoProduto: 'demais',
+      descricao: 'GLP industrial', regras: [regraGlp], escopoTributos: ['pis', 'cofins'],
+    })
+
+    expect(domestico.resultados[0]).toMatchObject({
+      tratamento: 'aliquota_zero', valor_pis_unidade: 0,
+      valor_cofins_unidade: 0, unidade_medida: 'tonelada',
+    })
+    expect(demais.resultados[0]).toMatchObject({
+      tratamento: 'tributacao_concentrada', valor_pis_unidade: 29.85,
+      valor_cofins_unidade: 137.85, unidade_medida: 'tonelada',
+    })
+  })
+
+  it('mantém o GLP inconclusivo quando falta informar o acondicionamento', () => {
+    const resultado = analisarNcmComCatalogo({
+      ncm: '27111910', perfil: 'fabricante', operacao: 'venda_producao',
+      regimeApuracao: 'especial_unidade', descricao: 'GLP',
+      regras: [regraGlp], escopoTributos: ['pis', 'cofins'],
+    })
+
+    expect(resultado.resultados[0]?.tratamento).toBe('inconclusivo')
+  })
+
+  it('usa as alíquotas próprias na importação de etanol', () => {
+    const resultado = analisarNcmComCatalogo({
+      ncm: '22071010', perfil: 'importador', operacao: 'importacao',
+      descricao: 'Etanol combustível anidro', regras: [regraEtanol],
+      escopoTributos: ['pis', 'cofins'],
+    })
+
+    expect(resultado.resultados[0]).toMatchObject({
+      tratamento: 'tributacao_concentrada', aliquota_pis: 2.1, aliquota_cofins: 9.65,
+    })
   })
 
   it('distingue distribuidor de comerciante atacadista na venda de etanol', () => {

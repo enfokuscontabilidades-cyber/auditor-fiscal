@@ -3,7 +3,14 @@
 import { FormEvent, useState } from 'react'
 import { AlertTriangle, BookOpen, CheckCircle2, Info, PackageSearch, Search } from 'lucide-react'
 import GlassCard from '@/components/ui/GlassCard'
-import type { TributarioNcmContextoOperacao, TributarioNcmOperacao, TributarioNcmPerfil, TributarioNcmTratamento } from '@/lib/types'
+import type {
+  TributarioNcmContextoOperacao,
+  TributarioNcmContextoProduto,
+  TributarioNcmOperacao,
+  TributarioNcmPerfil,
+  TributarioNcmRegimeApuracao,
+  TributarioNcmTratamento,
+} from '@/lib/types'
 import type { ConsultaNcmResultado, NcmNivelHierarquia } from '@/lib/tributario/ncm'
 import type { TipiSituacao } from '@/lib/tributario/tipi'
 
@@ -67,12 +74,21 @@ function formatarAliquota(valor: number | null): string {
   return `${valor.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`
 }
 
+function formatarValorUnidade(valor: number | null, unidade: 'm3' | 'tonelada' | null): string {
+  if (valor == null || !unidade) return '—'
+  const unidadeFormatada = unidade === 'm3' ? 'm³' : 'tonelada'
+  return `${valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} / ${unidadeFormatada}`
+}
+
 export default function ConsultaNcm() {
   const [ncm, setNcm] = useState('')
   const [descricao, setDescricao] = useState('')
   const [perfil, setPerfil] = useState<TributarioNcmPerfil>('varejista')
   const [operacao, setOperacao] = useState<TributarioNcmOperacao>('revenda')
+  const [regimeApuracao, setRegimeApuracao] = useState<TributarioNcmRegimeApuracao>('nao_informado')
+  const [contextoProduto, setContextoProduto] = useState<TributarioNcmContextoProduto>('nao_informado')
   const [contextoOperacao, setContextoOperacao] = useState<TributarioNcmContextoOperacao>('nao_informado')
+  const [dataReferencia, setDataReferencia] = useState('')
   const [resultado, setResultado] = useState<ConsultaNcmResponse | null>(null)
   const [erro, setErro] = useState('')
   const [carregando, setCarregando] = useState(false)
@@ -115,9 +131,12 @@ export default function ConsultaNcm() {
         ncm: codigo,
         perfil,
         operacao,
+        regime_apuracao: regimeApuracao,
+        contexto_produto: contextoProduto,
         contexto_operacao: contextoOperacao,
       })
       if (descricao.trim()) params.set('descricao', descricao.trim())
+      if (dataReferencia) params.set('data', dataReferencia)
       const response = await fetch(`/api/consulta-tributaria/ncm?${params.toString()}`)
       const data = await response.json() as ConsultaNcmResponse
       if (!response.ok) throw new Error(data.error || 'Não foi possível consultar o NCM.')
@@ -175,6 +194,22 @@ export default function ConsultaNcm() {
               </select>
             </label>
             <label style={{ display: 'grid', gap: 5, color: 'var(--af-muted)', fontSize: 10.5, fontWeight: 700 }}>
+              REGIME DE PIS/COFINS
+              <select value={regimeApuracao} onChange={event => setRegimeApuracao(event.target.value as TributarioNcmRegimeApuracao)} style={inputStyle}>
+                <option value="nao_informado">Não informado</option>
+                <option value="percentual">Percentual sobre a receita</option>
+                <option value="especial_unidade">Regime especial por unidade</option>
+              </select>
+            </label>
+            <label style={{ display: 'grid', gap: 5, color: 'var(--af-muted)', fontSize: 10.5, fontWeight: 700 }}>
+              CONDIÇÃO ESPECIAL DO PRODUTO
+              <select value={contextoProduto} onChange={event => setContextoProduto(event.target.value as TributarioNcmContextoProduto)} style={inputStyle}>
+                <option value="nao_informado">Não informada</option>
+                <option value="glp_domestico_ate_13kg">GLP doméstico — recipiente até 13 kg</option>
+                <option value="demais">Demais produtos ou acondicionamentos</option>
+              </select>
+            </label>
+            <label style={{ display: 'grid', gap: 5, color: 'var(--af-muted)', fontSize: 10.5, fontWeight: 700 }}>
               DESTINATÁRIO / ENQUADRAMENTO AUTOMOTIVO
               <select value={contextoOperacao} onChange={event => setContextoOperacao(event.target.value as TributarioNcmContextoOperacao)} style={inputStyle}>
                 <option value="nao_informado">Não informado</option>
@@ -183,6 +218,10 @@ export default function ConsultaNcm() {
                 <option value="consumidor">Consumidor da autopeça</option>
                 <option value="outro">Outra destinação</option>
               </select>
+            </label>
+            <label style={{ display: 'grid', gap: 5, color: 'var(--af-muted)', fontSize: 10.5, fontWeight: 700 }}>
+              DATA DO FATO GERADOR
+              <input type="date" value={dataReferencia} onChange={event => setDataReferencia(event.target.value)} style={inputStyle} />
             </label>
             <button type="submit" disabled={carregando} style={{ height: 42, border: 0, borderRadius: 9, padding: '0 20px', cursor: 'pointer', background: 'var(--af-primary)', color: '#fff', fontSize: 12.5, fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, opacity: carregando ? 0.65 : 1 }}>
               <Search size={16} /> {carregando ? 'Consultando...' : 'Consultar NCM'}
@@ -193,7 +232,7 @@ export default function ConsultaNcm() {
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 11, color: 'var(--af-muted)', fontSize: 11, lineHeight: 1.5 }}>
           <Info size={14} style={{ flexShrink: 0, marginTop: 1 }} />
           Esta consulta trata somente dos tributos federais PIS, Cofins e IPI. O resultado considera o produto, a operação e o papel da empresa na cadeia.
-          Para autopeças, informe o comprador da venda; na importação, o enquadramento do próprio importador.
+          Para combustíveis na primeira etapa, informe o regime e a data; para autopeças, informe o comprador da venda.
         </div>
       </GlassCard>
 
@@ -246,7 +285,10 @@ export default function ConsultaNcm() {
 
           <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--af-border)', display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
             <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ color: 'var(--af-primary)', fontFamily: 'monospace', fontSize: 12, fontWeight: 800 }}>{resultado.resultado.ncm_formatado}</div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={{ color: 'var(--af-primary)', fontFamily: 'monospace', fontSize: 12, fontWeight: 800 }}>{resultado.resultado.ncm_formatado}</span>
+                <span style={{ color: 'var(--af-muted)', fontSize: 9.8 }}>Vigência consultada: {new Date(`${resultado.data_referencia}T12:00:00`).toLocaleDateString('pt-BR')}</span>
+              </div>
               <h2 style={{ margin: '5px 0 0', fontSize: 15, fontWeight: 700, color: 'var(--af-text)', lineHeight: 1.4 }}>
                 {resultado.resultado.classificacao_oficial?.descricao ?? (descricao || 'Descrição oficial indisponível')}
               </h2>
@@ -329,6 +371,14 @@ export default function ConsultaNcm() {
                       <div style={{ padding: '7px 10px', borderRadius: 8, background: 'var(--af-surface)', fontSize: 10.5 }}><strong>PIS:</strong> {formatarAliquota(item.aliquota_pis)}</div>
                       <div style={{ padding: '7px 10px', borderRadius: 8, background: 'var(--af-surface)', fontSize: 10.5 }}><strong>Cofins:</strong> {formatarAliquota(item.aliquota_cofins)}</div>
                       <div style={{ padding: '7px 10px', borderRadius: 8, background: 'var(--af-surface)', color: 'var(--af-muted)', fontSize: 10.5 }}>Alíquotas nominais; conferir exceções e bases reduzidas.</div>
+                    </div>
+                  )}
+
+                  {(item.valor_pis_unidade != null || item.valor_cofins_unidade != null) && (
+                    <div style={{ display: 'flex', gap: 8, marginTop: 11, flexWrap: 'wrap' }}>
+                      <div style={{ padding: '7px 10px', borderRadius: 8, background: 'var(--af-surface)', fontSize: 10.5 }}><strong>PIS:</strong> {formatarValorUnidade(item.valor_pis_unidade, item.unidade_medida)}</div>
+                      <div style={{ padding: '7px 10px', borderRadius: 8, background: 'var(--af-surface)', fontSize: 10.5 }}><strong>Cofins:</strong> {formatarValorUnidade(item.valor_cofins_unidade, item.unidade_medida)}</div>
+                      <div style={{ padding: '7px 10px', borderRadius: 8, background: 'var(--af-surface)', color: 'var(--af-muted)', fontSize: 10.5 }}>Valores específicos vigentes na data consultada.</div>
                     </div>
                   )}
 
