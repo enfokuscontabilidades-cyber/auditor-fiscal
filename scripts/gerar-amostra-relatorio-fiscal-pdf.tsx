@@ -33,8 +33,8 @@ const dados: DadosRelatorioFiscalPdf = {
     valor_total: 250 + indice * 17.43,
     tributo: indice === 1 ? 'ISS' : 'ICMS',
     valor_tributo: indice === 1 ? 56 : indice === 0 ? 57.87 : indice % 7 === 0 ? null : 0,
-    situacao_tributo: indice === 1 ? 'ISS destacado' : indice === 0 ? 'Consolidado dos itens' : indice % 7 === 0 ? 'Nao informado' : 'Zero informado',
-    divergencia: indice % 7 === 0,
+    alerta: indice % 7 === 0 ? 'Revisar' : null,
+    possui_alerta: indice % 7 === 0,
   })),
   observacao: 'Amostra visual. O Excel contem o conjunto completo e os itens analiticos.',
 }

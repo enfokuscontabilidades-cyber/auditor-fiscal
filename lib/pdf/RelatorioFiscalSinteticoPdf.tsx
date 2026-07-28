@@ -8,8 +8,8 @@ export type LinhaRelatorioFiscalPdf = {
   valor_total: number
   tributo: string
   valor_tributo: number | null
-  situacao_tributo: string
-  divergencia: boolean
+  alerta: string | null
+  possui_alerta: boolean
 }
 
 export type DadosRelatorioFiscalPdf = {
@@ -66,7 +66,7 @@ const styles = StyleSheet.create({
   participante: { width: '27%' },
   valor: { width: '16%', textAlign: 'right' },
   icms: { width: '13%', textAlign: 'right' },
-  situacao: { width: '16%' },
+  alertaColuna: { width: '16%' },
   alert: { color: '#b42318', fontFamily: 'Helvetica-Bold' },
   muted: { color: '#71838a' },
   note: { marginTop: 8, fontSize: 7.5, color: '#52656d', lineHeight: 1.35 },
@@ -144,7 +144,7 @@ export default function RelatorioFiscalSinteticoPdf({ dados }: { dados: DadosRel
         <Text style={styles.sectionTitle}>Documentos filtrados</Text>
         <View style={styles.table}>
           <View style={[styles.row, styles.headerRow]} fixed>
-            <Text style={[styles.cell, styles.data]}>Data</Text><Text style={[styles.cell, styles.documento]}>Nota</Text><Text style={[styles.cell, styles.tipoDocumento]}>Tipo</Text><Text style={[styles.cell, styles.participante]}>Fornecedor / cliente</Text><Text style={[styles.cell, styles.valor]}>Valor total</Text><Text style={[styles.cell, styles.icms]}>ICMS / ISS</Text><Text style={[styles.cell, styles.situacao]}>Situação</Text>
+            <Text style={[styles.cell, styles.data]}>Data</Text><Text style={[styles.cell, styles.documento]}>Nota</Text><Text style={[styles.cell, styles.tipoDocumento]}>Tipo</Text><Text style={[styles.cell, styles.participante]}>Fornecedor / cliente</Text><Text style={[styles.cell, styles.valor]}>Valor total</Text><Text style={[styles.cell, styles.icms]}>ICMS / ISS</Text><Text style={[styles.cell, styles.alertaColuna]}>Alerta</Text>
           </View>
           {dados.linhas.map((linha, indice) => (
             <View key={`${linha.documento}-${indice}`} style={styles.row} wrap={false}>
@@ -154,7 +154,7 @@ export default function RelatorioFiscalSinteticoPdf({ dados }: { dados: DadosRel
               <Text style={[styles.cell, styles.participante]}>{linha.participante}</Text>
               <Text style={[styles.cell, styles.valor]}>{moeda(linha.valor_total)}</Text>
               <Text style={[styles.cell, styles.icms]}>{linha.tributo}: {moeda(linha.valor_tributo)}</Text>
-              <Text style={[styles.cell, styles.situacao, linha.divergencia ? styles.alert : styles.muted]}>{linha.situacao_tributo}</Text>
+              <Text style={[styles.cell, styles.alertaColuna, linha.possui_alerta ? styles.alert : styles.muted]}>{linha.alerta ?? '—'}</Text>
             </View>
           ))}
         </View>

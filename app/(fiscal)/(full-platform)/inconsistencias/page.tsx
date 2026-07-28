@@ -1431,10 +1431,12 @@ export default function RelatoriosPage() {
             valor_total: Number(doc.valor_total ?? 0),
             tributo: ehNfseFiscal(doc) ? 'ISS' : 'ICMS',
             valor_tributo: ehNfseFiscal(doc) ? doc.valor_iss ?? 0 : doc.valor_icms ?? null,
-            situacao_tributo: ehNfseFiscal(doc)
-              ? situacaoIssFiscal(doc)
-              : LABEL_SITUACAO_TRIBUTO[doc.situacao_icms ?? 'nao_informado'] ?? 'Não informado',
-            divergencia: Boolean(doc.tem_divergencia || doc.dados_incompletos),
+            alerta: doc.tem_divergencia
+              ? 'Revisar'
+              : doc.dados_incompletos
+                ? 'Dados incompletos'
+                : null,
+            possui_alerta: Boolean(doc.tem_divergencia || doc.dados_incompletos),
           }))
         const blob = await gerarRelatorioFiscalSintetico({
           empresa: empresa.razao_social,

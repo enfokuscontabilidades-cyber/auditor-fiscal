@@ -3,11 +3,13 @@
 import { FormEvent, useState } from 'react'
 import { AlertTriangle, BookOpen, CheckCircle2, Info, PackageSearch, Search } from 'lucide-react'
 import GlassCard from '@/components/ui/GlassCard'
-import type { TributarioNcmOperacao, TributarioNcmPerfil, TributarioNcmPosicaoIcms, TributarioNcmTratamento } from '@/lib/types'
-import type { ConsultaNcmResultado } from '@/lib/tributario/ncm'
+import type { TributarioNcmContextoOperacao, TributarioNcmOperacao, TributarioNcmPerfil, TributarioNcmTratamento } from '@/lib/types'
+import type { ConsultaNcmResultado, NcmNivelHierarquia } from '@/lib/tributario/ncm'
+import type { TipiSituacao } from '@/lib/tributario/tipi'
 
 interface ConsultaNcmResponse {
   fonte: { titulo: string; referencia: string; url: string }
+  fonte_tipi: { titulo: string; referencia: string; url: string }
   data_referencia: string
   resultado: ConsultaNcmResultado
   error?: string
@@ -33,6 +35,29 @@ const CORES_TRATAMENTO: Record<TributarioNcmTratamento, { fundo: string; borda: 
   inconclusivo: { fundo: 'var(--af-surface-2)', borda: 'var(--af-border)', texto: 'var(--af-muted)' },
 }
 
+const ROTULOS_HIERARQUIA: Record<NcmNivelHierarquia, string> = {
+  secao: 'Seção',
+  capitulo: 'Capítulo',
+  posicao: 'Posição',
+  subposicao: 'Subposição',
+  item: 'Item',
+}
+
+const RECUOS_HIERARQUIA: Record<NcmNivelHierarquia, number> = {
+  secao: 0,
+  capitulo: 10,
+  posicao: 20,
+  subposicao: 30,
+  item: 40,
+}
+
+const CORES_TIPI: Record<TipiSituacao, { fundo: string; borda: string; texto: string }> = {
+  tributado: { fundo: 'rgba(168,85,247,0.06)', borda: 'rgba(168,85,247,0.24)', texto: '#9333ea' },
+  aliquota_zero: { fundo: 'rgba(34,197,94,0.06)', borda: 'rgba(34,197,94,0.24)', texto: '#16a34a' },
+  nao_tributado: { fundo: 'rgba(14,165,233,0.06)', borda: 'rgba(14,165,233,0.24)', texto: '#0284c7' },
+  sem_informacao: { fundo: 'rgba(245,158,11,0.06)', borda: 'rgba(245,158,11,0.24)', texto: '#d97706' },
+}
+
 function tributosLabel(tributos: string[]): string {
   return tributos.map(tributo => tributo === 'cofins' ? 'Cofins' : tributo.toUpperCase()).join(' e ')
 }
@@ -42,22 +67,12 @@ function formatarAliquota(valor: number | null): string {
   return `${valor.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`
 }
 
-function formatarCest(valor: string): string {
-  const codigo = valor.replace(/\D/g, '')
-  return codigo.length === 7 ? `${codigo.slice(0, 2)}.${codigo.slice(2, 5)}.${codigo.slice(5)}` : valor
-}
-
-const UFS = ['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO']
-
 export default function ConsultaNcm() {
   const [ncm, setNcm] = useState('')
   const [descricao, setDescricao] = useState('')
   const [perfil, setPerfil] = useState<TributarioNcmPerfil>('varejista')
   const [operacao, setOperacao] = useState<TributarioNcmOperacao>('revenda')
-  const [cest, setCest] = useState('')
-  const [ufOrigem, setUfOrigem] = useState('GO')
-  const [ufDestino, setUfDestino] = useState('GO')
-  const [posicaoIcms, setPosicaoIcms] = useState<TributarioNcmPosicaoIcms>('substituido')
+  const [contextoOperacao, setContextoOperacao] = useState<TributarioNcmContextoOperacao>('nao_informado')
   const [resultado, setResultado] = useState<ConsultaNcmResponse | null>(null)
   const [erro, setErro] = useState('')
   const [carregando, setCarregando] = useState(false)
@@ -72,19 +87,14 @@ export default function ConsultaNcm() {
     setPerfil(novoPerfil)
     if (novoPerfil === 'fabricante') {
       setOperacao('venda_producao')
-      setPosicaoIcms('substituto')
     } else if (novoPerfil === 'importador') {
       setOperacao('importacao')
-      setPosicaoIcms('substituto')
     } else if (novoPerfil === 'varejista') {
       setOperacao('revenda')
-      setPosicaoIcms('substituido')
     } else if (novoPerfil === 'consumidor_final') {
       setOperacao('venda_consumidor')
-      setPosicaoIcms('nao_informada')
     } else {
       setOperacao('revenda')
-      setPosicaoIcms('nao_informada')
     }
   }
 
@@ -103,12 +113,9 @@ export default function ConsultaNcm() {
         ncm: codigo,
         perfil,
         operacao,
-        uf_origem: ufOrigem,
-        uf_destino: ufDestino,
-        posicao_icms: posicaoIcms,
+        contexto_operacao: contextoOperacao,
       })
       if (descricao.trim()) params.set('descricao', descricao.trim())
-      if (cest.trim()) params.set('cest', cest.trim())
       const response = await fetch(`/api/consulta-tributaria/ncm?${params.toString()}`)
       const data = await response.json() as ConsultaNcmResponse
       if (!response.ok) throw new Error(data.error || 'Não foi possível consultar o NCM.')
@@ -144,7 +151,7 @@ export default function ConsultaNcm() {
             />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1fr) minmax(180px, 1fr) auto', gap: 10, alignItems: 'end' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10, alignItems: 'end' }}>
             <label style={{ display: 'grid', gap: 5, color: 'var(--af-muted)', fontSize: 10.5, fontWeight: 700 }}>
               PAPEL DA EMPRESA NA OPERAÇÃO
               <select value={perfil} onChange={event => alterarPerfil(event.target.value as TributarioNcmPerfil)} style={inputStyle}>
@@ -158,10 +165,20 @@ export default function ConsultaNcm() {
             <label style={{ display: 'grid', gap: 5, color: 'var(--af-muted)', fontSize: 10.5, fontWeight: 700 }}>
               OPERAÇÃO ANALISADA
               <select value={operacao} onChange={event => setOperacao(event.target.value as TributarioNcmOperacao)} style={inputStyle}>
-                <option value="venda_producao">Venda de produção própria</option>
+                <option value="venda_producao">{perfil === 'importador' ? 'Venda de mercadoria importada' : 'Venda de produção própria'}</option>
                 <option value="importacao">Importação</option>
                 <option value="revenda">Revenda</option>
                 <option value="venda_consumidor">Venda a consumidor final</option>
+              </select>
+            </label>
+            <label style={{ display: 'grid', gap: 5, color: 'var(--af-muted)', fontSize: 10.5, fontWeight: 700 }}>
+              DESTINATÁRIO / ENQUADRAMENTO AUTOMOTIVO
+              <select value={contextoOperacao} onChange={event => setContextoOperacao(event.target.value as TributarioNcmContextoOperacao)} style={inputStyle}>
+                <option value="nao_informado">Não informado</option>
+                <option value="fabricante_veiculos">Fabricante de veículos ou máquinas</option>
+                <option value="atacadista_varejista">Atacadista ou varejista</option>
+                <option value="consumidor">Consumidor da autopeça</option>
+                <option value="outro">Outra destinação</option>
               </select>
             </label>
             <button type="submit" disabled={carregando} style={{ height: 42, border: 0, borderRadius: 9, padding: '0 20px', cursor: 'pointer', background: 'var(--af-primary)', color: '#fff', fontSize: 12.5, fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, opacity: carregando ? 0.65 : 1 }}>
@@ -169,42 +186,11 @@ export default function ConsultaNcm() {
             </button>
           </div>
 
-          <div style={{ marginTop: 2, padding: '11px 12px', borderRadius: 10, border: '1px solid var(--af-border)', background: 'var(--af-surface-2)', display: 'grid', gap: 9 }}>
-            <div style={{ color: 'var(--af-text)', fontSize: 10.5, fontWeight: 800 }}>Contexto para ICMS-ST</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(150px, 1fr) minmax(110px, 0.55fr) minmax(110px, 0.55fr) minmax(220px, 1.25fr)', gap: 9 }}>
-              <label style={{ display: 'grid', gap: 5, color: 'var(--af-muted)', fontSize: 9.5, fontWeight: 700 }}>
-                CEST DA MERCADORIA
-                <input value={cest} onChange={event => setCest(event.target.value)} placeholder="Ex.: 16.001.00" inputMode="numeric" style={inputStyle} />
-              </label>
-              <label style={{ display: 'grid', gap: 5, color: 'var(--af-muted)', fontSize: 9.5, fontWeight: 700 }}>
-                UF DE ORIGEM
-                <select value={ufOrigem} onChange={event => setUfOrigem(event.target.value)} style={inputStyle}>
-                  {UFS.map(uf => <option key={uf} value={uf}>{uf}</option>)}
-                </select>
-              </label>
-              <label style={{ display: 'grid', gap: 5, color: 'var(--af-muted)', fontSize: 9.5, fontWeight: 700 }}>
-                UF DE DESTINO
-                <select value={ufDestino} onChange={event => setUfDestino(event.target.value)} style={inputStyle}>
-                  {UFS.map(uf => <option key={uf} value={uf}>{uf}</option>)}
-                </select>
-              </label>
-              <label style={{ display: 'grid', gap: 5, color: 'var(--af-muted)', fontSize: 9.5, fontWeight: 700 }}>
-                POSIÇÃO NA OPERAÇÃO
-                <select value={posicaoIcms} onChange={event => setPosicaoIcms(event.target.value as TributarioNcmPosicaoIcms)} style={inputStyle}>
-                  <option value="nao_informada">Ainda não identificada</option>
-                  <option value="substituto">Substituto — retém/recolhe o ICMS-ST</option>
-                  <option value="substituido">Substituído — recebe com ICMS retido</option>
-                </select>
-              </label>
-            </div>
-            <div style={{ color: 'var(--af-muted)', fontSize: 10, lineHeight: 1.45 }}>
-              A posição sugerida pelo perfil é apenas um ponto de partida. Contrato, fornecedor, protocolo aplicável e natureza da operação podem alterar a responsabilidade.
-            </div>
-          </div>
         </form>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 11, color: 'var(--af-muted)', fontSize: 11, lineHeight: 1.5 }}>
           <Info size={14} style={{ flexShrink: 0, marginTop: 1 }} />
-          O código identifica a mercadoria, mas não determina sozinho sua tributação. O resultado considera também a operação e o papel da empresa na cadeia.
+          Esta consulta trata somente dos tributos federais PIS, Cofins e IPI. O resultado considera o produto, a operação e o papel da empresa na cadeia.
+          Para autopeças, informe o comprador da venda; na importação, o enquadramento do próprio importador.
         </div>
       </GlassCard>
 
@@ -216,6 +202,45 @@ export default function ConsultaNcm() {
 
       {resultado && (
         <GlassCard padding={0}>
+          {(resultado.resultado.classificacao_oficial?.hierarquia?.length ?? 0) > 0 && (
+            <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--af-border)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ color: 'var(--af-text)', fontSize: 11, fontWeight: 800 }}>Contexto da classificação oficial</div>
+                  <div style={{ marginTop: 2, color: 'var(--af-muted)', fontSize: 9.8 }}>Hierarquia anterior ao NCM consultado</div>
+                </div>
+                <a href={resultado.fonte.url} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', gap: 5, alignItems: 'center', color: 'var(--af-primary)', textDecoration: 'none', fontSize: 10.5, fontWeight: 700 }}>
+                  <BookOpen size={13} /> Tabela oficial NCM
+                </a>
+              </div>
+
+              <div style={{ marginTop: 10, overflow: 'hidden', border: '1px solid var(--af-border)', borderRadius: 10, background: 'var(--af-surface-2)' }}>
+                {resultado.resultado.classificacao_oficial?.hierarquia.map((item, indice) => (
+                  <div
+                    key={`${item.nivel}-${item.codigo}`}
+                    style={{
+                      display: 'flex',
+                      gap: 8,
+                      alignItems: 'baseline',
+                      padding: `8px 12px 8px ${12 + RECUOS_HIERARQUIA[item.nivel]}px`,
+                      borderTop: indice === 0 ? 0 : '1px solid var(--af-border)',
+                      borderLeft: item.nivel === 'secao' ? '3px solid var(--af-primary)' : '3px solid transparent',
+                      background: item.nivel === 'secao'
+                        ? 'rgba(39,199,216,0.09)'
+                        : item.nivel === 'capitulo' ? 'rgba(39,199,216,0.04)' : 'transparent',
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    <span style={{ flexShrink: 0, color: item.nivel === 'secao' ? 'var(--af-primary)' : 'var(--af-muted)', fontSize: 9.5, fontWeight: 800 }}>
+                      {ROTULOS_HIERARQUIA[item.nivel]} {item.codigo}
+                    </span>
+                    <span style={{ color: 'var(--af-text-soft)', fontSize: 10.5 }}>{item.descricao}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--af-border)', display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ color: 'var(--af-primary)', fontFamily: 'monospace', fontSize: 12, fontWeight: 800 }}>{resultado.resultado.ncm_formatado}</div>
@@ -225,19 +250,62 @@ export default function ConsultaNcm() {
               {resultado.resultado.classificacao_oficial && descricao && (
                 <div style={{ marginTop: 4, color: 'var(--af-muted)', fontSize: 10.5 }}>Produto informado: {descricao}</div>
               )}
-              {(resultado.resultado.contexto_icms.cest || resultado.resultado.contexto_icms.uf_destino) && (
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 7 }}>
-                  {resultado.resultado.contexto_icms.cest && <span style={{ padding: '3px 7px', borderRadius: 6, background: 'var(--af-surface-2)', color: 'var(--af-muted)', fontSize: 9.8 }}>CEST {formatarCest(resultado.resultado.contexto_icms.cest)}</span>}
-                  {resultado.resultado.contexto_icms.uf_origem && <span style={{ padding: '3px 7px', borderRadius: 6, background: 'var(--af-surface-2)', color: 'var(--af-muted)', fontSize: 9.8 }}>{resultado.resultado.contexto_icms.uf_origem} → {resultado.resultado.contexto_icms.uf_destino}</span>}
-                </div>
-              )}
             </div>
-            <a href={resultado.fonte.url} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', gap: 5, alignItems: 'center', color: 'var(--af-primary)', textDecoration: 'none', fontSize: 10.5, fontWeight: 700 }}>
-              <BookOpen size={13} /> Tabela oficial NCM
-            </a>
+            {(resultado.resultado.classificacao_oficial?.hierarquia?.length ?? 0) === 0 && (
+              <a href={resultado.fonte.url} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', gap: 5, alignItems: 'center', color: 'var(--af-primary)', textDecoration: 'none', fontSize: 10.5, fontWeight: 700 }}>
+                <BookOpen size={13} /> Tabela oficial NCM
+              </a>
+            )}
           </div>
 
           <div style={{ padding: 16, display: 'grid', gap: 12 }}>
+            {resultado.resultado.tipi ? (() => {
+              const tipi = resultado.resultado.tipi
+              const corTipi = CORES_TIPI[tipi.situacao]
+              return (
+                <section style={{ border: `1px solid ${corTipi.borda}`, borderRadius: 12, background: corTipi.fundo, padding: '15px 16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ color: 'var(--af-muted)', fontSize: 9.5, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase' }}>IPI — alíquota nominal da TIPI</div>
+                      <div style={{ marginTop: 5, color: 'var(--af-text)', fontSize: 13.5, fontWeight: 750 }}>{tipi.descricao}</div>
+                    </div>
+                    <span style={{ padding: '5px 10px', borderRadius: 999, background: 'var(--af-surface)', color: corTipi.texto, fontSize: 11, fontWeight: 850, whiteSpace: 'nowrap' }}>
+                      {tipi.aliquota_texto}
+                    </span>
+                  </div>
+
+                  {tipi.excecoes.length > 0 && (
+                    <div style={{ display: 'grid', gap: 6, marginTop: 11, padding: '10px 11px', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 9, background: 'rgba(245,158,11,0.05)' }}>
+                      <div style={{ color: '#b45309', fontSize: 9.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Exceções da TIPI — confirmar a descrição</div>
+                      {tipi.excecoes.map(excecao => (
+                        <div key={excecao.ex} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, color: 'var(--af-text-soft)', fontSize: 10.5, lineHeight: 1.45 }}>
+                          <span><strong>Ex {excecao.ex}:</strong> {excecao.descricao}</span>
+                          <strong style={{ color: CORES_TIPI[excecao.situacao].texto, whiteSpace: 'nowrap' }}>{excecao.aliquota_texto}</strong>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', marginTop: 11, flexWrap: 'wrap' }}>
+                    <div style={{ color: 'var(--af-muted)', fontSize: 9.8, lineHeight: 1.45 }}>A alíquota da TIPI não substitui a análise de suspensão, isenção, imunidade, regime especial ou enquadramento do estabelecimento.</div>
+                    <a href={resultado.fonte_tipi.url} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--af-primary)', textDecoration: 'none', fontSize: 9.8, fontWeight: 700 }}>
+                      <BookOpen size={11} /> {resultado.fonte_tipi.referencia}
+                    </a>
+                  </div>
+                </section>
+              )
+            })() : (
+              <section style={{ padding: '12px 13px', border: '1px solid rgba(245,158,11,0.22)', borderRadius: 10, background: 'rgba(245,158,11,0.05)' }}>
+                <div style={{ color: '#b45309', fontSize: 10.5, fontWeight: 800 }}>IPI — alíquota não localizada na TIPI oficial</div>
+                <div style={{ marginTop: 3, color: 'var(--af-muted)', fontSize: 10.2 }}>Não considere alíquota zero. Confirme o código vigente e consulte a tabela oficial.</div>
+              </section>
+            )}
+
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '10px 12px', border: '1px solid var(--af-border)', borderRadius: 10, background: 'var(--af-surface-2)' }}>
+              <Info size={13} style={{ flexShrink: 0, marginTop: 1, color: 'var(--af-primary)' }} />
+              <div style={{ color: 'var(--af-muted)', fontSize: 10.2, lineHeight: 1.5 }}><strong style={{ color: 'var(--af-text-soft)' }}>CBS em preparação:</strong> a futura análise será mantida separada das conclusões atuais de PIS/Cofins e considerará classificação tributária, regime e operação, sem converter automaticamente regras monofásicas existentes.</div>
+            </div>
+
             {resultado.resultado.resultados.length > 0 ? resultado.resultado.resultados.map(item => {
               const cor = CORES_TRATAMENTO[item.tratamento]
               return (
@@ -261,11 +329,21 @@ export default function ConsultaNcm() {
                     </div>
                   )}
 
-                  {item.tributos.includes('icms') && (item.descricao_legal || item.cests.length > 0) && (
-                    <div style={{ marginTop: 11, padding: '10px 11px', borderRadius: 9, border: '1px solid var(--af-border)', background: 'var(--af-surface)' }}>
-                      <div style={{ color: 'var(--af-muted)', fontSize: 9.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Enquadramento estadual validado</div>
-                      {item.descricao_legal && <div style={{ marginTop: 4, color: 'var(--af-text-soft)', fontSize: 10.5, lineHeight: 1.45 }}>{item.descricao_legal}</div>}
-                      {item.cests.length > 0 && <div style={{ marginTop: 5, color: 'var(--af-muted)', fontSize: 9.8 }}>CESTs alcançados em Goiás: {item.cests.map(formatarCest).join(', ')}</div>}
+                  {(item.cst_saida || item.codigo_natureza_receita) && (
+                    <div style={{ display: 'flex', gap: 7, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                      {item.cst_saida && (
+                        <span style={{ padding: '5px 8px', borderRadius: 7, border: '1px solid var(--af-border)', background: 'var(--af-surface)', color: 'var(--af-text-soft)', fontSize: 10, fontWeight: 750 }}>
+                          CST de saída {item.cst_saida}
+                        </span>
+                      )}
+                      {item.codigo_natureza_receita && (
+                        <span style={{ padding: '5px 8px', borderRadius: 7, border: '1px solid var(--af-border)', background: 'var(--af-surface)', color: 'var(--af-text-soft)', fontSize: 10, fontWeight: 750 }}>
+                          Natureza da receita {item.codigo_natureza_receita}
+                        </span>
+                      )}
+                      {item.tabela_efd && (
+                        <span style={{ color: 'var(--af-muted)', fontSize: 9.8 }}>Referência: EFD-Contribuições {item.tabela_efd}</span>
+                      )}
                     </div>
                   )}
 
@@ -297,7 +375,7 @@ export default function ConsultaNcm() {
             }) : (
               <div style={{ padding: '18px', border: '1px solid var(--af-border)', borderRadius: 11, background: 'var(--af-surface-2)', textAlign: 'center' }}>
                 <div style={{ color: 'var(--af-text)', fontSize: 12.5, fontWeight: 700 }}>Nenhuma regra conclusiva para a combinação informada</div>
-                <div style={{ marginTop: 4, color: 'var(--af-muted)', fontSize: 10.8 }}>Isso não significa tributação normal. Pode faltar uma regra validada ou a operação não corresponder ao papel selecionado.</div>
+                <div style={{ marginTop: 4, color: 'var(--af-muted)', fontSize: 10.8 }}>Isso não significa tributação normal de PIS/Cofins. Pode faltar uma regra validada ou a operação não corresponder ao papel selecionado.</div>
               </div>
             )}
 

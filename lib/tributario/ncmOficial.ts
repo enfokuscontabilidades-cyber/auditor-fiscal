@@ -1,6 +1,7 @@
 import 'server-only'
 
 import { normalizarNcm, type NcmOficial } from './ncm'
+import { limparDescricaoNcm, montarHierarquiaNcm, type RegistroNcmHierarquia } from './ncmHierarquia'
 
 const URL_NCM_OFICIAL = 'https://portalunico.siscomex.gov.br/classif/api/publico/nomenclatura/download/json'
 
@@ -9,10 +10,6 @@ function textoCampo(registro: Record<string, unknown>, nomes: string[]): string 
   if (!chave) return null
   const valor = registro[chave]
   return typeof valor === 'string' || typeof valor === 'number' ? String(valor).trim() : null
-}
-
-function textoSemMarcacao(valor: string): string {
-  return valor.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim()
 }
 
 function extrairRegistros(payload: unknown): unknown[] {
@@ -38,7 +35,8 @@ export async function consultarNcmOficial(codigoInformado: string): Promise<NcmO
   if (!response.ok) throw new Error(`Sistema Classif respondeu com status ${response.status}`)
 
   const payload: unknown = await response.json()
-  const registro = extrairRegistros(payload).find(item => {
+  const registrosBrutos = extrairRegistros(payload)
+  const registro = registrosBrutos.find(item => {
     if (!item || typeof item !== 'object') return false
     const linha = item as Record<string, unknown>
     return normalizarNcm(textoCampo(linha, ['codigo', 'código', 'code']) ?? '') === codigo
@@ -46,12 +44,23 @@ export async function consultarNcmOficial(codigoInformado: string): Promise<NcmO
   if (!registro || typeof registro !== 'object') return null
 
   const linha = registro as Record<string, unknown>
+  const registrosHierarquia = registrosBrutos.flatMap<RegistroNcmHierarquia>(item => {
+    if (!item || typeof item !== 'object') return []
+    const registroHierarquia = item as Record<string, unknown>
+    const codigoRegistro = textoCampo(registroHierarquia, ['codigo', 'código', 'code'])
+    const descricaoRegistro = textoCampo(registroHierarquia, ['descricao', 'descrição', 'description'])
+    return codigoRegistro && descricaoRegistro
+      ? [{ codigo: codigoRegistro, descricao: descricaoRegistro }]
+      : []
+  })
+
   return {
     codigo,
-    descricao: textoSemMarcacao(textoCampo(linha, ['descricao', 'descrição', 'description']) ?? 'Descrição não informada'),
+    descricao: limparDescricaoNcm(textoCampo(linha, ['descricao', 'descrição', 'description']) ?? 'Descrição não informada'),
     data_inicio: textoCampo(linha, ['data_inicio', 'datainicio', 'data início']),
     data_fim: textoCampo(linha, ['data_fim', 'datafim', 'data fim']),
     ato_legal: textoCampo(linha, ['ato_legal', 'atolegal', 'ato', 'tipo_ato_ini']),
+    hierarquia: montarHierarquiaNcm(registrosHierarquia, codigo),
   }
 }
 

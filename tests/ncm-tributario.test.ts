@@ -27,6 +27,9 @@ const regraPneus: TributarioNcmRegra = {
       orientacao_simples: 'Segregar no PGDAS-D.',
       aliquota_pis: 2,
       aliquota_cofins: 9.5,
+      cst_saida: '02',
+      codigo_natureza_receita: '304',
+      tabela_efd: '4.3.10',
     },
     {
       perfis: ['atacadista', 'varejista'],
@@ -35,6 +38,9 @@ const regraPneus: TributarioNcmRegra = {
       titulo: 'Revenda',
       explicacao: 'Etapa posterior.',
       orientacao_simples: 'Segregar no PGDAS-D.',
+      cst_saida: '04',
+      codigo_natureza_receita: '003',
+      tabela_efd: '4.3.10',
     },
   ],
   condicoes: ['Confirmar produto novo.'],
@@ -101,6 +107,100 @@ const regraIcmsGoPneus: TributarioNcmRegra = {
   vigencia_fim: null,
 }
 
+const regraFarmaceuticos: TributarioNcmRegra = {
+  ...regraPneus,
+  id: 'regra-farmaceuticos',
+  codigo_regra: 'PISCOFINS_MONOFASICO_FARMACEUTICOS',
+  padroes: ['3001', '3003', '3004', '30029020', '30051010'],
+  padroes_excluir: ['30039056', '30049046'],
+  categoria: 'Produtos farmacêuticos',
+  resultados: [
+    {
+      perfis: ['fabricante', 'importador'],
+      operacoes: ['venda_producao', 'importacao'],
+      tratamento: 'tributacao_concentrada',
+      titulo: 'Etapa concentrada',
+      explicacao: 'Industrial ou importador.',
+      orientacao_simples: 'Segregar no PGDAS-D.',
+      aliquota_pis: 2.1,
+      aliquota_cofins: 9.9,
+      cst_saida: '02',
+      codigo_natureza_receita: '201',
+      tabela_efd: '4.3.10',
+    },
+    {
+      perfis: ['atacadista', 'varejista'],
+      operacoes: ['revenda', 'venda_consumidor'],
+      tratamento: 'aliquota_zero',
+      titulo: 'Etapa posterior',
+      explicacao: 'Revenda por comerciante.',
+      orientacao_simples: 'Segregar no PGDAS-D.',
+      cst_saida: '04',
+      codigo_natureza_receita: '002',
+      tabela_efd: '4.3.10',
+    },
+  ],
+}
+
+const regraAutopecas: TributarioNcmRegra = {
+  ...regraPneus,
+  id: 'regra-autopecas',
+  codigo_regra: 'PISCOFINS_MONOFASICO_AUTOPECAS_ANEXO_I',
+  padroes: ['8708'],
+  padroes_excluir: [],
+  categoria: 'Autopeças',
+  resultados: [
+    {
+      perfis: ['fabricante', 'importador'],
+      operacoes: ['venda_producao'],
+      contextos_operacao: ['fabricante_veiculos'],
+      tratamento: 'tributacao_concentrada',
+      titulo: 'Venda para fabricante de veículos',
+      explicacao: 'Destinada à fabricação.',
+      orientacao_simples: 'Segregar no PGDAS-D.',
+      aliquota_pis: 1.65,
+      aliquota_cofins: 7.6,
+      cst_saida: '02',
+      codigo_natureza_receita: '303',
+      tabela_efd: '4.3.10',
+    },
+    {
+      perfis: ['fabricante', 'importador'],
+      operacoes: ['venda_producao'],
+      contextos_operacao: ['atacadista_varejista', 'consumidor'],
+      tratamento: 'tributacao_concentrada',
+      titulo: 'Venda para comércio ou consumidor',
+      explicacao: 'Destinada ao comércio ou consumidor.',
+      orientacao_simples: 'Segregar no PGDAS-D.',
+      aliquota_pis: 2.3,
+      aliquota_cofins: 10.8,
+      cst_saida: '02',
+      codigo_natureza_receita: '302',
+      tabela_efd: '4.3.10',
+    },
+    {
+      perfis: ['fabricante', 'importador'],
+      operacoes: ['venda_producao'],
+      contextos_operacao: ['nao_informado', 'outro'],
+      tratamento: 'inconclusivo',
+      titulo: 'Destinatário pendente',
+      explicacao: 'Identificar o destinatário.',
+      orientacao_simples: 'Não concluir.',
+    },
+    {
+      perfis: ['atacadista', 'varejista'],
+      operacoes: ['revenda', 'venda_consumidor'],
+      tratamento: 'aliquota_zero',
+      titulo: 'Revenda',
+      explicacao: 'Etapa posterior.',
+      orientacao_simples: 'Segregar no PGDAS-D.',
+      cst_saida: '04',
+      codigo_natureza_receita: '003',
+      tabela_efd: '4.3.10',
+    },
+  ],
+}
+
 describe('consulta tributária por NCM', () => {
   it('normaliza e formata o NCM completo', () => {
     expect(normalizarNcm('4011.10.00')).toBe('40111000')
@@ -119,7 +219,77 @@ describe('consulta tributária por NCM', () => {
 
     expect(fabricante.resultados[0]?.tratamento).toBe('tributacao_concentrada')
     expect(fabricante.resultados[0]?.aliquota_cofins).toBe(9.5)
+    expect(fabricante.resultados[0]?.cst_saida).toBe('02')
+    expect(fabricante.resultados[0]?.codigo_natureza_receita).toBe('304')
     expect(varejista.resultados[0]?.tratamento).toBe('aliquota_zero')
+    expect(varejista.resultados[0]?.cst_saida).toBe('04')
+  })
+
+  it('identifica a revenda de produto farmacêutico com CST e natureza da receita', () => {
+    const resultado = analisarNcmComCatalogo({
+      ncm: '30049099', perfil: 'varejista', operacao: 'revenda',
+      descricao: 'Medicamento para uso humano', regras: [regraFarmaceuticos],
+      escopoTributos: ['pis', 'cofins'],
+    })
+
+    expect(resultado.resultados[0]).toMatchObject({
+      tratamento: 'aliquota_zero',
+      cst_saida: '04',
+      codigo_natureza_receita: '002',
+      tabela_efd: '4.3.10',
+    })
+  })
+
+  it('respeita as exclusões expressas da lista de produtos farmacêuticos', () => {
+    const resultado = analisarNcmComCatalogo({
+      ncm: '30049046', perfil: 'varejista', operacao: 'revenda',
+      descricao: 'Produto farmacêutico excluído da regra', regras: [regraFarmaceuticos],
+      escopoTributos: ['pis', 'cofins'],
+    })
+
+    expect(resultado.resultados).toHaveLength(0)
+    expect(resultado.tributos_sem_regra).toEqual(['pis', 'cofins'])
+  })
+
+  it('diferencia as alíquotas de autopeças conforme o destinatário da venda', () => {
+    const paraFabricante = analisarNcmComCatalogo({
+      ncm: '87082999', perfil: 'fabricante', operacao: 'venda_producao',
+      contextoOperacao: 'fabricante_veiculos', descricao: 'Parte nova de carroceria',
+      regras: [regraAutopecas], escopoTributos: ['pis', 'cofins'],
+    })
+    const paraVarejista = analisarNcmComCatalogo({
+      ncm: '87082999', perfil: 'fabricante', operacao: 'venda_producao',
+      contextoOperacao: 'atacadista_varejista', descricao: 'Parte nova de carroceria',
+      regras: [regraAutopecas], escopoTributos: ['pis', 'cofins'],
+    })
+
+    expect(paraFabricante.resultados[0]).toMatchObject({
+      aliquota_pis: 1.65, aliquota_cofins: 7.6, codigo_natureza_receita: '303',
+    })
+    expect(paraVarejista.resultados[0]).toMatchObject({
+      aliquota_pis: 2.3, aliquota_cofins: 10.8, codigo_natureza_receita: '302',
+    })
+  })
+
+  it('mantém autopeça inconclusiva quando o destinatário não foi informado', () => {
+    const resultado = analisarNcmComCatalogo({
+      ncm: '87082999', perfil: 'fabricante', operacao: 'venda_producao',
+      descricao: 'Parte nova de carroceria', regras: [regraAutopecas],
+      escopoTributos: ['pis', 'cofins'],
+    })
+
+    expect(resultado.resultados[0]?.tratamento).toBe('inconclusivo')
+    expect(resultado.resultados[0]?.titulo).toBe('Destinatário pendente')
+  })
+
+  it('exige descrição comercial nas regras federais marcadas como obrigatórias', () => {
+    const resultado = analisarNcmComCatalogo({
+      ncm: '87082999', perfil: 'varejista', operacao: 'revenda',
+      regras: [regraAutopecas], escopoTributos: ['pis', 'cofins'],
+    })
+
+    expect(resultado.resultados[0]?.tratamento).toBe('inconclusivo')
+    expect(resultado.resultados[0]?.explicacao).toContain('descrição comercial')
   })
 
   it('não transforma ICMS-ST em conclusão baseada apenas no NCM', () => {
@@ -230,5 +400,22 @@ describe('consulta tributária por NCM', () => {
 
     expect(substituto.resultados[0]?.orientacao_simples).toContain('sem ST')
     expect(substituido.resultados[0]?.orientacao_simples).toContain('com ST')
+  })
+
+  it('isola a consulta federal das regras e avisos de ICMS', () => {
+    const resultado = analisarNcmComCatalogo({
+      ncm: '40111000', perfil: 'varejista', operacao: 'revenda',
+      descricao: 'Pneu novo para automovel', regras: [regraPneus, regraIcmsGoPneus],
+      escopoTributos: ['pis', 'cofins', 'ipi'],
+      tipiOficial: {
+        codigo: '40111000', descricao: 'Pneus novos', aliquota: 0,
+        aliquota_texto: '0%', situacao: 'aliquota_zero', excecoes: [],
+      },
+    })
+
+    expect(resultado.escopo_tributos).toEqual(['pis', 'cofins', 'ipi'])
+    expect(resultado.resultados.flatMap(item => item.tributos)).not.toContain('icms')
+    expect(resultado.tributos_sem_regra).not.toContain('ipi')
+    expect(resultado.avisos.some(aviso => aviso.includes('ICMS-ST'))).toBe(false)
   })
 })

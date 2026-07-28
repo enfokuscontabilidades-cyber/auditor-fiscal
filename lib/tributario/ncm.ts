@@ -1,5 +1,6 @@
 import type {
   TributarioCnaeFonte,
+  TributarioNcmContextoOperacao,
   TributarioNcmOperacao,
   TributarioNcmPerfil,
   TributarioNcmPosicaoIcms,
@@ -7,6 +8,7 @@ import type {
   TributarioNcmResultadoRegra,
   TributarioNcmTributo,
 } from '@/lib/types'
+import type { TipiOficial } from './tipi'
 
 export interface NcmOficial {
   codigo: string
@@ -14,6 +16,15 @@ export interface NcmOficial {
   data_inicio: string | null
   data_fim: string | null
   ato_legal: string | null
+  hierarquia: NcmHierarquiaItem[]
+}
+
+export type NcmNivelHierarquia = 'secao' | 'capitulo' | 'posicao' | 'subposicao' | 'item'
+
+export interface NcmHierarquiaItem {
+  nivel: NcmNivelHierarquia
+  codigo: string
+  descricao: string
 }
 
 export interface ResultadoTributoNcm {
@@ -24,6 +35,9 @@ export interface ResultadoTributoNcm {
   orientacao_simples: string
   aliquota_pis: number | null
   aliquota_cofins: number | null
+  cst_saida: string | null
+  codigo_natureza_receita: string | null
+  tabela_efd: string | null
   regra: string
   categoria: string
   condicoes: string[]
@@ -37,8 +51,10 @@ export interface ResultadoTributoNcm {
 export interface ConsultaNcmResultado {
   ncm: string
   ncm_formatado: string
+  escopo_tributos: TributarioNcmTributo[]
   perfil: TributarioNcmPerfil
   operacao: TributarioNcmOperacao
+  contexto_operacao: TributarioNcmContextoOperacao
   contexto_icms: {
     cest: string
     uf_origem: string
@@ -47,6 +63,7 @@ export interface ConsultaNcmResultado {
   }
   descricao_informada: string
   classificacao_oficial: NcmOficial | null
+  tipi: TipiOficial | null
   resultados: ResultadoTributoNcm[]
   tributos_sem_regra: TributarioNcmTributo[]
   avisos: string[]
@@ -125,12 +142,15 @@ function resultadoAplicavel(
   perfil: TributarioNcmPerfil,
   operacao: TributarioNcmOperacao,
   posicaoIcms: TributarioNcmPosicaoIcms,
+  contextoOperacao: TributarioNcmContextoOperacao,
 ): TributarioNcmResultadoRegra | null {
   return regra.resultados.find(resultado => {
     const perfilCompativel = resultado.perfis.includes('qualquer') || resultado.perfis.includes(perfil)
     const operacaoCompativel = resultado.operacoes.includes('qualquer') || resultado.operacoes.includes(operacao)
     const posicaoCompativel = !resultado.posicoes_icms?.length || resultado.posicoes_icms.includes(posicaoIcms)
-    return perfilCompativel && operacaoCompativel && posicaoCompativel
+    const contextoCompativel = !resultado.contextos_operacao?.length
+      || resultado.contextos_operacao.includes(contextoOperacao)
+    return perfilCompativel && operacaoCompativel && posicaoCompativel && contextoCompativel
   }) ?? null
 }
 
@@ -143,7 +163,10 @@ export function analisarNcmComCatalogo(params: {
   ufOrigem?: string
   ufDestino?: string
   posicaoIcms?: TributarioNcmPosicaoIcms
+  contextoOperacao?: TributarioNcmContextoOperacao
   classificacaoOficial?: NcmOficial | null
+  tipiOficial?: TipiOficial | null
+  escopoTributos?: TributarioNcmTributo[]
   regras: TributarioNcmRegra[]
 }): ConsultaNcmResultado {
   const ncm = normalizarNcm(params.ncm)
@@ -152,8 +175,16 @@ export function analisarNcmComCatalogo(params: {
   const ufOrigem = (params.ufOrigem ?? '').trim().toUpperCase()
   const ufDestino = (params.ufDestino ?? '').trim().toUpperCase()
   const posicaoIcms = params.posicaoIcms ?? 'nao_informada'
+  const contextoOperacao = params.contextoOperacao ?? 'nao_informado'
+  const todosTributos: TributarioNcmTributo[] = ['pis', 'cofins', 'icms', 'ipi']
+  const escopoTributos = params.escopoTributos?.length
+    ? todosTributos.filter(tributo => params.escopoTributos?.includes(tributo))
+    : todosTributos
+  const escopo = new Set(escopoTributos)
   const regrasPorCodigo = [...params.regras]
-    .filter(regra => regra.ativo && correspondeAoCodigo(regra, ncm))
+    .filter(regra => regra.ativo
+      && regra.tributos.some(tributo => escopo.has(tributo))
+      && correspondeAoCodigo(regra, ncm))
     .sort((a, b) => b.prioridade - a.prioridade || b.versao - a.versao)
 
   const resultados: ResultadoTributoNcm[] = []
@@ -161,8 +192,9 @@ export function analisarNcmComCatalogo(params: {
   const avisosContexto = new Set<string>()
 
   for (const regra of regrasPorCodigo) {
-    if (regra.tributos.every(tributo => tributosJaCobertos.has(tributo))) continue
-    const regraIcms = regra.tributos.includes('icms')
+    const tributosDaRegra = regra.tributos.filter(tributo => escopo.has(tributo))
+    if (tributosDaRegra.every(tributo => tributosJaCobertos.has(tributo))) continue
+    const regraIcms = tributosDaRegra.includes('icms')
     if (!correspondeDescricao(regra, descricao)) {
       if (regraIcms) avisosContexto.add('A descrição informada não corresponde à descrição legal da regra de ICMS-ST localizada para este NCM.')
       continue
@@ -183,9 +215,9 @@ export function analisarNcmComCatalogo(params: {
     const faltasContexto: string[] = []
     if (regraIcms && ufsDestino.length > 0 && !ufDestino) faltasContexto.push('UF de destino')
     if (regraIcms && regra.exige_cest && !cest) faltasContexto.push('CEST')
-    if (regraIcms && regra.descricao_obrigatoria && !descricao) faltasContexto.push('descrição comercial')
+    if (regra.descricao_obrigatoria && !descricao) faltasContexto.push('descrição comercial')
 
-    const resultado = resultadoAplicavel(regra, params.perfil, params.operacao, posicaoIcms)
+    const resultado = resultadoAplicavel(regra, params.perfil, params.operacao, posicaoIcms, contextoOperacao)
     if (!resultado) continue
 
     const resultadoFinal: TributarioNcmResultadoRegra = faltasContexto.length > 0
@@ -193,20 +225,25 @@ export function analisarNcmComCatalogo(params: {
           perfis: ['qualquer'],
           operacoes: ['qualquer'],
           tratamento: 'inconclusivo',
-          titulo: 'Possível ICMS-ST: informações pendentes',
+          titulo: regraIcms ? 'Possível ICMS-ST: informações pendentes' : 'Informações pendentes',
           explicacao: `O NCM pertence a uma faixa com regra cadastrada, mas ainda faltam: ${faltasContexto.join(', ')}.`,
-          orientacao_simples: 'Não segregue a receita como substituição tributária no PGDAS-D com base apenas neste resultado pendente.',
+          orientacao_simples: regraIcms
+            ? 'Não segregue a receita como substituição tributária no PGDAS-D com base apenas neste resultado pendente.'
+            : 'Não aplique a segregação de PIS/Cofins no PGDAS-D antes de confirmar as informações pendentes.',
         }
       : resultado
 
     resultados.push({
-      tributos: regra.tributos,
+      tributos: tributosDaRegra,
       tratamento: resultadoFinal.tratamento,
       titulo: resultadoFinal.titulo,
       explicacao: resultadoFinal.explicacao,
       orientacao_simples: resultadoFinal.orientacao_simples,
       aliquota_pis: resultadoFinal.aliquota_pis ?? null,
       aliquota_cofins: resultadoFinal.aliquota_cofins ?? null,
+      cst_saida: resultadoFinal.cst_saida ?? null,
+      codigo_natureza_receita: resultadoFinal.codigo_natureza_receita ?? null,
+      tabela_efd: resultadoFinal.tabela_efd ?? null,
       regra: `${regra.codigo_regra}@${regra.versao}`,
       categoria: regra.categoria,
       condicoes: regra.condicoes,
@@ -216,11 +253,11 @@ export function analisarNcmComCatalogo(params: {
       cests: regra.cests ?? [],
       descricao_legal: regra.descricao_legal ?? null,
     })
-    regra.tributos.forEach(tributo => tributosJaCobertos.add(tributo))
+    tributosDaRegra.forEach(tributo => tributosJaCobertos.add(tributo))
   }
 
-  const todosTributos: TributarioNcmTributo[] = ['pis', 'cofins', 'icms', 'ipi']
-  const tributosSemRegra = todosTributos.filter(tributo => !tributosJaCobertos.has(tributo))
+  if (params.tipiOficial && escopo.has('ipi')) tributosJaCobertos.add('ipi')
+  const tributosSemRegra = escopoTributos.filter(tributo => !tributosJaCobertos.has(tributo))
   const avisos: string[] = [...avisosContexto]
   if (!params.classificacaoOficial) {
     avisos.push('Não foi possível confirmar a descrição na tabela NCM vigente do Sistema Classif.')
@@ -228,15 +265,17 @@ export function analisarNcmComCatalogo(params: {
   if (!descricao) {
     avisos.push('Informe a descrição comercial do produto para validar exceções que o NCM, sozinho, não diferencia.')
   }
-  if (tributosSemRegra.includes('icms')) {
+  if (escopo.has('icms') && tributosSemRegra.includes('icms')) {
     avisos.push('ICMS-ST não é concluído apenas pelo NCM: exige UF, descrição, CEST, operação e posição da empresa na cadeia.')
   }
 
   return {
     ncm,
     ncm_formatado: formatarNcm(ncm),
+    escopo_tributos: escopoTributos,
     perfil: params.perfil,
     operacao: params.operacao,
+    contexto_operacao: contextoOperacao,
     contexto_icms: {
       cest,
       uf_origem: ufOrigem,
@@ -245,6 +284,7 @@ export function analisarNcmComCatalogo(params: {
     },
     descricao_informada: descricao,
     classificacao_oficial: params.classificacaoOficial ?? null,
+    tipi: params.tipiOficial ?? null,
     resultados,
     tributos_sem_regra: tributosSemRegra,
     avisos,

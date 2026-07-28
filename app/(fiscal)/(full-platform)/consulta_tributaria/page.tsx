@@ -186,7 +186,7 @@ export default function ConsultaTributariaPage() {
         title="Consulta Tributária"
         subtitle={aba === 'cnae'
           ? 'Consulte a atividade oficial e veja primeiro a regra principal do Simples Nacional, seguida das condições que podem alterar o anexo.'
-          : 'Consulte o produto e analise o tratamento tributário conforme o papel da empresa e a operação realizada.'}
+          : 'Consulte o NCM e analise separadamente PIS, Cofins e a alíquota nominal do IPI conforme o produto, o papel da empresa e a operação.'}
         badge={{ label: aba === 'cnae' ? 'Fonte oficial IBGE' : 'NCM oficial RFB', color: '#0891b2' }}
         style={{ marginBottom: 0 }}
       />
@@ -196,7 +196,7 @@ export default function ConsultaTributariaPage() {
           <Building2 size={14} /> CNAE e anexos
         </button>
         <button type="button" onClick={() => setAba('ncm')} style={{ height: 34, border: 0, borderRadius: 7, padding: '0 13px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, background: aba === 'ncm' ? 'var(--af-primary-soft)' : 'transparent', color: aba === 'ncm' ? 'var(--af-primary)' : 'var(--af-muted)', fontSize: 11.5, fontWeight: 800 }}>
-          <PackageSearch size={14} /> NCM e tributação
+          <PackageSearch size={14} /> NCM — PIS/Cofins e IPI
         </button>
       </div>
 

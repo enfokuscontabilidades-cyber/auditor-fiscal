@@ -765,6 +765,12 @@ export type TributarioNcmTributo = 'pis' | 'cofins' | 'icms' | 'ipi'
 export type TributarioNcmTipoCorrespondencia = 'exato' | 'prefixo'
 export type TributarioNcmPerfil = 'fabricante' | 'importador' | 'atacadista' | 'varejista' | 'consumidor_final'
 export type TributarioNcmOperacao = 'venda_producao' | 'importacao' | 'revenda' | 'venda_consumidor' | 'qualquer'
+export type TributarioNcmContextoOperacao =
+  | 'nao_informado'
+  | 'fabricante_veiculos'
+  | 'atacadista_varejista'
+  | 'consumidor'
+  | 'outro'
 export type TributarioNcmPosicaoIcms = 'substituto' | 'substituido' | 'nao_informada'
 export type TributarioNcmTratamento =
   | 'tributacao_concentrada'
@@ -778,6 +784,7 @@ export type TributarioNcmTratamento =
 export interface TributarioNcmResultadoRegra {
   perfis: Array<TributarioNcmPerfil | 'qualquer'>
   operacoes: TributarioNcmOperacao[]
+  contextos_operacao?: TributarioNcmContextoOperacao[]
   posicoes_icms?: TributarioNcmPosicaoIcms[]
   tratamento: TributarioNcmTratamento
   titulo: string
@@ -785,6 +792,11 @@ export interface TributarioNcmResultadoRegra {
   orientacao_simples: string
   aliquota_pis?: number | null
   aliquota_cofins?: number | null
+  // Metadados de escritura da EFD-Contribuições. O CST e a natureza da
+  // receita pertencem ao resultado (etapa da cadeia), não apenas ao NCM.
+  cst_saida?: string | null
+  codigo_natureza_receita?: string | null
+  tabela_efd?: string | null
 }
 
 export interface TributarioNcmCestCorrespondencia {
