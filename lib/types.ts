@@ -763,7 +763,7 @@ export interface TributarioServicoCnaeVinculo {
 // empresa e da operação realizada.
 export type TributarioNcmTributo = 'pis' | 'cofins' | 'icms' | 'ipi'
 export type TributarioNcmTipoCorrespondencia = 'exato' | 'prefixo'
-export type TributarioNcmPerfil = 'fabricante' | 'importador' | 'atacadista' | 'varejista' | 'consumidor_final'
+export type TributarioNcmPerfil = 'fabricante' | 'importador' | 'distribuidor' | 'atacadista' | 'varejista' | 'consumidor_final'
 export type TributarioNcmOperacao = 'venda_producao' | 'importacao' | 'revenda' | 'venda_consumidor' | 'qualquer'
 export type TributarioNcmContextoOperacao =
   | 'nao_informado'

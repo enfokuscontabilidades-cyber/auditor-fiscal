@@ -6,7 +6,7 @@ import { carregarRegrasNcmVigentes } from '@/lib/tributario/ncmCatalogoServer'
 import { consultarNcmOficial, FONTE_NCM_OFICIAL } from '@/lib/tributario/ncmOficial'
 import { consultarTipiOficial, FONTE_TIPI_OFICIAL } from '@/lib/tributario/tipiOficial'
 
-const PERFIS: TributarioNcmPerfil[] = ['fabricante', 'importador', 'atacadista', 'varejista', 'consumidor_final']
+const PERFIS: TributarioNcmPerfil[] = ['fabricante', 'importador', 'distribuidor', 'atacadista', 'varejista', 'consumidor_final']
 const OPERACOES: TributarioNcmOperacao[] = ['venda_producao', 'importacao', 'revenda', 'venda_consumidor', 'qualquer']
 const CONTEXTOS_OPERACAO: TributarioNcmContextoOperacao[] = ['nao_informado', 'fabricante_veiculos', 'atacadista_varejista', 'consumidor', 'outro']
 

@@ -201,6 +201,80 @@ const regraAutopecas: TributarioNcmRegra = {
   ],
 }
 
+const regraCombustiveisPetroleo: TributarioNcmRegra = {
+  ...regraPneus,
+  id: 'regra-combustiveis-petroleo',
+  codigo_regra: 'PISCOFINS_MONOFASICO_COMBUSTIVEIS_PETROLEO',
+  tipo_correspondencia: 'exato',
+  padroes: ['27101259', '27101921', '27111910'],
+  padroes_excluir: [],
+  categoria: 'Combustíveis derivados de petróleo',
+  palavras_incluir: ['gasolina', 'diesel', 'gasoleo', 'glp', 'gas liquefeito de petroleo'],
+  palavras_excluir: ['aviacao'],
+  resultados: [
+    {
+      perfis: ['fabricante'],
+      operacoes: ['venda_producao'],
+      tratamento: 'inconclusivo',
+      titulo: 'Produtor ou refinaria: confirmar regime e vigência',
+      explicacao: 'A etapa concentrada pode depender de regime especial e coeficiente.',
+      orientacao_simples: 'Confirmar a legislação vigente.',
+    },
+    {
+      perfis: ['importador'],
+      operacoes: ['importacao', 'venda_producao'],
+      tratamento: 'inconclusivo',
+      titulo: 'Importador: incidência própria',
+      explicacao: 'A importação não é revenda posterior.',
+      orientacao_simples: 'Não aplicar alíquota zero.',
+    },
+    {
+      perfis: ['distribuidor', 'varejista'],
+      operacoes: ['revenda', 'venda_consumidor'],
+      tratamento: 'aliquota_zero',
+      titulo: 'Revenda de combustível',
+      explicacao: 'Etapa posterior do regime monofásico.',
+      orientacao_simples: 'Segregar no PGDAS-D.',
+      cst_saida: '04',
+      codigo_natureza_receita: '001',
+      tabela_efd: '4.3.10',
+    },
+  ],
+}
+
+const regraEtanol: TributarioNcmRegra = {
+  ...regraPneus,
+  id: 'regra-etanol',
+  codigo_regra: 'PISCOFINS_MONOFASICO_ETANOL_COMBUSTIVEL',
+  tipo_correspondencia: 'exato',
+  padroes: ['22071010', '22071090', '22072011', '22072019'],
+  padroes_excluir: [],
+  categoria: 'Etanol combustível',
+  palavras_incluir: ['etanol combustivel', 'alcool combustivel', 'alcool carburante'],
+  palavras_excluir: ['bebida', 'perfumaria', 'limpeza'],
+  resultados: [
+    {
+      perfis: ['fabricante', 'importador'],
+      operacoes: ['venda_producao', 'importacao'],
+      tratamento: 'inconclusivo',
+      titulo: 'Etapa concentrada',
+      explicacao: 'Confirmar regime especial.',
+      orientacao_simples: 'Não concluir sem o regime.',
+    },
+    {
+      perfis: ['distribuidor', 'varejista'],
+      operacoes: ['revenda', 'venda_consumidor'],
+      tratamento: 'aliquota_zero',
+      titulo: 'Etapa posterior',
+      explicacao: 'Alíquota zero na etapa posterior.',
+      orientacao_simples: 'Segregar no PGDAS-D.',
+      cst_saida: '04',
+      codigo_natureza_receita: '001',
+      tabela_efd: '4.3.10',
+    },
+  ],
+}
+
 describe('consulta tributária por NCM', () => {
   it('normaliza e formata o NCM completo', () => {
     expect(normalizarNcm('4011.10.00')).toBe('40111000')
@@ -290,6 +364,61 @@ describe('consulta tributária por NCM', () => {
 
     expect(resultado.resultados[0]?.tratamento).toBe('inconclusivo')
     expect(resultado.resultados[0]?.explicacao).toContain('descrição comercial')
+  })
+
+  it('identifica a alíquota zero na revenda de gasolina por distribuidor', () => {
+    const resultado = analisarNcmComCatalogo({
+      ncm: '27101259', perfil: 'distribuidor', operacao: 'revenda',
+      descricao: 'Gasolina automotiva comum', regras: [regraCombustiveisPetroleo],
+      escopoTributos: ['pis', 'cofins'],
+    })
+
+    expect(resultado.resultados[0]).toMatchObject({
+      tratamento: 'aliquota_zero', cst_saida: '04',
+      codigo_natureza_receita: '001', tabela_efd: '4.3.10',
+    })
+  })
+
+  it('não aplica a alíquota zero da revenda ao produtor ou ao importador de combustível', () => {
+    const refinaria = analisarNcmComCatalogo({
+      ncm: '27101921', perfil: 'fabricante', operacao: 'venda_producao',
+      descricao: 'Óleo diesel', regras: [regraCombustiveisPetroleo],
+      escopoTributos: ['pis', 'cofins'],
+    })
+    const importador = analisarNcmComCatalogo({
+      ncm: '27101921', perfil: 'importador', operacao: 'importacao',
+      descricao: 'Óleo diesel importado', regras: [regraCombustiveisPetroleo],
+      escopoTributos: ['pis', 'cofins'],
+    })
+
+    expect(refinaria.resultados[0]?.tratamento).toBe('inconclusivo')
+    expect(importador.resultados[0]?.tratamento).toBe('inconclusivo')
+  })
+
+  it('distingue distribuidor de comerciante atacadista na venda de etanol', () => {
+    const distribuidor = analisarNcmComCatalogo({
+      ncm: '22071010', perfil: 'distribuidor', operacao: 'revenda',
+      descricao: 'Etanol combustível anidro', regras: [regraEtanol],
+      escopoTributos: ['pis', 'cofins'],
+    })
+    const atacadista = analisarNcmComCatalogo({
+      ncm: '22071010', perfil: 'atacadista', operacao: 'revenda',
+      descricao: 'Etanol combustível anidro', regras: [regraEtanol],
+      escopoTributos: ['pis', 'cofins'],
+    })
+
+    expect(distribuidor.resultados[0]?.tratamento).toBe('aliquota_zero')
+    expect(atacadista.resultados).toHaveLength(0)
+  })
+
+  it('não classifica álcool de outra finalidade como etanol combustível', () => {
+    const resultado = analisarNcmComCatalogo({
+      ncm: '22071010', perfil: 'varejista', operacao: 'revenda',
+      descricao: 'Álcool para limpeza', regras: [regraEtanol],
+      escopoTributos: ['pis', 'cofins'],
+    })
+
+    expect(resultado.resultados).toHaveLength(0)
   })
 
   it('não transforma ICMS-ST em conclusão baseada apenas no NCM', () => {

@@ -91,6 +91,8 @@ export default function ConsultaNcm() {
       setOperacao('importacao')
     } else if (novoPerfil === 'varejista') {
       setOperacao('revenda')
+    } else if (novoPerfil === 'distribuidor') {
+      setOperacao('revenda')
     } else if (novoPerfil === 'consumidor_final') {
       setOperacao('venda_consumidor')
     } else {
@@ -155,8 +157,9 @@ export default function ConsultaNcm() {
             <label style={{ display: 'grid', gap: 5, color: 'var(--af-muted)', fontSize: 10.5, fontWeight: 700 }}>
               PAPEL DA EMPRESA NA OPERAÇÃO
               <select value={perfil} onChange={event => alterarPerfil(event.target.value as TributarioNcmPerfil)} style={inputStyle}>
-                <option value="fabricante">Fabricante</option>
+                <option value="fabricante">Fabricante, produtor ou refinaria</option>
                 <option value="importador">Importador</option>
+                <option value="distribuidor">Distribuidor de combustíveis</option>
                 <option value="atacadista">Comerciante atacadista</option>
                 <option value="varejista">Comerciante varejista</option>
                 <option value="consumidor_final">Consumidor final</option>
