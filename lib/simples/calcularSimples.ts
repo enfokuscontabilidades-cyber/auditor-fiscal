@@ -597,12 +597,13 @@ function extrairInfoIssNfse(doc: DocumentoFiscal): { retido: boolean; valorRetid
   const indicador = meta.iss_retido
   const indicadorNormalizado = typeof indicador === 'string' ? indicador.trim().toLowerCase() : indicador
   const tipoRetencao = String(meta.tipo_retencao_iss ?? '').trim()
+  const indicadorPresente = indicador !== null && indicador !== undefined
   let retido = indicadorNormalizado === true || indicadorNormalizado === 1 ||
     ['1', 'true', 's', 'sim', 'yes'].includes(String(indicadorNormalizado)) ||
     ['2', '3'].includes(tipoRetencao)
 
   const xml = typeof parsed.xml === 'string' ? parsed.xml : ''
-  if (!retido && xml) {
+  if (!indicadorPresente && !tipoRetencao && xml) {
     retido = /<(?:[\w.-]+:)?(?:IssRetido|ISSRetido|RetencaoISS|RetemISS)\b[^>]*>\s*(?:1|true|s|sim)\s*</i.test(xml) ||
       /<(?:[\w.-]+:)?(?:tpRetISSQN|TipoRetencaoISSQN|TipoRetencaoIss)\b[^>]*>\s*(?:2|3)\s*</i.test(xml)
   }

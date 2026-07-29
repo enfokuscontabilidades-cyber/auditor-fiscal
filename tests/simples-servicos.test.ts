@@ -286,4 +286,46 @@ describe('Simples Nacional - servicos', () => {
       },
     })
   })
+
+  test('segrega a retencao declarada sem valor e nao a transfere para outra nota do lote XML', () => {
+    const indicadorSemValor = {
+      ...docServico(),
+      parsed_data: {
+        metadados: { iss_retido: true, valor_iss: 0, valor_iss_retido: 0 },
+        xml: '<CompNfse><IssRetido>1</IssRetido><ValorIss>0.00</ValorIss></CompNfse>',
+      },
+    }
+    const semRetencaoNoMesmoLote = {
+      ...docServico(),
+      id: 'doc-nfse-2',
+      chave_acesso: 'NFSE:123:5208707:2:DEF',
+      numero: '2',
+      parsed_data: {
+        metadados: { iss_retido: false, valor_iss: 0, valor_iss_retido: 0 },
+        xml: '<Lote><CompNfse><IssRetido>1</IssRetido><ValorIss>300.00</ValorIss></CompNfse></Lote>',
+      },
+    }
+    const itemSemValor = itemServico()
+    const itemDoMesmoLote = {
+      ...itemServico(),
+      id: 'item-2',
+      documento_id: semRetencaoNoMesmoLote.id,
+    }
+
+    const result = apurarSimples({
+      documentos: [indicadorSemValor, semRetencaoNoMesmoLote],
+      itens: [itemSemValor, itemDoMesmoLote],
+      rbt12: 240000,
+      origem_rbt12: 'manual',
+      cnpjEmpresa: '12345678000190',
+      competencia: '05/2026',
+      anexoServico: 'III',
+    })
+
+    const issEsperado = calcularDas(10000, 240000, 'III')!.breakdown.ISS
+    expect(result.receita_servicos_com_iss_retido).toBe(10000)
+    expect(result.receita_servicos_sem_iss_retido).toBe(10000)
+    expect(result.total_iss_retido).toBe(0)
+    expect(result.valor_iss_excluido_das).toBe(issEsperado)
+  })
 })

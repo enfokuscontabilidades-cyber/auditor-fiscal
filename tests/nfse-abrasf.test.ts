@@ -77,9 +77,45 @@ describe('parseNfseAbrasf', () => {
     expect(result.metadados.valor_iss_retido).toBe(45)
   })
 
+  test('preserva a retencao declarada mesmo quando o optante do Simples informa ISS zerado', () => {
+    const xml = nfseXml({ issRetido: '1' }).replace('<ValorIss>45.00</ValorIss>', '<ValorIss>0.00</ValorIss>')
+    const [result] = parseNfseAbrasf(xml, CNPJ_EMPRESA)
+
+    expect(result.metadados.iss_retido).toBe(true)
+    expect(result.metadados.valor_iss_retido).toBe(0)
+  })
+
   test('suporta lote/lista com mais de uma NFS-e', () => {
     const xml = nfseXml({ numero: '1', codigoVerificacao: 'A' }).replace('</ListaNfse>', `${nfseXml({ numero: '2', codigoVerificacao: 'B' }).match(/<CompNfse>[\s\S]*<\/CompNfse>/)?.[0] ?? ''}</ListaNfse>`)
     expect(parseNfseAbrasf(xml, CNPJ_EMPRESA)).toHaveLength(2)
+  })
+
+  test('recupera exportacao municipal com varios XMLs completos concatenados', () => {
+    const municipal = (numero: string, codigo: string) => nfseXml({ numero, codigoVerificacao: codigo })
+      .replace(/<\?xml[\s\S]*?\?>/, '')
+      .replaceAll('ConsultarNfseResposta', 'GerarNfseResposta')
+      .replace('http://www.abrasf.org.br/nfse.xsd', 'http://nfse.goiania.go.gov.br/xsd/nfse_gyn_v02.xsd')
+    const xml = `${municipal('101', 'GYN101')}\n${municipal('102', 'GYN102')}`
+
+    const resultados = parseNfseXml(xml, CNPJ_EMPRESA, '01-2025 NFS.XML')
+
+    expect(detectarXmlNfse(xml)).toBe(true)
+    expect(resultados).toHaveLength(2)
+    expect(resultados.map(item => item.metadados.numero)).toEqual(['101', '102'])
+    expect(resultados.every(item => item.metadados.layout_xml === 'municipal')).toBe(true)
+  })
+
+  test('cancelamento em lote afeta somente a NFS-e correspondente', () => {
+    const xml = nfseXml({ numero: '1', codigoVerificacao: 'A' }).replace(
+      '</ListaNfse>',
+      `${nfseXml({ numero: '2', codigoVerificacao: 'B', cancelada: true }).match(/<CompNfse>[\s\S]*<\/CompNfse>/)?.[0] ?? ''}</ListaNfse>`,
+    )
+
+    const resultados = parseNfseAbrasf(xml, CNPJ_EMPRESA)
+
+    expect(resultados).toHaveLength(2)
+    expect(resultados[0].documento.status).toBe('ok')
+    expect(resultados[1].documento.status).toBe('cancelada')
   })
 
   test('marca NFS-e cancelada sem gerar item tributavel', () => {

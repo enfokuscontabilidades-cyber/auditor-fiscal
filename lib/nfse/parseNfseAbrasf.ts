@@ -28,6 +28,21 @@ function elementsByLocalNames(node: Document | Element, names: string[]): Elemen
   return Array.from(node.getElementsByTagName('*')).filter(el => normalized.includes(el.localName.toLowerCase()))
 }
 
+function parseXmlDocument(xmlTxt: string): Document | null {
+  const parser = new DOMParser()
+  const documento = parser.parseFromString(xmlTxt, 'text/xml')
+  if (!documento.querySelector('parsererror')) return documento
+
+  // Alguns portais municipais exportam o mês inteiro concatenando vários
+  // documentos XML completos no mesmo arquivo. Envolver os blocos em uma raiz
+  // sintética preserva cada NFS-e e permite tratá-los como um lote.
+  const semDeclaracoes = xmlTxt
+    .replace(/^\uFEFF/, '')
+    .replace(/<\?xml[\s\S]*?\?>/gi, '')
+  const lote = parser.parseFromString(`<LoteNfseMunicipal>${semDeclaracoes}</LoteNfseMunicipal>`, 'text/xml')
+  return lote.querySelector('parsererror') ? null : lote
+}
+
 function firstByLocalName(node: Document | Element | null | undefined, name: string): Element | null {
   if (!node) return null
   const direct = node.getElementsByTagName(name)[0]
@@ -59,6 +74,15 @@ function firstText(node: XmlElement, names: string[]): string {
     if (value) return value
   }
   return ''
+}
+
+function ancestorByLocalName(node: Element, name: string): Element | null {
+  let atual: Element | null = node
+  while (atual) {
+    if (atual.localName === name) return atual
+    atual = atual.parentElement
+  }
+  return null
 }
 
 function candidateElements(node: XmlElement, names: readonly string[]): Element[] {
@@ -191,7 +215,7 @@ function findParty(inf: Element, role: 'prestador' | 'tomador'): { documento: st
 
 function detectarLayoutNfse(node: Document | Element): NfseXmlLayout {
   const doc = (node.ownerDocument ?? node) as Document
-  const namespace = (doc.documentElement?.namespaceURI ?? '').toLowerCase()
+  const namespace = ((node instanceof Element ? node.namespaceURI : doc.documentElement?.namespaceURI) ?? '').toLowerCase()
   if (namespace.includes('sped.fazenda.gov.br/nfse') || elementsByLocalName(doc, 'infNFSe').length > 0) {
     return 'nacional'
   }
@@ -269,10 +293,10 @@ function parseInfNfse(inf: Element, xmlTxt: string, nomeArquivo?: string): NfseP
     'Situacao', 'CodigoSituacaoNFSe', 'CodigoSituacaoNota',
     'SituacaoNfse', 'SituacaoNFSe', 'StatusNfse', 'TipoNota', 'IndCancelamento',
   ]
+  const contextoNota = ancestorByLocalName(inf, 'CompNfse') ?? inf
   const situacaoCancelada = (): boolean => {
-    const doc = inf.ownerDocument
     return statusElementNames.some(name =>
-      elementsByLocalName(doc, name).some(el => {
+      elementsByLocalName(contextoNota, name).some(el => {
         const v = el.textContent?.trim() ?? ''
         return v === '4' || v === '2' || v === 'C' || v === 'S' || /^cancelad/i.test(v)
       })
@@ -280,21 +304,20 @@ function parseInfNfse(inf: Element, xmlTxt: string, nomeArquivo?: string): NfseP
   }
   // NFS-e Nacional (SPED): cancelamento via evento <eNNNNNN> com xDesc contendo "cancelamento"
   const temEventoCancelamento = (): boolean => {
-    const doc = inf.ownerDocument
-    return Array.from(doc.getElementsByTagName('*')).some(el =>
+    return Array.from(contextoNota.getElementsByTagName('*')).some(el =>
       /^e\d{5,6}$/i.test(el.localName) && /cancelamento/i.test(el.textContent ?? '')
     )
   }
   const cancelada =
-    cancelElementNames.some(name => elementsByLocalName(inf.ownerDocument, name).length > 0) ||
+    cancelElementNames.some(name => elementsByLocalName(contextoNota, name).length > 0) ||
     situacaoCancelada() ||
     temEventoCancelamento()
 
   const indicadorRetencao = firstTextAcross([servico, valoresServico, inf], ['IssRetido', 'ISSRetido', 'RetencaoISS', 'RetemISS'])
   const tipoRetencaoIss = firstText(inf, ['tpRetISSQN', 'TipoRetencaoISSQN', 'TipoRetencaoIss'])
   const valorIss = numberXml(firstTextAcross(fontesValoresBrutos, ['ValorIss', 'ValorISS', 'vISSQN']))
-  const issRetido = indicadorIssRetido(indicadorRetencao) || tipoRetencaoIssNacional(tipoRetencaoIss)
   const valorIssRetidoInformado = numberXml(firstTextAcross(fontesValoresBrutos, ['ValorIssRetido', 'ValorISSRetido', 'vISSQNRet', 'vISSRet']))
+  const issRetido = indicadorIssRetido(indicadorRetencao) || tipoRetencaoIssNacional(tipoRetencaoIss)
   const valorServicos = numberXml(firstTextAcross(fontesValoresBrutos, ['ValorServicos', 'ValorServico', 'ValorTotalServicos', 'vServ', 'vBC']))
 
   const metadados: NfseAbrasfMetadata = {
@@ -358,7 +381,7 @@ function parseInfNfse(inf: Element, xmlTxt: string, nomeArquivo?: string): NfseP
     origem_devolucao: 'nao_aplicavel',
     status: metadados.cancelada ? 'cancelada' : 'ok',
     nome_arquivo: nomeArquivo,
-    parsed_data: { tipo: 'nfse_xml', layout: metadados.layout_xml, metadados, xml: xmlTxt },
+    parsed_data: { tipo: 'nfse_xml', layout: metadados.layout_xml, metadados, xml: contextoNota.outerHTML || xmlTxt },
   }
 
   const itens: Omit<DocumentoFiscalItemInput, 'empresa_id' | 'documento_id'>[] = metadados.cancelada ? [] : [{
@@ -401,8 +424,8 @@ function parseRawNfse(xmlTxt: string, nomeArquivo?: string): NfseParseResult | n
   const indicadorRetencao = rawTag(xmlTxt, ['IssRetido', 'ISSRetido', 'RetencaoISS', 'RetemISS'])
   const tipoRetencaoIss = rawTag(xmlTxt, ['tpRetISSQN', 'TipoRetencaoISSQN', 'TipoRetencaoIss'])
   const valorIss = numberXml(rawTag(xmlTxt, ['ValorIss', 'ValorISS', 'vISSQN']))
-  const issRetido = indicadorIssRetido(indicadorRetencao) || tipoRetencaoIssNacional(tipoRetencaoIss)
   const valorIssRetidoInformado = numberXml(rawTag(xmlTxt, ['ValorIssRetido', 'ValorISSRetido', 'vISSQNRet', 'vISSRet']))
+  const issRetido = indicadorIssRetido(indicadorRetencao) || tipoRetencaoIssNacional(tipoRetencaoIss)
   const metadados: NfseAbrasfMetadata = {
     layout_xml: /sped\.fazenda\.gov\.br\/nfse/i.test(xmlTxt)
       ? 'nacional'
@@ -547,8 +570,8 @@ function enriquecerIbsCbsNfse(resultados: NfseParseResult[], xmlTxt: string): Nf
 }
 
 export function parseNfseAbrasf(xmlTxt: string, cnpjEmpresa: string, nomeArquivo?: string): NfseParseResult[] {
-  const doc = new DOMParser().parseFromString(xmlTxt, 'text/xml')
-  if (doc.querySelector('parsererror')) {
+  const doc = parseXmlDocument(xmlTxt)
+  if (!doc) {
     const rawParsed = parseRawNfse(xmlTxt, nomeArquivo)
     const cnpj = onlyDigits(cnpjEmpresa)
     if (!rawParsed) return []
@@ -587,8 +610,8 @@ export function parseNfseAbrasf(xmlTxt: string, cnpjEmpresa: string, nomeArquivo
 
 export function detectarXmlNfseAbrasf(xmlTxt: string): boolean {
   try {
-    const doc = new DOMParser().parseFromString(xmlTxt, 'text/xml')
-    if (doc.querySelector('parsererror')) return false
+    const doc = parseXmlDocument(xmlTxt)
+    if (!doc) return false
     return elementsByLocalName(doc, 'InfNfse').length > 0 ||
       elementsByLocalName(doc, 'CompNfse').length > 0 ||
       elementsByLocalNames(doc, ['NotaFiscaldeServicoEletronicaNFSe', 'NotaFiscalServicoEletronica', 'NFSe', 'Nfse']).length > 0

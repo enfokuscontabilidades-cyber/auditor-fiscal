@@ -44,6 +44,7 @@ export async function DELETE(request: Request) {
   let documentosRemovidos = 0
   let xmlsRemovidos = 0
   let spedsRemovidos = 0
+  let apuracoesRemovidas = 0
 
   try {
     let query = supabase
@@ -119,10 +120,21 @@ export async function DELETE(request: Request) {
     spedsRemovidos = data?.length ?? 0
   }
 
+  if (limparXmlEntrada || limparXmlSaida) {
+    const { data } = await supabase
+      .from('sn_apuracoes')
+      .delete()
+      .eq('empresa_id', empresaId)
+      .eq('competencia', competencia)
+      .select('id')
+    apuracoesRemovidas = data?.length ?? 0
+  }
+
   return NextResponse.json({
     ok: true,
     documentos_removidos: documentosRemovidos,
     xmls_removidos: xmlsRemovidos,
     speds_removidos: spedsRemovidos,
+    apuracoes_removidas: apuracoesRemovidas,
   })
 }

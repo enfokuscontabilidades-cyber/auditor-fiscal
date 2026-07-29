@@ -10,7 +10,7 @@ import { parseNfeParaDocumento, detectarCancelamento } from "@/lib/nfe/parseNfe"
 import { apurarSimples } from "@/lib/simples/calcularSimples"
 import { classificarCfop } from "@/lib/simples/cfopReceita"
 import { extrairXmlsDeArquivos } from "@/lib/fiscal/xmlArchive"
-import type { SnDeclaracao, SnParsedData, ArquivoXml, DocumentoFiscal, DocumentoFiscalItem, DocumentoFiscalItemInput, SnReceitaMensal, SnFolhaMensal, SnConfigServicoAtividade } from "@/lib/types"
+import type { SnDeclaracao, SnParsedData, ArquivoXml, DocumentoFiscal, DocumentoFiscalItem, DocumentoFiscalItemInput, SnReceitaMensal, SnFolhaMensal, SnConfigServicoAtividade, SnApuracao } from "@/lib/types"
 import type { ResultadoApuracao, ResultadoDas, ConfigServicoAtividade } from "@/lib/simples/calcularSimples"
 import type { NfeParseResult } from "@/lib/nfe/parseNfe"
 import type { ResultadoConsultaCnae } from "@/lib/tributario/cnae"
@@ -854,7 +854,11 @@ type ItemConfronto = {
   qtdNfe: number
   diff: number
   diffPct: number
-  status: 'ok' | 'alerta' | 'critico' | 'sem_pgdas' | 'sem_nfe'
+  dasPgdas: number | null
+  dasSistema: number | null
+  diffDas: number | null
+  diffDasPct: number | null
+  status: 'ok' | 'alerta' | 'critico' | 'sem_pgdas' | 'sem_nfe' | 'sem_apuracao'
 }
 
 type DocumentoFiscalComItens = DocumentoFiscal & {
@@ -874,6 +878,7 @@ function BadgeConfronto({ status }: { status: ItemConfronto['status'] }) {
     critico:   { label: 'Crítico',      bg: 'rgba(239,68,68,0.12)',  border: 'rgba(239,68,68,0.3)',   color: 'var(--af-danger)' },
     sem_pgdas: { label: 'Sem PGDAS',    bg: 'rgba(148,163,184,0.10)', border: 'rgba(148,163,184,0.25)', color: 'var(--af-muted)' },
     sem_nfe:   { label: 'Sem NF-e',     bg: 'rgba(148,163,184,0.10)', border: 'rgba(148,163,184,0.25)', color: 'var(--af-muted)' },
+    sem_apuracao: { label: 'Sem apuração', bg: 'rgba(148,163,184,0.10)', border: 'rgba(148,163,184,0.25)', color: 'var(--af-muted)' },
   }
   const { label, bg, border, color } = cfg[status]
   return (
@@ -945,9 +950,9 @@ function AbaConfronto({ items, carregando, onExportarExcel }: {
       {/* Cabeçalho com legenda e exportação */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap' as const, gap: 10 }}>
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' as const, fontSize: 11, color: 'var(--af-muted)' }}>
-          <span>OK ≤ 1%</span>
-          <span>Divergência 1%–5%</span>
-          <span>Crítico &gt; 5%</span>
+          <span>OK ≤ 1% em receita e DAS</span>
+          <span>Divergência 1%–5% no maior confronto</span>
+          <span>Crítico &gt; 5% no maior confronto</span>
           <span>XML &gt; PGDAS = possível sub-declaração</span>
         </div>
         <button
@@ -976,7 +981,7 @@ function AbaConfronto({ items, carregando, onExportarExcel }: {
               </span>
             )}
             <span style={{ color: 'var(--af-text-soft)', display: 'block', fontSize: 11, marginTop: 3 }}>
-              Receita declarada no PGDAS-D vs. receita XML considerada na apuração.
+              Receita e DAS declarados no PGDAS-D vs. valores calculados pelo sistema.
             </span>
           </div>
         </div>
@@ -988,13 +993,23 @@ function AbaConfronto({ items, carregando, onExportarExcel }: {
         const totalPgdas = anoItems.reduce((s, i) => s + i.receitaPgdas, 0)
         const totalXml   = anoItems.reduce((s, i) => s + i.totalNfe, 0)
         const totalDiff  = totalXml - totalPgdas
+        const itensComDasPgdas = anoItems.filter(i => i.dasPgdas !== null)
+        const temDasPgdas = itensComDasPgdas.length > 0
+        const dasAnoComparavel = temDasPgdas && itensComDasPgdas.every(i => i.dasSistema !== null)
+        const totalDasPgdas = itensComDasPgdas.reduce((s, i) => s + (i.dasPgdas ?? 0), 0)
+        const totalDasSistema = itensComDasPgdas.reduce((s, i) => s + (i.dasSistema ?? 0), 0)
+        const totalDiffDas = totalDasSistema - totalDasPgdas
         const diffPctAno = totalPgdas > 0 ? totalDiff / totalPgdas : (totalXml > 0 ? 1 : 0)
         const statusAno: ItemConfronto['status'] = anoItems.some(i => i.status === 'critico') ? 'critico'
           : anoItems.some(i => i.status === 'alerta') ? 'alerta'
-          : anoItems.some(i => i.status === 'sem_pgdas' || i.status === 'sem_nfe') ? 'sem_pgdas'
+          : anoItems.some(i => i.status === 'sem_pgdas') ? 'sem_pgdas'
+          : anoItems.some(i => i.status === 'sem_nfe') ? 'sem_nfe'
+          : anoItems.some(i => i.status === 'sem_apuracao') ? 'sem_apuracao'
           : 'ok'
         const diffPos = totalDiff >= 0
         const corDiffAno = totalDiff === 0 ? 'var(--af-muted)' : diffPos ? 'var(--af-warning)' : 'var(--af-danger)'
+        const diffDasPos = totalDiffDas >= 0
+        const corDiffDasAno = totalDiffDas === 0 ? 'var(--af-muted)' : diffDasPos ? 'var(--af-warning)' : 'var(--af-danger)'
 
         return (
           <div key={ano} style={{ marginBottom: 10 }}>
@@ -1017,7 +1032,7 @@ function AbaConfronto({ items, carregando, onExportarExcel }: {
                   <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--af-text)', fontVariantNumeric: 'tabular-nums' }}>{totalXml > 0 ? money.format(totalXml) : '—'}</div>
                 </div>
                 <div style={{ textAlign: 'right' as const }}>
-                  <div style={{ fontSize: 10, color: 'var(--af-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>Diferença</div>
+                  <div style={{ fontSize: 10, color: 'var(--af-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>Dif. receita</div>
                   <div style={{ fontSize: 13, fontWeight: 600, color: corDiffAno, fontVariantNumeric: 'tabular-nums' }}>
                     {totalPgdas === 0 && totalXml === 0 ? '—' : `${diffPos ? '+' : ''}${money.format(totalDiff)}`}
                   </div>
@@ -1026,6 +1041,20 @@ function AbaConfronto({ items, carregando, onExportarExcel }: {
                   <div style={{ fontSize: 10, color: 'var(--af-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>Variação</div>
                   <div style={{ fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: Math.abs(diffPctAno) <= 0.01 ? '#16a34a' : Math.abs(diffPctAno) <= 0.05 ? 'var(--af-warning)' : 'var(--af-danger)' }}>
                     {totalPgdas > 0 ? pct(Math.abs(diffPctAno)) : '—'}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' as const }}>
+                  <div style={{ fontSize: 10, color: 'var(--af-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>DAS PGDAS</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--af-text)', fontVariantNumeric: 'tabular-nums' }}>{temDasPgdas ? money.format(totalDasPgdas) : '—'}</div>
+                </div>
+                <div style={{ textAlign: 'right' as const }}>
+                  <div style={{ fontSize: 10, color: 'var(--af-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>DAS sistema</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--af-text)', fontVariantNumeric: 'tabular-nums' }}>{dasAnoComparavel ? money.format(totalDasSistema) : '—'}</div>
+                </div>
+                <div style={{ textAlign: 'right' as const }}>
+                  <div style={{ fontSize: 10, color: 'var(--af-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>Dif. DAS</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: corDiffDasAno, fontVariantNumeric: 'tabular-nums' }}>
+                    {dasAnoComparavel ? `${diffDasPos ? '+' : ''}${money.format(totalDiffDas)}` : '—'}
                   </div>
                 </div>
                 <BadgeConfronto status={statusAno} />
@@ -1045,6 +1074,10 @@ function AbaConfronto({ items, carregando, onExportarExcel }: {
                         <th style={{ ...S.th, textAlign: 'center' as const }}>Qtd. docs</th>
                         <th style={S.thR}>Diferença</th>
                         <th style={{ ...S.thR, paddingRight: 14 }}>Variação</th>
+                        <th style={S.thR}>DAS PGDAS</th>
+                        <th style={S.thR}>DAS sistema</th>
+                        <th style={S.thR}>Dif. DAS</th>
+                        <th style={{ ...S.thR, paddingRight: 14 }}>Var. DAS</th>
                         <th style={{ ...S.th, textAlign: 'center' as const }}>Status</th>
                       </tr>
                     </thead>
@@ -1053,6 +1086,9 @@ function AbaConfronto({ items, carregando, onExportarExcel }: {
                         const diffPositivo = item.diff >= 0
                         const corDiff = item.diff === 0 ? 'var(--af-muted)' : diffPositivo ? 'var(--af-warning)' : 'var(--af-danger)'
                         const corPct = item.diffPct === 0 ? 'var(--af-muted)' : item.diffPct <= 0.01 ? '#16a34a' : item.diffPct <= 0.05 ? 'var(--af-warning)' : 'var(--af-danger)'
+                        const diffDasPositivo = (item.diffDas ?? 0) >= 0
+                        const corDiffDas = item.diffDas === 0 ? 'var(--af-muted)' : diffDasPositivo ? 'var(--af-warning)' : 'var(--af-danger)'
+                        const corPctDas = item.diffDasPct === 0 ? 'var(--af-muted)' : (item.diffDasPct ?? 0) <= 0.01 ? '#16a34a' : (item.diffDasPct ?? 0) <= 0.05 ? 'var(--af-warning)' : 'var(--af-danger)'
                         const semDados = item.receitaPgdas === 0 && item.totalNfe === 0
                         return (
                           <tr key={item.comp}>
@@ -1071,6 +1107,14 @@ function AbaConfronto({ items, carregando, onExportarExcel }: {
                             </td>
                             <td style={{ ...S.tdNum, color: corPct, fontWeight: 600 }}>
                               {item.receitaPgdas > 0 ? pct(item.diffPct) : '—'}
+                            </td>
+                            <td style={S.tdNum}>{item.dasPgdas !== null ? money.format(item.dasPgdas) : '—'}</td>
+                            <td style={S.tdNum}>{item.dasSistema !== null ? money.format(item.dasSistema) : '—'}</td>
+                            <td style={{ ...S.tdNum, color: corDiffDas, fontWeight: 600 }}>
+                              {item.diffDas !== null ? `${diffDasPositivo ? '+' : ''}${money.format(item.diffDas)}` : '—'}
+                            </td>
+                            <td style={{ ...S.tdNum, color: corPctDas, fontWeight: 600 }}>
+                              {item.diffDasPct !== null ? pct(item.diffDasPct) : '—'}
                             </td>
                             <td style={{ ...S.td, textAlign: 'center' as const }}>
                               <BadgeConfronto status={item.status} />
@@ -1892,6 +1936,7 @@ export default function SimplesNacionalPage() {
   const [saveError, setSaveError]     = useState<string | null>(null)
   const [docsConfronto, setDocsConfronto] = useState<DocumentoFiscal[]>([])
   const [itensConfronto, setItensConfronto] = useState<DocumentoFiscalItem[]>([])
+  const [apuracoesConfronto, setApuracoesConfronto] = useState<SnApuracao[]>([])
   const [carregandoNfe, setCarregandoNfe] = useState(false)
 
   // ── Estado Apuração XML ──────────────────────────────────────────────────
@@ -2039,16 +2084,43 @@ export default function SimplesNacionalPage() {
     }
   }, [])
 
+  const carregarApuracoesConfronto = useCallback(async (empresaId: string) => {
+    try {
+      const res = await fetch(`/api/simples/apuracoes?empresa_id=${encodeURIComponent(empresaId)}`)
+      if (!res.ok) { setApuracoesConfronto([]); return }
+      const rows: SnApuracao[] = await res.json()
+      setApuracoesConfronto(Array.isArray(rows) ? rows : [])
+    } catch {
+      setApuracoesConfronto([])
+    }
+  }, [])
+
+  const salvarApuracaoSistema = useCallback(async (resultado: ResultadoApuracao) => {
+    if (!empresaAtiva) return
+    const res = await fetch('/api/simples/apuracoes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ empresa_id: empresaAtiva.id, resultado }),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({})) as { error?: string }
+      throw new Error(body.error ?? 'Não foi possível salvar a apuração para o confronto.')
+    }
+    const salva: SnApuracao = await res.json()
+    setApuracoesConfronto(prev => [salva, ...prev.filter(item => item.competencia !== salva.competencia)])
+  }, [empresaAtiva])
+
   useEffect(() => {
-    if (!empresaAtiva) { setDocsConfronto([]); setItensConfronto([]); return }
+    if (!empresaAtiva) { setDocsConfronto([]); setItensConfronto([]); setApuracoesConfronto([]); return }
     if (abaAtiva === 'confronto_apuracao') {
       carregarDocsConfronto(
         empresaAtiva.id,
         empresaAtiva.cnpj,
         /^(1[0-9]|2[0-9]|3[0-3])/.test(empresaAtiva.cnae_principal ?? ''),
       )
+      carregarApuracoesConfronto(empresaAtiva.id)
     }
-  }, [empresaAtiva, abaAtiva, carregarDocsConfronto])
+  }, [empresaAtiva, abaAtiva, carregarDocsConfronto, carregarApuracoesConfronto])
 
   // ── Carregar documentos XML salvos para a competência ──────────────────
   const carregarXmlDocumentos = useCallback(async (empresaId: string, competencia: string) => {
@@ -2540,7 +2612,7 @@ export default function SimplesNacionalPage() {
     }
   }, [configServicosAtividade, folhas12m, xmlDocumentos, xmlItens])
 
-  const handleApurar = useCallback(() => {
+  const handleApurar = useCallback(async () => {
     if (!empresaAtiva || xmlDocumentos.length === 0) return
 
     let rbt12 = rbt12Carregado
@@ -2588,11 +2660,16 @@ export default function SimplesNacionalPage() {
         resultado.alertas.push(configServico.alerta)
       }
       setApuracao(resultado)
-      setApuracaoErro(null)
+      try {
+        await salvarApuracaoSistema(resultado)
+        setApuracaoErro(null)
+      } catch (e) {
+        setApuracaoErro(`Apuração calculada, mas não foi salva no confronto: ${e instanceof Error ? e.message : 'erro desconhecido'}`)
+      }
     } catch (e) {
       setApuracaoErro(e instanceof Error ? e.message : 'Erro ao calcular apuração')
     }
-  }, [empresaAtiva, xmlDocumentos, xmlItens, rbt12Carregado, receitas12m, xmlCompetencia, abrirModalRbt12, resolverConfigServicoApuracao])
+  }, [empresaAtiva, xmlDocumentos, xmlItens, rbt12Carregado, receitas12m, xmlCompetencia, abrirModalRbt12, resolverConfigServicoApuracao, salvarApuracaoSistema])
 
   // ── Confirmar RBT12 total (distribui pelos 12 meses anteriores) ──────────
   const handleConfirmarRbt12 = useCallback(async () => {
@@ -2635,11 +2712,16 @@ export default function SimplesNacionalPage() {
         resultado.alertas.push(configServico.alerta)
       }
       setApuracao(resultado)
-      setApuracaoErro(null)
+      try {
+        await salvarApuracaoSistema(resultado)
+        setApuracaoErro(null)
+      } catch (e) {
+        setApuracaoErro(`Apuração calculada, mas não foi salva no confronto: ${e instanceof Error ? e.message : 'erro desconhecido'}`)
+      }
     } catch (e) {
       setApuracaoErro(e instanceof Error ? e.message : 'Erro ao calcular apuração')
     }
-  }, [empresaAtiva, rbt12Valor, xmlCompetencia, xmlDocumentos, xmlItens, resolverConfigServicoApuracao])
+  }, [empresaAtiva, rbt12Valor, xmlCompetencia, xmlDocumentos, xmlItens, resolverConfigServicoApuracao, salvarApuracaoSistema])
 
   // ── Salvar receitas mensais individuais e recarregar ───────────────────
   const handleSalvarMesesIndividuais = useCallback(async () => {
@@ -2695,6 +2777,7 @@ export default function SimplesNacionalPage() {
       setXmlItens([])
       setApuracao(null)
       setApuracaoErro(null)
+      setApuracoesConfronto(prev => prev.filter(item => item.competencia !== xmlCompetencia))
       const xmlsInfo = body.xmls_removidos === -1 ? 'realizada' : `${body.xmls_removidos ?? 0} removidos`
       alert(
         `Limpeza concluída.\n` +
@@ -2734,6 +2817,7 @@ export default function SimplesNacionalPage() {
     const valorItem = (item: DocumentoFiscalItem) => Math.max(0, (item.valor_total ?? 0) - (item.valor_desconto ?? 0))
     const docByComp = new Map<string, { count: number; total: number; totalDev: number }>()
     const docsMap = new Map(docsConfronto.map(doc => [doc.id, doc]))
+    const apuracoesMap = new Map(apuracoesConfronto.map(item => [item.competencia, item]))
 
     if (itensConfronto.length > 0) {
       const docsReceitaPorComp = new Map<string, Set<string>>()
@@ -2775,10 +2859,12 @@ export default function SimplesNacionalPage() {
     const allPeriods = new Set([
       ...declaracoes.map(d => d.competencia),
       ...docByComp.keys(),
+      ...apuracoesMap.keys(),
     ])
     return [...allPeriods].sort((a, b) => b.localeCompare(a)).map(comp => {
       const pgdas = declaracoes.find(d => d.competencia === comp)
       const doc   = docByComp.get(comp)
+      const apuracaoSistema = apuracoesMap.get(comp)
       const receitaPgdas = pgdas?.receita_bruta_mes ?? 0
       const totalBruto   = doc?.total ?? 0
       const totalDev     = doc?.totalDev ?? 0
@@ -2786,15 +2872,23 @@ export default function SimplesNacionalPage() {
       const qtdNfe       = doc?.count ?? 0
       const diff         = totalNfe - receitaPgdas
       const diffPct      = receitaPgdas > 0 ? Math.abs(diff) / receitaPgdas : (totalNfe > 0 ? 1 : 0)
+      const dasPgdas = pgdas ? Number(pgdas.valor_total_devido ?? 0) : null
+      const dasSistema = apuracaoSistema ? Number(apuracaoSistema.valor_simples_calculado ?? 0) : null
+      const diffDas = dasPgdas !== null && dasSistema !== null ? dasSistema - dasPgdas : null
+      const diffDasPct = diffDas === null || dasPgdas === null || dasSistema === null
+        ? null
+        : dasPgdas > 0 ? Math.abs(diffDas) / dasPgdas : dasSistema > 0 ? 1 : 0
+      const maiorDivergencia = Math.max(diffPct, diffDasPct ?? 0)
       let status: ItemConfronto['status']
       if (!pgdas)                      status = 'sem_pgdas'
       else if (!doc || totalNfe === 0) status = 'sem_nfe'
-      else if (diffPct <= 0.01)        status = 'ok'
-      else if (diffPct <= 0.05)        status = 'alerta'
+      else if (!apuracaoSistema)       status = 'sem_apuracao'
+      else if (maiorDivergencia <= 0.01) status = 'ok'
+      else if (maiorDivergencia <= 0.05) status = 'alerta'
       else                             status = 'critico'
-      return { comp, receitaPgdas, totalNfe, qtdNfe, diff, diffPct, status }
+      return { comp, receitaPgdas, totalNfe, qtdNfe, diff, diffPct, dasPgdas, dasSistema, diffDas, diffDasPct, status }
     })
-  }, [declaracoes, docsConfronto, itensConfronto])
+  }, [declaracoes, docsConfronto, itensConfronto, apuracoesConfronto])
 
   const handleFiles = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return
@@ -2956,33 +3050,32 @@ export default function SimplesNacionalPage() {
 
     const sortedConfronto = [...confrontoData].sort((a, b) => a.comp.localeCompare(b.comp))
     const statusLabels: Record<ItemConfronto['status'], string> = {
-      ok: 'OK', alerta: 'Divergência', critico: 'Crítico', sem_pgdas: 'Sem PGDAS', sem_nfe: 'Sem NF-e',
+      ok: 'OK', alerta: 'Divergência', critico: 'Crítico', sem_pgdas: 'Sem PGDAS', sem_nfe: 'Sem NF-e', sem_apuracao: 'Sem apuração do sistema',
     }
 
-    const headers = ['Competência', 'Receita PGDAS', 'Receita XML', 'Diferença', 'Variação (%)', 'Status', 'Valor Simples Nacional', 'Percentual do Simples (%)']
+    const headers = ['Competência', 'Receita PGDAS', 'Receita XML', 'Diferença Receita', 'Variação Receita (%)', 'DAS PGDAS', 'DAS Sistema', 'Diferença DAS', 'Variação DAS (%)', 'Status']
     const rows = sortedConfronto.map(item => {
-      const decl = declaracoes.find(d => d.competencia === item.comp)
-      const valorSimples = decl?.valor_total_devido ?? 0
-      const pctSimples = item.receitaPgdas > 0 ? valorSimples / item.receitaPgdas * 100 : 0
       return [
         item.comp,
         item.receitaPgdas,
         item.totalNfe,
         item.diff,
         item.receitaPgdas > 0 ? Number((item.diffPct * 100).toFixed(2)) : 0,
+        item.dasPgdas,
+        item.dasSistema,
+        item.diffDas,
+        item.diffDasPct !== null ? Number((item.diffDasPct * 100).toFixed(2)) : null,
         statusLabels[item.status],
-        valorSimples,
-        Number(pctSimples.toFixed(2)),
       ]
     })
 
     const ws = XLSX.utils.aoa_to_sheet([headers, ...rows])
-    ws['!cols'] = [{wch:12},{wch:16},{wch:16},{wch:14},{wch:12},{wch:14},{wch:22},{wch:22}]
+    ws['!cols'] = [{wch:12},{wch:16},{wch:16},{wch:18},{wch:20},{wch:16},{wch:16},{wch:16},{wch:16},{wch:22}]
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Confronto')
     const nomeArq = `confronto_simples_${(empresaAtiva.razao_social ?? 'empresa').replace(/[^a-zA-Z0-9]/g, '_').slice(0, 30)}_${new Date().toISOString().slice(0, 10)}.xlsx`
     XLSX.writeFile(wb, nomeArq)
-  }, [confrontoData, declaracoes, empresaAtiva])
+  }, [confrontoData, empresaAtiva])
 
   const handleSalvarFolha = useCallback(async () => {
     if (!empresaAtiva || !xmlCompetencia) return
