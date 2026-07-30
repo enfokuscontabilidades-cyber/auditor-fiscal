@@ -16,8 +16,10 @@
 // telefone, WhatsApp, site, QR Code ou chamada comercial da Enfokus. O
 // emissor deste documento é o escritório contábil do workspace.
 
+/* eslint-disable jsx-a11y/alt-text -- Image é o componente de PDF, não um elemento HTML. */
+
 import { Document, Page, Text, View, Image, StyleSheet } from '@react-pdf/renderer'
-import { dataBrDeIso, dataHoraBr } from './formatadores'
+import { dataBrDeIso, dataHoraBr, textoPdfSeguro } from './formatadores'
 import type { SituacaoReforma } from '@/lib/fiscal/analiseReformaTributariaPaga'
 import type { ParametrosReferenciaReforma } from '@/lib/fiscal/parametrosReforma2026'
 import type { GrupoDivergenciaReforma, ResumoAnaliseReforma } from '@/lib/fiscal/resumoReformaTributaria'
@@ -53,7 +55,7 @@ const styles = StyleSheet.create({
   headerTitulo: { fontSize: 8.5, fontWeight: 700 },
   headerMeta: { fontSize: 7.5, color: CORES_PADRAO.textoFraco, marginTop: 1 },
   footer: {
-    position: 'absolute', bottom: 16, left: 40, right: 40,
+    position: 'absolute', top: 805, left: 40, right: 40,
     paddingTop: 6, borderTopWidth: 1, borderTopColor: CORES_PADRAO.borda,
     flexDirection: 'row', justifyContent: 'space-between',
   },
@@ -91,7 +93,9 @@ const styles = StyleSheet.create({
   linhaCabecalho: { flexDirection: 'row', backgroundColor: CORES_PADRAO.fundoAlt, borderBottomWidth: 1, borderBottomColor: CORES_PADRAO.borda },
   linha: { flexDirection: 'row', borderBottomWidth: 0.5, borderBottomColor: CORES_PADRAO.borda },
   celulaCabecalho: { padding: 5, fontSize: 8, fontWeight: 700, color: CORES_PADRAO.textoSuave, textTransform: 'uppercase' },
-  celula: { padding: 5, fontSize: 8 },
+  // Mantem cada linha do anexo dentro de uma altura previsivel mesmo se um
+  // campo importado do XML estiver malformado ou excepcionalmente longo.
+  celula: { padding: 5, fontSize: 8, maxLines: 2, textOverflow: 'ellipsis' },
 
   mensagemBox: { borderWidth: 1, borderColor: CORES_PADRAO.borda, borderStyle: 'dashed', borderRadius: 3, padding: 9, marginTop: 3, marginBottom: 6, backgroundColor: CORES_PADRAO.fundoAlt },
   mensagemParagrafo: { fontSize: 9, fontStyle: 'italic', color: CORES_PADRAO.texto, lineHeight: 1.45, marginBottom: 4 },
@@ -150,6 +154,7 @@ const money = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL
 const numberFmt = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 const MAX_LINHAS_ANEXO = 400
+const LINHAS_POR_BLOCO_ANEXO = 20
 
 function iniciaisDoNome(nome: string): string {
   const partes = nome.trim().split(/\s+/).filter(Boolean)
@@ -208,6 +213,12 @@ export default function RelatorioReformaContadorClientePdf({ dados, logoDataUri 
   const indicadorConsolidado: SituacaoReforma = resumo.documentosCriticos > 0 ? 'critico' : resumo.documentosAtencao > 0 ? 'alerta' : 'ok'
   const corIndicador = corSituacao(cores, indicadorConsolidado)
   const fundoIndicador = { ok: cores.okFundo, alerta: cores.alertaFundo, critico: cores.criticoFundo }[indicadorConsolidado]
+  const documentosAnexo = dados.documentosSemDestaque.slice(0, MAX_LINHAS_ANEXO)
+  const blocosAnexo = Array.from(
+    { length: Math.ceil(documentosAnexo.length / LINHAS_POR_BLOCO_ANEXO) },
+    (_, indice) => documentosAnexo.slice(indice * LINHAS_POR_BLOCO_ANEXO, (indice + 1) * LINHAS_POR_BLOCO_ANEXO),
+  )
+  const paginasAnexo: DocumentoSemDestaqueReforma[][] = blocosAnexo.length > 0 ? blocosAnexo : [[]]
 
   const contatosEscritorio = [
     dados.escritorio.telefone ? `Tel. ${dados.escritorio.telefone}` : null,
@@ -217,32 +228,32 @@ export default function RelatorioReformaContadorClientePdf({ dados, logoDataUri 
   ].filter(Boolean).join(' · ')
 
   return (
-    <Document title={`Relatorio de adequacao IBS-CBS - ${dados.empresaNome}`}>
+    <Document title={`Relatorio de adequacao IBS-CBS - ${textoPdfSeguro(dados.empresaNome, 120)}`}>
       <Page size="A4" style={styles.page} wrap>
         <View style={styles.header} fixed>
           {logoDataUri ? (
             <Image src={logoDataUri} style={styles.headerLogo} />
           ) : (
-            <Text style={[styles.headerNomeEscritorio, { color: corDestaque }]}>{dados.escritorio.nome}</Text>
+            <Text style={[styles.headerNomeEscritorio, { color: corDestaque }]}>{textoPdfSeguro(dados.escritorio.nome, 100)}</Text>
           )}
           <View style={styles.headerRight}>
             <Text style={[styles.headerTitulo, { color: corDestaque }]}>Relatório de Adequação dos XMLs ao IBS e à CBS</Text>
-            <Text style={styles.headerMeta}>Gerado em {dataHoraBr(dados.dataEmissao)} · Código {dados.codigoRelatorio}</Text>
+            <Text style={styles.headerMeta}>Gerado em {dataHoraBr(dados.dataEmissao)} · Código {textoPdfSeguro(dados.codigoRelatorio, 20)}</Text>
           </View>
         </View>
 
         {/* Capa e identificação */}
         <Text style={[styles.tituloRelatorio, { color: corDestaque }]}>Relatório de Adequação dos XMLs ao IBS e à CBS</Text>
-        <Text style={styles.titulo}>{dados.empresaNome}</Text>
+        <Text style={styles.titulo}>{textoPdfSeguro(dados.empresaNome, 160)}</Text>
         <Text style={styles.subtitulo}>
-          {dados.empresaCnpjFormatado}{dados.competencia ? ` · Competência ${dados.competencia}` : ''} · Análise realizada pelo escritório contábil para orientação da empresa cliente
+          {textoPdfSeguro(dados.empresaCnpjFormatado, 32)}{dados.competencia ? ` · Competência ${textoPdfSeguro(dados.competencia, 16)}` : ''} · Análise realizada pelo escritório contábil para orientação da empresa cliente
         </Text>
         <View style={[styles.badge, { backgroundColor: fundoIndicador, marginBottom: 10 }]}>
           <Text style={{ color: corIndicador, fontSize: 8.5, fontWeight: 700 }}>Indicador consolidado: {LABEL_SITUACAO[indicadorConsolidado]}</Text>
         </View>
 
         <Text style={styles.paragrafo}>
-          Realizamos a análise dos arquivos XML disponibilizados pela empresa {dados.empresaNome}, com o objetivo de verificar
+          Realizamos a análise dos arquivos XML disponibilizados pela empresa {textoPdfSeguro(dados.empresaNome, 160)}, com o objetivo de verificar
           o preenchimento das informações relacionadas ao IBS e à CBS.
         </Text>
         <Text style={styles.paragrafo}>
@@ -290,7 +301,7 @@ export default function RelatorioReformaContadorClientePdf({ dados, logoDataUri 
                 <Text style={styles.parametrosItem}>CST: {dados.parametros.cst}</Text>
                 <Text style={styles.parametrosItem}>cClassTrib: {dados.parametros.cClassTrib}</Text>
               </View>
-              {dados.observacaoParametros && <Text style={styles.parametrosNota}>Observação: {dados.observacaoParametros}</Text>}
+              {dados.observacaoParametros && <Text style={styles.parametrosNota}>Observação: {textoPdfSeguro(dados.observacaoParametros, 1_000)}</Text>}
             </>
           )}
           {dados.modoParametros === 'estrutural' && (
@@ -376,62 +387,88 @@ export default function RelatorioReformaContadorClientePdf({ dados, logoDataUri 
               <Text style={{ fontSize: 11, fontWeight: 700, color: corDestaque }}>{iniciaisDoNome(dados.escritorio.nome)}</Text>
             </View>
           )}
-          <Text style={{ fontSize: 10.5, fontWeight: 700, color: corDestaque }}>{dados.escritorio.nome}</Text>
-          {dados.escritorio.razaoSocial && <Text style={styles.paragrafo}>{dados.escritorio.razaoSocial}</Text>}
+          <Text style={{ fontSize: 10.5, fontWeight: 700, color: corDestaque }}>{textoPdfSeguro(dados.escritorio.nome, 120)}</Text>
+          {dados.escritorio.razaoSocial && <Text style={styles.paragrafo}>{textoPdfSeguro(dados.escritorio.razaoSocial, 160)}</Text>}
           {(dados.escritorio.contadorResponsavel || dados.escritorio.crc) && (
             <Text style={styles.paragrafo}>
-              {dados.escritorio.contadorResponsavel}{dados.escritorio.contadorResponsavel && dados.escritorio.crc ? ' · ' : ''}{dados.escritorio.crc ? `CRC ${dados.escritorio.crc}` : ''}
+              {dados.escritorio.contadorResponsavel ? textoPdfSeguro(dados.escritorio.contadorResponsavel, 120) : ''}{dados.escritorio.contadorResponsavel && dados.escritorio.crc ? ' · ' : ''}{dados.escritorio.crc ? `CRC ${textoPdfSeguro(dados.escritorio.crc, 40)}` : ''}
             </Text>
           )}
-          {contatosEscritorio && <Text style={styles.paragrafo}>{contatosEscritorio}</Text>}
+          {contatosEscritorio && <Text style={styles.paragrafo}>{textoPdfSeguro(contatosEscritorio, 300)}</Text>}
         </View>
 
-        {/* Anexo I — relação dos documentos, sempre por último */}
-        <Text style={styles.tituloSecao} break>
-          {dados.documentosSemDestaque.length > 0 ? 'Anexo I — Documentos com divergências de IBS e CBS' : 'Anexo I — Relação dos documentos analisados'}
-        </Text>
-        <Text style={[styles.paragrafo, { marginBottom: 7 }]}>
-          {resumo.documentosAdequados > 0 && `${resumo.documentosAdequados} documento(s) adequado(s) não estão listados abaixo (sem divergências identificadas). `}
-          {dados.documentosSemDestaque.length > MAX_LINHAS_ANEXO
-            ? `Exibindo os ${MAX_LINHAS_ANEXO} primeiros de ${dados.documentosSemDestaque.length} documentos com divergência — o total consolidado já está refletido nos indicadores acima.`
-            : ''}
-        </Text>
-        {dados.documentosSemDestaque.length === 0 ? (
-          <Text style={styles.paragrafo}>Nenhum documento com divergência foi identificado.</Text>
-        ) : (
-          <View style={styles.tabela}>
-            <View style={styles.linhaCabecalho} fixed>
-              <Text style={[styles.celulaCabecalho, { width: COLS_DOC.tipo }]}>Tipo</Text>
-              <Text style={[styles.celulaCabecalho, { width: COLS_DOC.numero }]}>Número</Text>
-              <Text style={[styles.celulaCabecalho, { width: COLS_DOC.serie }]}>Série</Text>
-              <Text style={[styles.celulaCabecalho, { width: COLS_DOC.data }]}>Emissão</Text>
-              <Text style={[styles.celulaCabecalho, { width: COLS_DOC.itens }]}>Itens afetados</Text>
-              <Text style={[styles.celulaCabecalho, { width: COLS_DOC.divergencia }]}>Principal divergência</Text>
-              <Text style={[styles.celulaCabecalho, { width: COLS_DOC.status }]}>Status</Text>
-            </View>
-            {dados.documentosSemDestaque.slice(0, MAX_LINHAS_ANEXO).map((d, i) => (
-              <View key={i} style={styles.linha} wrap={false}>
-                <Text style={[styles.celula, { width: COLS_DOC.tipo }]}>{d.tipoDocumento}</Text>
-                <Text style={[styles.celula, { width: COLS_DOC.numero }]}>{d.numero}</Text>
-                <Text style={[styles.celula, { width: COLS_DOC.serie }]}>{d.serie}</Text>
-                <Text style={[styles.celula, { width: COLS_DOC.data }]}>{dataBrDeIso(d.data)}</Text>
-                <Text style={[styles.celula, { width: COLS_DOC.itens }]}>{d.itensAfetados}</Text>
-                <Text style={[styles.celula, { width: COLS_DOC.divergencia, fontSize: 7.5 }]}>{d.principalDivergencia}</Text>
-                <View style={{ width: COLS_DOC.status, padding: 4 }}>
-                  <Text style={[styles.badge, { color: corSituacao(cores, d.status), backgroundColor: { ok: cores.okFundo, alerta: cores.alertaFundo, critico: cores.criticoFundo }[d.status] }]}>
-                    {LABEL_SITUACAO[d.status]}
-                  </Text>
-                </View>
-              </View>
-            ))}
-          </View>
-        )}
-
         <View style={styles.footer} fixed>
-          <Text style={styles.footerTexto}>{dados.escritorio.nome} · Relatório {dados.codigoRelatorio}</Text>
+          <Text style={styles.footerTexto}>{textoPdfSeguro(dados.escritorio.nome, 100)} · Relatório {textoPdfSeguro(dados.codigoRelatorio, 20)}</Text>
           <Text style={styles.footerTexto} render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`} />
         </View>
       </Page>
+
+      {/* Mantém o anexo em páginas explícitas. Um único contêiner com centenas
+          de linhas excede a faixa numérica do layout do react-pdf. */}
+      {paginasAnexo.map((bloco, indiceBloco) => (
+        <Page key={indiceBloco} size="A4" style={styles.page}>
+          <View style={styles.header} fixed>
+            {logoDataUri ? (
+              <Image src={logoDataUri} style={styles.headerLogo} />
+            ) : (
+              <Text style={[styles.headerNomeEscritorio, { color: corDestaque }]}>{textoPdfSeguro(dados.escritorio.nome, 100)}</Text>
+            )}
+            <View style={styles.headerRight}>
+              <Text style={[styles.headerTitulo, { color: corDestaque }]}>Relatório de Adequação dos XMLs ao IBS e à CBS</Text>
+              <Text style={styles.headerMeta}>Gerado em {dataHoraBr(dados.dataEmissao)} · Código {textoPdfSeguro(dados.codigoRelatorio, 20)}</Text>
+            </View>
+          </View>
+
+          <Text style={styles.tituloSecao}>
+            {indiceBloco === 0
+              ? (dados.documentosSemDestaque.length > 0 ? 'Anexo I — Documentos com divergências de IBS e CBS' : 'Anexo I — Relação dos documentos analisados')
+              : 'Anexo I — continuação'}
+          </Text>
+          {indiceBloco === 0 && (
+            <Text style={[styles.paragrafo, { marginBottom: 7 }]}>
+              {resumo.documentosAdequados > 0 && `${resumo.documentosAdequados} documento(s) adequado(s) não estão listados abaixo (sem divergências identificadas). `}
+              {dados.documentosSemDestaque.length > MAX_LINHAS_ANEXO
+                ? `Exibindo os ${MAX_LINHAS_ANEXO} primeiros de ${dados.documentosSemDestaque.length} documentos com divergência — o total consolidado já está refletido nos indicadores acima.`
+                : ''}
+            </Text>
+          )}
+          {bloco.length === 0 ? (
+            <Text style={styles.paragrafo}>Nenhum documento com divergência foi identificado.</Text>
+          ) : (
+            <View style={styles.tabela}>
+              <View style={styles.linhaCabecalho}>
+                <Text style={[styles.celulaCabecalho, { width: COLS_DOC.tipo }]}>Tipo</Text>
+                <Text style={[styles.celulaCabecalho, { width: COLS_DOC.numero }]}>Número</Text>
+                <Text style={[styles.celulaCabecalho, { width: COLS_DOC.serie }]}>Série</Text>
+                <Text style={[styles.celulaCabecalho, { width: COLS_DOC.data }]}>Emissão</Text>
+                <Text style={[styles.celulaCabecalho, { width: COLS_DOC.itens }]}>Itens afetados</Text>
+                <Text style={[styles.celulaCabecalho, { width: COLS_DOC.divergencia }]}>Principal divergência</Text>
+                <Text style={[styles.celulaCabecalho, { width: COLS_DOC.status }]}>Status</Text>
+              </View>
+              {bloco.map((d, i) => (
+                <View key={i} style={styles.linha} wrap={false}>
+                  <Text style={[styles.celula, { width: COLS_DOC.tipo }]}>{textoPdfSeguro(d.tipoDocumento, 24)}</Text>
+                  <Text style={[styles.celula, { width: COLS_DOC.numero }]}>{textoPdfSeguro(d.numero, 40)}</Text>
+                  <Text style={[styles.celula, { width: COLS_DOC.serie }]}>{textoPdfSeguro(d.serie, 24)}</Text>
+                  <Text style={[styles.celula, { width: COLS_DOC.data }]}>{dataBrDeIso(d.data)}</Text>
+                  <Text style={[styles.celula, { width: COLS_DOC.itens }]}>{d.itensAfetados}</Text>
+                  <Text style={[styles.celula, { width: COLS_DOC.divergencia, fontSize: 7.5 }]}>{textoPdfSeguro(d.principalDivergencia, 180)}</Text>
+                  <View style={{ width: COLS_DOC.status, padding: 4 }}>
+                    <Text style={[styles.badge, { color: corSituacao(cores, d.status), backgroundColor: { ok: cores.okFundo, alerta: cores.alertaFundo, critico: cores.criticoFundo }[d.status] }]}>
+                      {LABEL_SITUACAO[d.status]}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+
+          <View style={styles.footer} fixed>
+            <Text style={styles.footerTexto}>{textoPdfSeguro(dados.escritorio.nome, 100)} · Relatório {textoPdfSeguro(dados.codigoRelatorio, 20)}</Text>
+            <Text style={styles.footerTexto} render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`} />
+          </View>
+        </Page>
+      ))}
     </Document>
   )
 }

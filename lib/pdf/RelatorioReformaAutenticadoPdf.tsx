@@ -8,9 +8,11 @@
 // afetados, explicação, impacto e orientação), conclusão e anexo compacto
 // com a listagem de notas — a listagem nunca é o conteúdo principal.
 
+/* eslint-disable jsx-a11y/alt-text -- Image é o componente de PDF, não um elemento HTML. */
+
 import { Document, Page, Text, View, Image, StyleSheet } from '@react-pdf/renderer'
 import { ENFOKUS_CONTABILIDADE } from '@/lib/institucional/enfokusContabilidade'
-import { dataBrDeIso, dataHoraBr } from './formatadores'
+import { dataBrDeIso, dataHoraBr, textoPdfSeguro } from './formatadores'
 import type { SituacaoReforma } from '@/lib/fiscal/analiseReformaTributariaPaga'
 import type { ParametrosReferenciaReforma } from '@/lib/fiscal/parametrosReforma2026'
 import type { GrupoDivergenciaReforma, ResumoAnaliseReforma } from '@/lib/fiscal/resumoReformaTributaria'
@@ -45,7 +47,7 @@ const styles = StyleSheet.create({
   headerTitulo: { fontSize: 8.5, fontWeight: 700, color: CORES.primaria },
   headerMeta: { fontSize: 7.5, color: CORES.textoFraco, marginTop: 1 },
   footer: {
-    position: 'absolute', bottom: 16, left: 40, right: 40,
+    position: 'absolute', top: 805, left: 40, right: 40,
     paddingTop: 6, borderTopWidth: 1, borderTopColor: CORES.borda,
     flexDirection: 'row', justifyContent: 'space-between',
   },
@@ -79,7 +81,10 @@ const styles = StyleSheet.create({
   linhaCabecalho: { flexDirection: 'row', backgroundColor: CORES.fundoAlt, borderBottomWidth: 1, borderBottomColor: CORES.borda },
   linha: { flexDirection: 'row', borderBottomWidth: 0.5, borderBottomColor: CORES.borda },
   celulaCabecalho: { padding: 5, fontSize: 8, fontWeight: 700, color: CORES.textoSuave, textTransform: 'uppercase' },
-  celula: { padding: 5, fontSize: 8, color: CORES.texto },
+  // Campos originados do XML podem vir anormalmente longos. Limitar a
+  // quantidade de linhas impede que uma linha indivisivel ultrapasse a
+  // altura da pagina e corrompa os calculos internos do renderizador.
+  celula: { padding: 5, fontSize: 8, color: CORES.texto, maxLines: 2, textOverflow: 'ellipsis' },
 })
 
 const COLS_ANEXO = { nota: '12%', data: '12%', participante: '38%', ibs: '14%', cbs: '14%', situacao: '10%' }
@@ -109,14 +114,21 @@ const numberFmt = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, max
 
 const MAX_DOCUMENTOS_POR_GRUPO = 12
 const MAX_LINHAS_ANEXO = 250
+const LINHAS_POR_BLOCO_ANEXO = 20
 
 export default function RelatorioReformaAutenticadoPdf({ dados, logoDataUri }: { dados: DadosRelatorioReformaAutenticado; logoDataUri: string | null }) {
   const { resumo } = dados
   const indicadorConsolidado: SituacaoReforma = resumo.documentosCriticos > 0 ? 'critico' : resumo.documentosAtencao > 0 ? 'alerta' : 'ok'
   const corConsolidado = SITUACAO_COR[indicadorConsolidado]
+  const documentosAnexo = dados.anexoDocumentos.slice(0, MAX_LINHAS_ANEXO)
+  const blocosAnexo = Array.from(
+    { length: Math.ceil(documentosAnexo.length / LINHAS_POR_BLOCO_ANEXO) },
+    (_, indice) => documentosAnexo.slice(indice * LINHAS_POR_BLOCO_ANEXO, (indice + 1) * LINHAS_POR_BLOCO_ANEXO),
+  )
+  const paginasAnexo: AnexoDocumentoReforma[][] = blocosAnexo.length > 0 ? blocosAnexo : [[]]
 
   return (
-    <Document title={`Relatorio IBS-CBS - ${dados.empresaNome}`}>
+    <Document title={`Relatorio IBS-CBS - ${textoPdfSeguro(dados.empresaNome, 120)}`}>
       <Page size="A4" style={styles.page} wrap>
         <View style={styles.header} fixed>
           {logoDataUri ? <Image src={logoDataUri} style={styles.headerLogo} /> : <Text style={styles.headerTitulo}>{ENFOKUS_CONTABILIDADE.nomeFantasia}</Text>}
@@ -127,9 +139,9 @@ export default function RelatorioReformaAutenticadoPdf({ dados, logoDataUri }: {
         </View>
 
         {/* Capa e resumo */}
-        <Text style={styles.titulo}>{dados.empresaNome}</Text>
+        <Text style={styles.titulo}>{textoPdfSeguro(dados.empresaNome, 160)}</Text>
         <Text style={styles.subtitulo}>
-          {dados.empresaCnpjFormatado}{dados.competencia ? ` · Competência ${dados.competencia}` : ''}
+          {textoPdfSeguro(dados.empresaCnpjFormatado, 32)}{dados.competencia ? ` · Competência ${textoPdfSeguro(dados.competencia, 16)}` : ''}
         </Text>
         <View style={[styles.badge, { backgroundColor: corConsolidado.fundo, marginBottom: 10 }]}>
           <Text style={{ color: corConsolidado.cor, fontSize: 8, fontWeight: 700 }}>Indicador consolidado: {corConsolidado.label}</Text>
@@ -176,7 +188,9 @@ export default function RelatorioReformaAutenticadoPdf({ dados, logoDataUri }: {
         ) : (
           dados.grupos.map(grupo => {
             const cor = SITUACAO_COR[grupo.gravidade === 'critico' ? 'critico' : 'alerta']
-            const documentosExibidos = grupo.documentosAfetados.slice(0, MAX_DOCUMENTOS_POR_GRUPO)
+            const documentosExibidos = grupo.documentosAfetados
+              .slice(0, MAX_DOCUMENTOS_POR_GRUPO)
+              .map(documento => textoPdfSeguro(documento, 40))
             const restantes = grupo.totalDocumentos - documentosExibidos.length
             return (
               <View key={grupo.codigo} style={styles.grupoBox} wrap={false}>
@@ -227,42 +241,66 @@ export default function RelatorioReformaAutenticadoPdf({ dados, logoDataUri }: {
           Contato Enfokus: {ENFOKUS_CONTABILIDADE.nomeFantasia} · {ENFOKUS_CONTABILIDADE.telefoneFormatado} · {ENFOKUS_CONTABILIDADE.siteExibicao}
         </Text>
 
-        {/* Anexo compacto — listagem de notas (nunca o conteúdo principal) */}
-        <Text style={styles.tituloSecao} break>Anexo — documentos analisados</Text>
-        <Text style={[styles.paragrafo, { marginBottom: 6 }]}>
-          Listagem compacta de referência{dados.anexoDocumentos.length > MAX_LINHAS_ANEXO ? ` (exibindo os ${MAX_LINHAS_ANEXO} primeiros de ${dados.anexoDocumentos.length} documentos — o total consolidado já está refletido nos indicadores acima)` : ''}.
-        </Text>
-        <View style={styles.tabela}>
-          <View style={styles.linhaCabecalho} fixed>
-            <Text style={[styles.celulaCabecalho, { width: COLS_ANEXO.nota }]}>Nota</Text>
-            <Text style={[styles.celulaCabecalho, { width: COLS_ANEXO.data }]}>Data</Text>
-            <Text style={[styles.celulaCabecalho, { width: COLS_ANEXO.participante }]}>Participante</Text>
-            <Text style={[styles.celulaCabecalho, { width: COLS_ANEXO.ibs }]}>IBS</Text>
-            <Text style={[styles.celulaCabecalho, { width: COLS_ANEXO.cbs }]}>CBS</Text>
-            <Text style={[styles.celulaCabecalho, { width: COLS_ANEXO.situacao }]}>Situação</Text>
-          </View>
-          {dados.anexoDocumentos.slice(0, MAX_LINHAS_ANEXO).map((l, i) => {
-            const cor = SITUACAO_COR[l.situacao]
-            return (
-              <View key={i} style={styles.linha} wrap={false}>
-                <Text style={[styles.celula, { width: COLS_ANEXO.nota }]}>{l.nota}</Text>
-                <Text style={[styles.celula, { width: COLS_ANEXO.data }]}>{dataBrDeIso(l.data)}</Text>
-                <Text style={[styles.celula, { width: COLS_ANEXO.participante }]}>{l.participante}</Text>
-                <Text style={[styles.celula, { width: COLS_ANEXO.ibs }]}>{money.format(l.valorIbs)}</Text>
-                <Text style={[styles.celula, { width: COLS_ANEXO.cbs }]}>{money.format(l.valorCbs)}</Text>
-                <View style={{ width: COLS_ANEXO.situacao, padding: 4 }}>
-                  <Text style={[styles.badge, { color: cor.cor, backgroundColor: cor.fundo }]}>{cor.label}</Text>
-                </View>
-              </View>
-            )
-          })}
-        </View>
-
         <View style={styles.footer} fixed>
           <Text style={styles.footerTexto}>{ENFOKUS_CONTABILIDADE.nomeFantasia} · {ENFOKUS_CONTABILIDADE.cnpjFormatado} · Relatório de uso interno do assinante</Text>
           <Text style={styles.footerTexto} render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`} />
         </View>
       </Page>
+
+      {/* O anexo usa páginas explícitas para evitar overflow do motor de layout
+          quando há centenas de documentos dentro de um único nó paginável. */}
+      {paginasAnexo.map((bloco, indiceBloco) => (
+        <Page key={indiceBloco} size="A4" style={styles.page}>
+          <View style={styles.header} fixed>
+            {logoDataUri ? <Image src={logoDataUri} style={styles.headerLogo} /> : <Text style={styles.headerTitulo}>{ENFOKUS_CONTABILIDADE.nomeFantasia}</Text>}
+            <View style={styles.headerRight}>
+              <Text style={styles.headerTitulo}>Relatório de Conferência IBS/CBS</Text>
+              <Text style={styles.headerMeta}>Gerado em {dataHoraBr(dados.dataEmissao)}</Text>
+            </View>
+          </View>
+
+          <Text style={styles.tituloSecao}>{indiceBloco === 0 ? 'Anexo — documentos analisados' : 'Anexo — continuação'}</Text>
+          {indiceBloco === 0 && (
+            <Text style={[styles.paragrafo, { marginBottom: 6 }]}>
+              Listagem compacta de referência{dados.anexoDocumentos.length > MAX_LINHAS_ANEXO ? ` (exibindo os ${MAX_LINHAS_ANEXO} primeiros de ${dados.anexoDocumentos.length} documentos — o total consolidado já está refletido nos indicadores acima)` : ''}.
+            </Text>
+          )}
+          {bloco.length === 0 ? (
+            <Text style={styles.paragrafo}>Nenhum documento foi encontrado para os filtros selecionados.</Text>
+          ) : (
+            <View style={styles.tabela}>
+              <View style={styles.linhaCabecalho}>
+                <Text style={[styles.celulaCabecalho, { width: COLS_ANEXO.nota }]}>Nota</Text>
+                <Text style={[styles.celulaCabecalho, { width: COLS_ANEXO.data }]}>Data</Text>
+                <Text style={[styles.celulaCabecalho, { width: COLS_ANEXO.participante }]}>Participante</Text>
+                <Text style={[styles.celulaCabecalho, { width: COLS_ANEXO.ibs }]}>IBS</Text>
+                <Text style={[styles.celulaCabecalho, { width: COLS_ANEXO.cbs }]}>CBS</Text>
+                <Text style={[styles.celulaCabecalho, { width: COLS_ANEXO.situacao }]}>Situação</Text>
+              </View>
+              {bloco.map((l, i) => {
+                const cor = SITUACAO_COR[l.situacao]
+                return (
+                  <View key={i} style={styles.linha} wrap={false}>
+                    <Text style={[styles.celula, { width: COLS_ANEXO.nota }]}>{textoPdfSeguro(l.nota, 40)}</Text>
+                    <Text style={[styles.celula, { width: COLS_ANEXO.data }]}>{dataBrDeIso(l.data)}</Text>
+                    <Text style={[styles.celula, { width: COLS_ANEXO.participante }]}>{textoPdfSeguro(l.participante, 160)}</Text>
+                    <Text style={[styles.celula, { width: COLS_ANEXO.ibs }]}>{money.format(l.valorIbs)}</Text>
+                    <Text style={[styles.celula, { width: COLS_ANEXO.cbs }]}>{money.format(l.valorCbs)}</Text>
+                    <View style={{ width: COLS_ANEXO.situacao, padding: 4 }}>
+                      <Text style={[styles.badge, { color: cor.cor, backgroundColor: cor.fundo }]}>{cor.label}</Text>
+                    </View>
+                  </View>
+                )
+              })}
+            </View>
+          )}
+
+          <View style={styles.footer} fixed>
+            <Text style={styles.footerTexto}>{ENFOKUS_CONTABILIDADE.nomeFantasia} · {ENFOKUS_CONTABILIDADE.cnpjFormatado} · Relatório de uso interno do assinante</Text>
+            <Text style={styles.footerTexto} render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`} />
+          </View>
+        </Page>
+      ))}
     </Document>
   )
 }

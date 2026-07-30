@@ -220,9 +220,47 @@ html[data-theme="escuro"] .af-btn-primary { color: #06111f !important; }
 
 .af-toolbar {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) minmax(150px, 190px) minmax(170px, 220px);
+  grid-template-columns: minmax(280px, 1.7fr) repeat(3, minmax(150px, 1fr));
   gap: 10px;
+  align-items: end;
+}
+
+.af-filter-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.af-filter-label {
+  color: var(--af-muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.af-filter-summary {
+  display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 13px;
+  padding-top: 12px;
+  border-top: 1px solid var(--af-border-soft);
+}
+
+.af-filter-chip {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px solid color-mix(in srgb, var(--af-primary) 28%, transparent);
+  border-radius: 999px;
+  padding: 4px 9px;
+  background: var(--af-primary-soft);
+  color: var(--af-text-soft);
+  font-size: 10.5px;
+  font-weight: 700;
 }
 
 .af-search-field {
@@ -269,6 +307,34 @@ html[data-theme="escuro"] .af-btn-primary { color: #06111f !important; }
   color: var(--af-text);
   font-size: 20px;
   font-weight: 700;
+}
+
+.af-metric-grid-compact {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.af-metric-grid-compact .af-metric {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 64px;
+  padding: 10px 12px;
+}
+
+.af-metric-grid-compact .af-metric-label {
+  min-width: 0;
+  font-size: 9.5px;
+  line-height: 1.3;
+}
+
+.af-metric-grid-compact .af-metric-value {
+  flex-shrink: 0;
+  margin-top: 0;
+  font-size: 18px;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .af-table-wrap {
@@ -808,11 +874,20 @@ html[data-theme="escuro"] .af-btn-primary { color: #06111f !important; }
   .af-page { padding: 24px 18px 44px; }
   .af-toolbar,
   .af-form-grid-2 { grid-template-columns: 1fr; }
+  .af-filter-summary { align-items: flex-start; flex-direction: column; }
   .af-actions { width: 100%; }
   .af-actions .af-btn { flex: 1 1 180px; }
   .rt-hero-panel,
   .rt-section-grid,
   .rt-stat-row { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 1200px) {
+  .af-metric-grid-compact { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 620px) {
+  .af-metric-grid-compact { grid-template-columns: 1fr; }
 }
 
 /* Normalização de páginas antigas com style inline e Tailwind misturado */

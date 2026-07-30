@@ -4,7 +4,7 @@
 
 import { Fragment, useEffect, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Download, FileOutput, Search, SlidersHorizontal, FileSearch } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Download, FileOutput, Search, SlidersHorizontal, FileSearch, RotateCcw } from 'lucide-react'
 import { useEmpresaAtiva } from '@/lib/hooks/useEmpresaAtiva'
 import { money, numberFmt } from '@/lib/fiscal/analiseReformaTributariaPaga'
 import { PARAMETROS_REFORMA_2026 } from '@/lib/fiscal/parametrosReforma2026'
@@ -28,8 +28,25 @@ function dataBr(data?: string) {
 }
 
 function mesLabel(comp: string) {
-  if (!/^\d{4}-\d{2}$/.test(comp)) return comp
-  const [ano, mes] = comp.split('-')
+  if (/^\d{4}-\d{2}$/.test(comp)) {
+    const [ano, mes] = comp.split('-')
+    return `${mes}/${ano}`
+  }
+  return comp
+}
+
+function competenciaParaMonth(comp: string) {
+  if (/^\d{4}-\d{2}$/.test(comp)) return comp
+  if (/^\d{2}\/\d{4}$/.test(comp)) {
+    const [mes, ano] = comp.split('/')
+    return `${ano}-${mes}`
+  }
+  return ''
+}
+
+function monthParaCompetencia(month: string) {
+  if (!/^\d{4}-\d{2}$/.test(month)) return ''
+  const [ano, mes] = month.split('-')
   return `${mes}/${ano}`
 }
 
@@ -71,7 +88,6 @@ export default function ReformaTributariaPage() {
   const [totalNotas, setTotalNotas] = useState(0)
   const [totalItens, setTotalItens] = useState(0)
   const [notasExpandidas, setNotasExpandidas] = useState<Set<string>>(new Set())
-  const [competencias, setCompetencias] = useState<string[]>([])
   const [totais, setTotais] = useState<TotaisLinhasReforma>(TOTAIS_VAZIOS)
   const [carregando, setCarregando] = useState(false)
   const [erro, setErro] = useState('')
@@ -105,7 +121,6 @@ export default function ReformaTributariaPage() {
       setNotas([])
       setTotalNotas(0)
       setTotalItens(0)
-      setCompetencias([])
       setTotais(TOTAIS_VAZIOS)
       return
     }
@@ -136,7 +151,6 @@ export default function ReformaTributariaPage() {
         setNotas(Array.isArray(d.notas) ? d.notas : [])
         setTotalNotas(d.total ?? 0)
         setTotalItens(d.totalItens ?? 0)
-        setCompetencias(Array.isArray(d.competencias) ? d.competencias : [])
         setTotais(d.totais ?? TOTAIS_VAZIOS)
       })
       .catch(err => {
@@ -149,12 +163,6 @@ export default function ReformaTributariaPage() {
 
     return () => controller.abort()
   }, [empresaAtiva?.id, competenciaFiltro, tipoDocumentoFiltro, situacaoFiltro, busca, pagina, tamanhoPagina, recarregarVersao])
-
-  useEffect(() => {
-    if (competenciaFiltro && competencias.length && !competencias.includes(competenciaFiltro)) {
-      setCompetenciaFiltro('')
-    }
-  }, [competenciaFiltro, competencias])
 
   async function exportarExcel() {
     if (!empresaAtiva) return
@@ -249,6 +257,23 @@ export default function ReformaTributariaPage() {
     })
   }
 
+  function limparFiltros() {
+    setBuscaInput('')
+    setBusca('')
+    setCompetenciaFiltro('')
+    setTipoDocumentoFiltro('')
+    setSituacaoFiltro('todos')
+  }
+
+  const filtrosAtivos = [
+    buscaInput.trim() ? `Busca: ${buscaInput.trim()}` : null,
+    competenciaFiltro ? `Competência: ${mesLabel(competenciaFiltro)}` : null,
+    tipoDocumentoFiltro ? `Documento: ${TIPO_DOCUMENTO_LABEL[tipoDocumentoFiltro]}` : null,
+    situacaoFiltro === 'destacadas' ? 'Situação: com IBS/CBS'
+      : situacaoFiltro === 'sem_destaque' ? 'Situação: sem IBS/CBS'
+        : situacaoFiltro === 'divergencias' ? 'Situação: com alertas' : null,
+  ].filter((filtro): filtro is string => Boolean(filtro))
+
   return (
     <main className="af-page">
       <PageHeader
@@ -287,8 +312,8 @@ export default function ReformaTributariaPage() {
         </GlassCard>
       )}
 
-      <GlassCard padding={16} style={{ marginBottom: 16 }}>
-        <div className="af-metric-grid">
+      <GlassCard padding={12} style={{ marginBottom: 16 }}>
+        <div className="af-metric-grid af-metric-grid-compact">
           {[
             ['Documentos com destaque', String(totais.notas)],
             ['Itens com destaque', String(totais.itens)],
@@ -306,33 +331,76 @@ export default function ReformaTributariaPage() {
       </GlassCard>
 
       <GlassCard padding={16} style={{ marginBottom: 16 }}>
-        <div className="af-toolbar">
-          <div className="af-search-field">
-            <Search size={16} />
-            <input
-              value={buscaInput}
-              onChange={e => setBuscaInput(e.target.value)}
-              placeholder="Documento, participante, produto/serviço, NCM, CFOP, CST ou cClass..."
-              className="af-input"
-              style={{ flex: 1 }}
-            />
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
+            <div style={{ width: 30, height: 30, borderRadius: 9, display: 'grid', placeItems: 'center', color: 'var(--af-primary)', background: 'var(--af-primary-soft)', flexShrink: 0 }}>
+              <SlidersHorizontal size={15} />
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ color: 'var(--af-text)', fontSize: 13, fontWeight: 800 }}>Filtros</div>
+              <div className="af-muted" style={{ fontSize: 11, marginTop: 2 }}>Refine os documentos exibidos e utilizados nas exportações.</div>
+            </div>
           </div>
-          <select value={competenciaFiltro} onChange={e => setCompetenciaFiltro(e.target.value)} className="af-select">
-            <option value="">Todos os meses</option>
-            {competencias.map(c => <option key={c} value={c}>{mesLabel(c)}</option>)}
-          </select>
-          <select value={tipoDocumentoFiltro} onChange={e => setTipoDocumentoFiltro(e.target.value as TipoDocumentoReforma | '')} className="af-select">
-            <option value="">Todos os documentos</option>
-            <option value="nfe">NF-e</option>
-            <option value="nfce">NFC-e</option>
-            <option value="nfse">NFS-e</option>
-          </select>
-          <select value={situacaoFiltro} onChange={e => setSituacaoFiltro(e.target.value as SituacaoFiltroReforma)} className="af-select">
-            <option value="todos">Todas as situações</option>
-            <option value="destacadas">Com IBS/CBS</option>
-            <option value="sem_destaque">Sem IBS/CBS</option>
-            <option value="divergencias">Com alertas</option>
-          </select>
+          {filtrosAtivos.length > 0 && (
+            <button type="button" className="af-btn af-btn-ghost" onClick={limparFiltros} style={{ minHeight: 34, padding: '7px 11px', fontSize: 11.5 }}>
+              <RotateCcw size={13} /> Limpar filtros
+            </button>
+          )}
+        </div>
+        <div className="af-toolbar">
+          <label className="af-filter-field">
+            <span className="af-filter-label">Buscar</span>
+            <div className="af-search-field">
+              <Search size={16} />
+              <input
+                value={buscaInput}
+                onChange={e => setBuscaInput(e.target.value)}
+                placeholder="Documento, participante, produto, NCM, CFOP..."
+                className="af-input"
+                style={{ flex: 1, minWidth: 0 }}
+              />
+            </div>
+          </label>
+          <label className="af-filter-field">
+            <span className="af-filter-label">Competência</span>
+            <input
+              type="month"
+              value={competenciaParaMonth(competenciaFiltro)}
+              onChange={e => setCompetenciaFiltro(monthParaCompetencia(e.target.value))}
+              className="af-input"
+              aria-label="Filtrar por competência"
+              title="Selecione o mês e o ano da competência"
+              style={{ width: '100%' }}
+            />
+          </label>
+          <label className="af-filter-field">
+            <span className="af-filter-label">Documento</span>
+            <select value={tipoDocumentoFiltro} onChange={e => setTipoDocumentoFiltro(e.target.value as TipoDocumentoReforma | '')} className="af-select">
+              <option value="">Todos os documentos</option>
+              <option value="nfe">NF-e</option>
+              <option value="nfce">NFC-e</option>
+              <option value="nfse">NFS-e</option>
+            </select>
+          </label>
+          <label className="af-filter-field">
+            <span className="af-filter-label">Situação</span>
+            <select value={situacaoFiltro} onChange={e => setSituacaoFiltro(e.target.value as SituacaoFiltroReforma)} className="af-select">
+              <option value="todos">Todas as situações</option>
+              <option value="destacadas">Com IBS/CBS</option>
+              <option value="sem_destaque">Sem IBS/CBS</option>
+              <option value="divergencias">Com alertas</option>
+            </select>
+          </label>
+        </div>
+        <div className="af-filter-summary">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0 }}>
+            {filtrosAtivos.length > 0
+              ? filtrosAtivos.map(filtro => <span key={filtro} className="af-filter-chip">{filtro}</span>)
+              : <span className="af-muted" style={{ fontSize: 11 }}>Nenhum filtro adicional aplicado.</span>}
+          </div>
+          <span className="af-muted" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>
+            {carregando ? 'Atualizando...' : `${totalNotas} documento(s)`}
+          </span>
         </div>
       </GlassCard>
 
