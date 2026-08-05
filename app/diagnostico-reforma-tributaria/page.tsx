@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import PaginaDiagnostico from './_components/PaginaDiagnostico'
+import GoogleAdsConversaoUpload from './_components/GoogleAdsConversaoUpload'
 
 const APP_URL = (process.env.NEXT_PUBLIC_APP_URL || 'https://auditor.enfokus.com.br').replace(/\/$/, '')
 const ROTA = '/diagnostico-reforma-tributaria'
@@ -46,6 +47,7 @@ export default function DiagnosticoReformaTributariaPage() {
   return (
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+      <GoogleAdsConversaoUpload />
       <PaginaDiagnostico />
     </>
   )
