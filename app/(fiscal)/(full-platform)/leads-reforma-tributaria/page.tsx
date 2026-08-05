@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import * as XLSX from 'xlsx'
-import { Download, FileText, Lock, Mail, MessageCircle, Search, UsersRound, X } from 'lucide-react'
+import { ChevronRight, Download, FileText, Lock, Mail, MessageCircle, Search, UsersRound, X } from 'lucide-react'
 import { useTheme } from '@/components/ThemeProvider'
 import EmptyState from '@/components/ui/EmptyState'
 import GlassCard from '@/components/ui/GlassCard'
@@ -153,6 +153,7 @@ export default function LeadsReformaTributariaPage() {
   const [finalidadeFiltro, setFinalidadeFiltro] = useState('')
   const [dataInicio, setDataInicio] = useState('')
   const [dataFim, setDataFim] = useState('')
+  const [ocultarDescartados, setOcultarDescartados] = useState(false)
 
   const [selecionado, setSelecionado] = useState<Lead | null>(null)
   const [observacoesRascunho, setObservacoesRascunho] = useState('')
@@ -316,6 +317,11 @@ export default function LeadsReformaTributariaPage() {
     aguardando: leads.filter(l => ['novo', 'diagnostico_iniciado', 'diagnostico_concluido', 'aguardando_contato'].includes(l.status)).length,
   }), [leads])
 
+  const leadsVisiveis = useMemo(() => {
+    if (!ocultarDescartados || statusFiltro === 'invalido' || statusFiltro === 'sem_interesse') return leads
+    return leads.filter(lead => !['invalido', 'sem_interesse'].includes(lead.status))
+  }, [leads, ocultarDescartados, statusFiltro])
+
   if (permitido === null) {
     return <main style={{ padding: 24, color: cor.texto }}>Verificando acesso...</main>
   }
@@ -425,6 +431,14 @@ export default function LeadsReformaTributariaPage() {
           )}
           <input aria-label="Data inicial" className="af-input leads-date" type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} />
           <input aria-label="Data final" className="af-input leads-date" type="date" value={dataFim} onChange={e => setDataFim(e.target.value)} />
+          <label className="leads-hide-discarded">
+            <input
+              type="checkbox"
+              checked={ocultarDescartados}
+              onChange={e => setOcultarDescartados(e.target.checked)}
+            />
+            <span>Ocultar inválidos e sem interesse</span>
+          </label>
           <div className="leads-filter-actions">
             <button type="button" className="af-btn af-btn-primary" onClick={carregar} disabled={carregando}>
               <Search size={14} /> {carregando ? 'Filtrando...' : 'Filtrar'}
@@ -438,12 +452,12 @@ export default function LeadsReformaTributariaPage() {
 
       <GlassCard
         title={tipoLead === 'acesso_antecipado' ? 'Solicitações de acesso antecipado' : 'Leads do diagnóstico da Reforma Tributária'}
-        titleRight={<span className="af-help">{carregando ? 'Atualizando...' : `${leads.length} ${leads.length === 1 ? 'lead' : 'leads'}`}</span>}
+        titleRight={<span className="af-help">{carregando ? 'Atualizando...' : ocultarDescartados && leadsVisiveis.length !== leads.length ? `${leadsVisiveis.length} de ${leads.length} leads` : `${leads.length} ${leads.length === 1 ? 'lead' : 'leads'}`}</span>}
         padding={0}
       >
         {erro ? (
           <div className="af-alert af-alert-danger" style={{ margin: 14 }}>{erro}</div>
-        ) : !leads.length ? (
+        ) : !leadsVisiveis.length ? (
           <EmptyState
             icon={<UsersRound size={22} />}
             title={carregando ? 'Carregando leads...' : 'Nenhum lead encontrado'}
@@ -451,90 +465,59 @@ export default function LeadsReformaTributariaPage() {
             style={{ padding: '32px 20px' }}
           />
         ) : (
-          <div className="af-table-wrap">
-            <table className="af-table" style={{ minWidth: 1100, fontSize: 12.5 }}>
-              <thead>
-                <tr style={{ background: cor.cabecalhoTabela }}>
-                  {(tipoLead === 'acesso_antecipado'
-                    ? ['Data', 'Nome', 'Escritório/empresa', 'Contato', 'Perfil', 'Finalidades', 'Status', 'Solicitação', '']
-                    : ['Data', 'Nome', 'Empresa', 'CNPJ', 'Contato', 'Regime', 'Status', 'Diagnóstico', '']
-                  ).map(h => (
-                    <th key={h} style={{ textAlign: 'left', padding: '11px 12px', color: cor.textoSuave, borderBottom: `1px solid ${cor.borda}`, whiteSpace: 'nowrap' }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {leads.map(lead => (
-                  <tr key={lead.id} style={{ borderTop: `1px solid ${cor.borda}` }}>
-                    <td style={{ padding: '11px 12px', whiteSpace: 'nowrap' }}>{dataHoraBr(lead.created_at)}</td>
-                    <td style={{ padding: '11px 12px', fontWeight: 700 }}>{lead.nome}</td>
-                    {lead.tipo_lead === 'acesso_antecipado' ? (
-                      <>
-                        <td style={{ padding: '11px 12px', minWidth: 180 }}>
-                          <div>{lead.empresa || '-'}</div>
-                          {lead.cargo && <div style={{ color: cor.textoFraco, fontSize: 11.5 }}>{lead.cargo}</div>}
-                        </td>
-                        <td style={{ padding: '11px 12px', minWidth: 190 }}>
-                          <div>{formatarTelefoneBr(lead.telefone)}</div>
-                          <div style={{ color: cor.textoFraco, fontSize: 11.5 }}>{lead.email}</div>
-                        </td>
-                        <td style={{ padding: '11px 12px', minWidth: 160 }}>{perfilLabel(lead.perfil_profissional)}</td>
-                        <td style={{ padding: '11px 12px', minWidth: 220, color: cor.textoSuave }}>
-                          {(lead.finalidades || []).map(finalidadeLabel).join(', ') || '-'}
-                        </td>
-                      </>
-                    ) : (
-                      <>
-                        <td style={{ padding: '11px 12px', minWidth: 180 }}>{lead.empresa}</td>
-                        <td style={{ padding: '11px 12px', whiteSpace: 'nowrap' }}>{lead.cnpj ? formatarCnpj(lead.cnpj) : '-'}</td>
-                        <td style={{ padding: '11px 12px', minWidth: 180 }}>
-                          <div>{formatarTelefoneBr(lead.telefone)}</div>
-                          <div style={{ color: cor.textoFraco, fontSize: 11.5 }}>{lead.email}</div>
-                        </td>
-                        <td style={{ padding: '11px 12px', whiteSpace: 'nowrap' }}>{lead.regime_tributario}</td>
-                      </>
-                    )}
-                    <td style={{ padding: '11px 12px' }}>
-                      <select
-                        value={lead.status}
-                        onChange={e => atualizarStatus(lead, e.target.value)}
-                        disabled={salvando}
-                        style={{ ...inputStyle, padding: '6px 8px', fontSize: 11.5 }}
-                      >
-                        {(lead.tipo_lead === 'acesso_antecipado' ? STATUS_ACESSO_OPCOES : STATUS_OPCOES).map(([v, label]) => <option key={v} value={v}>{label}</option>)}
-                      </select>
-                    </td>
-                    <td style={{ padding: '11px 12px', whiteSpace: 'nowrap' }}>
-                      {lead.tipo_lead === 'acesso_antecipado' ? (
-                        <div>{lead.codigo_solicitacao || '-'}</div>
-                      ) : (
-                        <div>{lead.codigo_diagnostico || '-'}{lead.quantidade_xmls ? ` · ${lead.quantidade_xmls} XML(s)` : ''}</div>
-                      )}
-                      {lead.tipo_lead === 'reforma_tributaria' && lead.diagnostico_relatorio && (
-                        <a
-                          href={linkRelatorioPdf(lead.diagnostico_relatorio.token)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{ marginTop: 5, display: 'inline-flex', alignItems: 'center', gap: 5, color: cor.ciano, textDecoration: 'none', fontSize: 11.5, fontWeight: 800 }}
-                        >
-                          <FileText size={12} /> PDF
-                        </a>
-                      )}
-                    </td>
-                    <td style={{ padding: '11px 12px' }}>
-                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                        <a href={linkWhatsappLead(lead)} target="_blank" rel="noopener noreferrer" title="Chamar no WhatsApp" style={{ border: `1px solid ${cor.bordaForte}`, color: cor.ciano, borderRadius: 8, padding: 6, display: 'inline-flex' }}>
-                          <MessageCircle size={13} />
-                        </a>
-                        <button type="button" onClick={() => abrirDetalhes(lead)} style={{ border: `1px solid ${cor.bordaForte}`, background: 'transparent', color: cor.ciano, borderRadius: 8, padding: '6px 10px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}>
-                          Detalhes
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="leads-summary-list">
+            <div className="leads-summary-header" style={{ background: cor.cabecalhoTabela, color: cor.textoSuave }}>
+              <span>Data</span><span>Lead</span><span>Contato</span><span>{tipoLead === 'acesso_antecipado' ? 'Perfil' : 'Dados fiscais'}</span><span>Status</span><span>Referência</span><span />
+            </div>
+            {leadsVisiveis.map(lead => (
+              <div
+                key={lead.id}
+                className="leads-summary-row"
+                role="button"
+                tabIndex={0}
+                onClick={() => abrirDetalhes(lead)}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') abrirDetalhes(lead) }}
+                style={{ borderTop: `1px solid ${cor.borda}` }}
+              >
+                <div className="leads-summary-date">{dataHoraBr(lead.created_at)}</div>
+                <div className="leads-summary-primary">
+                  <strong title={lead.nome}>{lead.nome}</strong>
+                  <span title={lead.empresa || ''}>{lead.empresa || '-'}</span>
+                </div>
+                <div className="leads-summary-stack">
+                  <span>{formatarTelefoneBr(lead.telefone)}</span>
+                  <small title={lead.email}>{lead.email}</small>
+                </div>
+                <div className="leads-summary-stack">
+                  {lead.tipo_lead === 'acesso_antecipado' ? (
+                    <><span>{perfilLabel(lead.perfil_profissional)}</span><small>{lead.cargo || (lead.faixa_empresas ? FAIXAS_EMPRESAS[lead.faixa_empresas] || lead.faixa_empresas : '-')}</small></>
+                  ) : (
+                    <><span>{lead.regime_tributario || '-'}</span><small>{lead.cnpj ? formatarCnpj(lead.cnpj) : '-'}</small></>
+                  )}
+                </div>
+                <div onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}>
+                  <select
+                    aria-label={`Status de ${lead.nome}`}
+                    value={lead.status}
+                    onChange={e => atualizarStatus(lead, e.target.value)}
+                    disabled={salvando}
+                    style={{ ...inputStyle, padding: '7px 8px', fontSize: 11.5, width: '100%', minWidth: 0 }}
+                  >
+                    {(lead.tipo_lead === 'acesso_antecipado' ? STATUS_ACESSO_OPCOES : STATUS_OPCOES).map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+                  </select>
+                </div>
+                <div className="leads-summary-reference">
+                  <span>{lead.tipo_lead === 'acesso_antecipado' ? lead.codigo_solicitacao || '-' : lead.codigo_diagnostico || '-'}</span>
+                  {lead.tipo_lead === 'reforma_tributaria' && lead.quantidade_xmls ? <small>{lead.quantidade_xmls} XML(s)</small> : null}
+                  {lead.tipo_lead === 'reforma_tributaria' && lead.diagnostico_relatorio && (
+                    <a href={linkRelatorioPdf(lead.diagnostico_relatorio.token)} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}>
+                      <FileText size={12} /> PDF
+                    </a>
+                  )}
+                </div>
+                <span className="leads-summary-open" aria-hidden="true"><ChevronRight size={17} /></span>
+              </div>
+            ))}
           </div>
         )}
       </GlassCard>
@@ -632,6 +615,117 @@ export default function LeadsReformaTributariaPage() {
           gap: 8px;
           margin-left: auto;
         }
+        .leads-hide-discarded {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          min-height: 36px;
+          padding: 7px 10px;
+          border: 1px solid var(--af-border);
+          border-radius: 9px;
+          color: var(--af-text-soft);
+          background: var(--af-surface-2);
+          font-size: 11.5px;
+          font-weight: 650;
+          white-space: nowrap;
+          cursor: pointer;
+        }
+        .leads-hide-discarded input {
+          width: 15px;
+          height: 15px;
+          margin: 0;
+          accent-color: var(--af-primary);
+          cursor: pointer;
+        }
+        .leads-summary-header,
+        .leads-summary-row {
+          display: grid;
+          grid-template-columns: 132px minmax(160px, 1.35fr) minmax(205px, 1.5fr) minmax(150px, 1fr) 176px 125px 28px;
+          gap: 14px;
+          align-items: center;
+          padding: 12px 14px;
+        }
+        .leads-summary-header {
+          min-height: 44px;
+          font-size: 10.5px;
+          font-weight: 750;
+          letter-spacing: .045em;
+          text-transform: uppercase;
+        }
+        .leads-summary-row {
+          min-height: 72px;
+          color: var(--af-text-soft);
+          cursor: pointer;
+          outline: none;
+          transition: background .15s ease;
+        }
+        .leads-summary-row:hover,
+        .leads-summary-row:focus-visible {
+          background: var(--af-primary-soft);
+        }
+        .leads-summary-date {
+          white-space: nowrap;
+          font-size: 11.5px;
+          color: var(--af-muted);
+        }
+        .leads-summary-primary,
+        .leads-summary-stack,
+        .leads-summary-reference {
+          min-width: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+        .leads-summary-primary strong,
+        .leads-summary-primary span,
+        .leads-summary-stack span,
+        .leads-summary-stack small,
+        .leads-summary-reference span,
+        .leads-summary-reference small {
+          display: block;
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .leads-summary-primary strong {
+          color: var(--af-text);
+          font-size: 12.5px;
+        }
+        .leads-summary-primary span,
+        .leads-summary-stack small,
+        .leads-summary-reference small {
+          color: var(--af-muted);
+          font-size: 11px;
+        }
+        .leads-summary-stack span,
+        .leads-summary-reference span {
+          font-size: 11.75px;
+        }
+        .leads-summary-reference a {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          width: max-content;
+          color: var(--af-primary);
+          font-size: 10.5px;
+          font-weight: 750;
+          text-decoration: none;
+        }
+        .leads-summary-open {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          color: var(--af-primary);
+        }
+        @media (max-width: 1120px) {
+          .leads-summary-header { display: none; }
+          .leads-summary-row {
+            grid-template-columns: minmax(180px, 1fr) minmax(200px, 1.15fr) 170px 120px 28px;
+          }
+          .leads-summary-date { display: none; }
+          .leads-summary-row > :nth-child(4) { display: none; }
+        }
         @media (max-width: 760px) {
           .leads-segmented { width: 100%; }
           .leads-tab { flex: 1; }
@@ -651,6 +745,16 @@ export default function LeadsReformaTributariaPage() {
             width: 100%;
             margin-left: 0;
           }
+          .leads-hide-discarded {
+            width: 100%;
+          }
+          .leads-summary-row {
+            grid-template-columns: minmax(0, 1fr) 150px 28px;
+            gap: 9px;
+            padding: 12px;
+          }
+          .leads-summary-row > :nth-child(3),
+          .leads-summary-row > :nth-child(6) { display: none; }
           .leads-filter-actions .af-btn { flex: 1; }
         }
       `}</style>

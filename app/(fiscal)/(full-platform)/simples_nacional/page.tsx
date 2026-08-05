@@ -888,10 +888,21 @@ function BadgeConfronto({ status }: { status: ItemConfronto['status'] }) {
   )
 }
 
-function AbaConfronto({ items, carregando, onExportarExcel }: {
+type ProgressoApuracaoLote = {
+  processando: boolean
+  total: number
+  concluidas: number
+  competencia?: string
+  mensagem?: string
+  erros: string[]
+}
+
+function AbaConfronto({ items, carregando, onExportarExcel, onApurarPeriodo, progressoApuracao }: {
   items: ItemConfronto[]
   carregando: boolean
   onExportarExcel: () => void
+  onApurarPeriodo: () => void
+  progressoApuracao: ProgressoApuracaoLote
 }) {
   const byYear = useMemo(() => {
     const groups = new Map<string, ItemConfronto[]>()
@@ -944,6 +955,7 @@ function AbaConfronto({ items, carregando, onExportarExcel }: {
 
   const criticos = items.filter(i => i.status === 'critico').length
   const alertas  = items.filter(i => i.status === 'alerta').length
+  const periodosAptos = items.filter(i => i.dasPgdas !== null && i.totalNfe > 0).length
 
   return (
     <>
@@ -955,14 +967,37 @@ function AbaConfronto({ items, carregando, onExportarExcel }: {
           <span>Crítico &gt; 5% no maior confronto</span>
           <span>XML &gt; PGDAS = possível sub-declaração</span>
         </div>
-        <button
-          onClick={onExportarExcel}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(39,199,216,0.08)', border: '1px solid rgba(39,199,216,0.2)', borderRadius: 8, padding: '7px 14px', fontSize: 12, fontWeight: 600, color: 'var(--af-primary)', cursor: 'pointer' }}
-        >
-          <Download size={13} />
-          Exportar Excel
-        </button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' as const }}>
+          <button
+            onClick={onApurarPeriodo}
+            disabled={progressoApuracao.processando || periodosAptos === 0}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: progressoApuracao.processando ? 'var(--af-surface-2)' : 'rgba(39,199,216,0.14)', border: '1px solid rgba(39,199,216,0.32)', borderRadius: 8, padding: '7px 14px', fontSize: 12, fontWeight: 700, color: 'var(--af-primary)', cursor: progressoApuracao.processando || periodosAptos === 0 ? 'not-allowed' : 'pointer', opacity: periodosAptos === 0 ? 0.55 : 1 }}
+          >
+            <Calculator size={13} />
+            {progressoApuracao.processando
+              ? `Apurando ${progressoApuracao.concluidas}/${progressoApuracao.total}`
+              : `Apurar período completo (${periodosAptos})`}
+          </button>
+          <button
+            onClick={onExportarExcel}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(39,199,216,0.08)', border: '1px solid rgba(39,199,216,0.2)', borderRadius: 8, padding: '7px 14px', fontSize: 12, fontWeight: 600, color: 'var(--af-primary)', cursor: 'pointer' }}
+          >
+            <Download size={13} />
+            Exportar Excel
+          </button>
+        </div>
       </div>
+
+      {(progressoApuracao.processando || progressoApuracao.mensagem) && (
+        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', background: progressoApuracao.erros.length > 0 ? 'rgba(251,191,36,0.07)' : 'rgba(39,199,216,0.07)', border: `1px solid ${progressoApuracao.erros.length > 0 ? 'rgba(251,191,36,0.25)' : 'rgba(39,199,216,0.22)'}`, borderRadius: 10, padding: '11px 14px', marginBottom: 14 }}>
+          {progressoApuracao.processando ? <RefreshCw size={15} style={{ color: 'var(--af-primary)', flexShrink: 0 }} /> : <CheckCircle2 size={15} style={{ color: progressoApuracao.erros.length > 0 ? 'var(--af-warning)' : 'var(--af-primary)', flexShrink: 0 }} />}
+          <div style={{ fontSize: 12, color: 'var(--af-text-soft)', lineHeight: 1.5 }}>
+            <strong>{progressoApuracao.processando ? `Processando ${progressoApuracao.competencia ?? ''}` : progressoApuracao.mensagem}</strong>
+            {progressoApuracao.processando && <div>{progressoApuracao.concluidas} de {progressoApuracao.total} competências concluídas.</div>}
+            {progressoApuracao.erros.map(erro => <div key={erro} style={{ color: 'var(--af-warning)' }}>{erro}</div>)}
+          </div>
+        </div>
+      )}
 
       {/* Alerta de divergências */}
       {(criticos > 0 || alertas > 0) && (
@@ -995,10 +1030,15 @@ function AbaConfronto({ items, carregando, onExportarExcel }: {
         const totalDiff  = totalXml - totalPgdas
         const itensComDasPgdas = anoItems.filter(i => i.dasPgdas !== null)
         const temDasPgdas = itensComDasPgdas.length > 0
-        const dasAnoComparavel = temDasPgdas && itensComDasPgdas.every(i => i.dasSistema !== null)
-        const totalDasPgdas = itensComDasPgdas.reduce((s, i) => s + (i.dasPgdas ?? 0), 0)
-        const totalDasSistema = itensComDasPgdas.reduce((s, i) => s + (i.dasSistema ?? 0), 0)
-        const totalDiffDas = totalDasSistema - totalDasPgdas
+        const itensComDasSistema = anoItems.filter(i => i.dasSistema !== null)
+        const temDasSistema = itensComDasSistema.length > 0
+        const itensDasComparaveis = anoItems.filter(i => i.dasPgdas !== null && i.dasSistema !== null)
+        const temDasComparavel = itensDasComparaveis.length > 0
+        const totalDasPgdasCompleto = itensComDasPgdas.reduce((s, i) => s + (i.dasPgdas ?? 0), 0)
+        const totalDasPgdasComparavel = itensDasComparaveis.reduce((s, i) => s + (i.dasPgdas ?? 0), 0)
+        const totalDasSistema = itensComDasSistema.reduce((s, i) => s + (i.dasSistema ?? 0), 0)
+        const totalDasSistemaComparavel = itensDasComparaveis.reduce((s, i) => s + (i.dasSistema ?? 0), 0)
+        const totalDiffDas = totalDasSistemaComparavel - totalDasPgdasComparavel
         const diffPctAno = totalPgdas > 0 ? totalDiff / totalPgdas : (totalXml > 0 ? 1 : 0)
         const statusAno: ItemConfronto['status'] = anoItems.some(i => i.status === 'critico') ? 'critico'
           : anoItems.some(i => i.status === 'alerta') ? 'alerta'
@@ -1045,16 +1085,16 @@ function AbaConfronto({ items, carregando, onExportarExcel }: {
                 </div>
                 <div style={{ textAlign: 'right' as const }}>
                   <div style={{ fontSize: 10, color: 'var(--af-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>DAS PGDAS</div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--af-text)', fontVariantNumeric: 'tabular-nums' }}>{temDasPgdas ? money.format(totalDasPgdas) : '—'}</div>
+                  <div title={temDasSistema ? `Total das ${itensDasComparaveis.length} competências comparáveis` : undefined} style={{ fontSize: 13, fontWeight: 600, color: 'var(--af-text)', fontVariantNumeric: 'tabular-nums' }}>{temDasPgdas ? money.format(temDasSistema ? totalDasPgdasComparavel : totalDasPgdasCompleto) : '—'}</div>
                 </div>
                 <div style={{ textAlign: 'right' as const }}>
                   <div style={{ fontSize: 10, color: 'var(--af-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>DAS sistema</div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--af-text)', fontVariantNumeric: 'tabular-nums' }}>{dasAnoComparavel ? money.format(totalDasSistema) : '—'}</div>
+                  <div title={temDasSistema ? `Soma das ${itensComDasSistema.length} competências apuradas` : undefined} style={{ fontSize: 13, fontWeight: 600, color: 'var(--af-text)', fontVariantNumeric: 'tabular-nums' }}>{temDasSistema ? money.format(totalDasSistema) : '—'}</div>
                 </div>
                 <div style={{ textAlign: 'right' as const }}>
                   <div style={{ fontSize: 10, color: 'var(--af-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>Dif. DAS</div>
                   <div style={{ fontSize: 13, fontWeight: 600, color: corDiffDasAno, fontVariantNumeric: 'tabular-nums' }}>
-                    {dasAnoComparavel ? `${diffDasPos ? '+' : ''}${money.format(totalDiffDas)}` : '—'}
+                    {temDasComparavel ? `${diffDasPos ? '+' : ''}${money.format(totalDiffDas)}` : '—'}
                   </div>
                 </div>
                 <BadgeConfronto status={statusAno} />
@@ -1938,6 +1978,9 @@ export default function SimplesNacionalPage() {
   const [itensConfronto, setItensConfronto] = useState<DocumentoFiscalItem[]>([])
   const [apuracoesConfronto, setApuracoesConfronto] = useState<SnApuracao[]>([])
   const [carregandoNfe, setCarregandoNfe] = useState(false)
+  const [progressoApuracaoLote, setProgressoApuracaoLote] = useState<ProgressoApuracaoLote>({
+    processando: false, total: 0, concluidas: 0, erros: [],
+  })
 
   // ── Estado Apuração XML ──────────────────────────────────────────────────
   const xmlInputRef                   = useRef<HTMLInputElement>(null)
@@ -2527,14 +2570,19 @@ export default function SimplesNacionalPage() {
   }, [rbt12Sugestao])
 
   // ── Executar apuração ──────────────────────────────────────────────────
-  const resolverConfigServicoApuracao = useCallback((rbt12: number) => {
+  const resolverConfigServicoParaDados = useCallback((
+    rbt12: number,
+    documentos: DocumentoFiscal[],
+    itens: DocumentoFiscalItem[],
+    folhas: SnFolhaMensal[],
+  ) => {
     type AnexoSN = 'III' | 'IV' | 'V'
-    const temServico = xmlDocumentos.some(doc => doc.tipo_documento === 'nfse' || (doc.valor_servicos ?? 0) > 0) ||
-      xmlItens.some(item => item.classificacao === 'servico')
+    const temServico = documentos.some(doc => doc.tipo_documento === 'nfse' || (doc.valor_servicos ?? 0) > 0) ||
+      itens.some(item => item.classificacao === 'servico')
 
     // Calcular Fator R (mesmo que não usado por todos os serviços, pode ser necessário para alguns)
-    const folha12 = folhas12m.reduce((sum, f) => sum + (f.valor_folha ?? 0), 0)
-    const fatorRPercentual = (folhas12m.length >= 12 && folha12 > 0 && rbt12 > 0) ? folha12 / rbt12 : null
+    const folha12 = folhas.reduce((sum, f) => sum + (f.valor_folha ?? 0), 0)
+    const fatorRPercentual = (folhas.length >= 12 && folha12 > 0 && rbt12 > 0) ? folha12 / rbt12 : null
     const fatorRAnexo = fatorRPercentual !== null
       ? (fatorRPercentual >= 0.28 ? 'III' as AnexoSN : 'V' as AnexoSN)
       : undefined
@@ -2552,13 +2600,13 @@ export default function SimplesNacionalPage() {
     // Cada código de serviço deve ter sua própria configuração. Não existe
     // mais fallback por empresa, pois ele poderia classificar NFS-e em anexo
     // diferente do enquadramento específico da atividade.
-    const itensServico = xmlItens.filter(item =>
+    const itensServico = itens.filter(item =>
       item.classificacao === 'servico' ||
       item.anexo_sugerido === 'III' ||
       item.anexo_sugerido === 'IV' ||
       item.anexo_sugerido === 'V'
     )
-    const documentosPorId = new Map(xmlDocumentos.map(doc => [doc.id, doc]))
+    const documentosPorId = new Map(documentos.map(doc => [doc.id, doc]))
     const identidadesNasNotas = itensServico.map(item =>
       resolverIdentidadeServicoNfse(item, documentosPorId.get(item.documento_id))
     )
@@ -2610,7 +2658,11 @@ export default function SimplesNacionalPage() {
       fatorRAnexo,
       alerta: null,
     }
-  }, [configServicosAtividade, folhas12m, xmlDocumentos, xmlItens])
+  }, [configServicosAtividade])
+
+  const resolverConfigServicoApuracao = useCallback((rbt12: number) =>
+    resolverConfigServicoParaDados(rbt12, xmlDocumentos, xmlItens, folhas12m),
+  [resolverConfigServicoParaDados, xmlDocumentos, xmlItens, folhas12m])
 
   const handleApurar = useCallback(async () => {
     if (!empresaAtiva || xmlDocumentos.length === 0) return
@@ -2889,6 +2941,102 @@ export default function SimplesNacionalPage() {
       return { comp, receitaPgdas, totalNfe, qtdNfe, diff, diffPct, dasPgdas, dasSistema, diffDas, diffDasPct, status }
     })
   }, [declaracoes, docsConfronto, itensConfronto, apuracoesConfronto])
+
+  const handleApurarPeriodoCompleto = useCallback(async () => {
+    if (!empresaAtiva) return
+    const competencias = confrontoData
+      .filter(item => item.dasPgdas !== null && item.totalNfe > 0)
+      .map(item => item.comp)
+      .sort((a, b) => {
+        const [ma, aa] = a.split('/').map(Number)
+        const [mb, ab] = b.split('/').map(Number)
+        return (aa * 12 + ma) - (ab * 12 + mb)
+      })
+    if (competencias.length === 0) return
+
+    const confirmado = window.confirm(
+      `Serão apuradas ${competencias.length} competências, de ${competencias[0]} a ${competencias[competencias.length - 1]}.\n\n` +
+      'Resultados já existentes serão recalculados. Quando o histórico mensal do RBT12 estiver incompleto, será usado o RBT12 informado no PGDAS-D; se ele também não existir, será feita a estimativa proporcional disponível.\n\n' +
+      'Deseja continuar?'
+    )
+    if (!confirmado) return
+
+    setProgressoApuracaoLote({ processando: true, total: competencias.length, concluidas: 0, erros: [] })
+    const errosLote: string[] = []
+    let concluidas = 0
+    const cnpj = (empresaAtiva.cnpj ?? '').replace(/\D/g, '')
+    const ehIndustrial = /^(1[0-9]|2[0-9]|3[0-3])/.test(empresaAtiva.cnae_principal ?? '')
+
+    for (const competencia of competencias) {
+      setProgressoApuracaoLote(prev => ({ ...prev, competencia, concluidas, erros: [...errosLote] }))
+      try {
+        const [baseRes, receitasRes, folhasRes] = await Promise.all([
+          fetch(`/api/simples/apuracao-base?empresa_id=${encodeURIComponent(empresaAtiva.id)}&competencia=${encodeURIComponent(competencia)}`),
+          fetch(`/api/simples/receitas-mensais?empresa_id=${encodeURIComponent(empresaAtiva.id)}&competencia=${encodeURIComponent(competencia)}`),
+          fetch(`/api/simples/folha-mensal?empresa_id=${encodeURIComponent(empresaAtiva.id)}&competencia=${encodeURIComponent(competencia)}`),
+        ])
+        if (!baseRes.ok) throw new Error('não foi possível carregar os documentos')
+
+        const base = await baseRes.json() as ApuracaoBaseResponse
+        const documentos = Array.isArray(base.documentos) ? base.documentos : []
+        const itens = Array.isArray(base.itens) ? base.itens : []
+        if (documentos.length === 0) throw new Error('nenhum documento disponível para apuração')
+
+        const receitasBody = receitasRes.ok
+          ? await receitasRes.json() as { receitas?: SnReceitaMensal[]; rbt12?: number }
+          : { receitas: [], rbt12: 0 }
+        const receitas = receitasBody.receitas ?? []
+        const declaracao = declaracoes.find(item => item.competencia === competencia)
+        let rbt12 = receitas.length >= 12 ? Number(receitasBody.rbt12 ?? 0) : 0
+        let origemRbt12: 'pgdas' | 'xml' | 'manual' | 'estimado' = 'pgdas'
+
+        if (rbt12 <= 0 && Number(declaracao?.receita_bruta_acumulada_12m ?? 0) > 0) {
+          rbt12 = Number(declaracao?.receita_bruta_acumulada_12m ?? 0)
+        }
+        if (rbt12 <= 0 && receitas.length > 0) {
+          const soma = receitas.reduce((total, receita) => total + Number(receita.receita_bruta_mes ?? 0), 0)
+          rbt12 = Math.round((soma / receitas.length) * 12 * 100) / 100
+          origemRbt12 = 'estimado'
+        }
+        if (rbt12 <= 0) throw new Error('RBT12 indisponível')
+
+        const folhasBody = folhasRes.ok
+          ? await folhasRes.json() as { folhas?: SnFolhaMensal[] }
+          : { folhas: [] }
+        const configServico = resolverConfigServicoParaDados(rbt12, documentos, itens, folhasBody.folhas ?? [])
+        const resultado = apurarSimples({
+          documentos,
+          itens,
+          rbt12,
+          origem_rbt12: origemRbt12,
+          cnpjEmpresa: cnpj,
+          competencia,
+          ehIndustrial,
+          anexoServico: configServico.anexoServico,
+          fatorR: configServico.fatorR,
+          configServicosAtividade: configServico.configServicosAtividade,
+          fatorRAnexo: configServico.fatorRAnexo,
+        })
+        if (configServico.alerta && !resultado.alertas.includes(configServico.alerta)) {
+          resultado.alertas.push(configServico.alerta)
+        }
+        await salvarApuracaoSistema(resultado)
+        concluidas++
+      } catch (erro) {
+        errosLote.push(`${competencia}: ${erro instanceof Error ? erro.message : 'erro inesperado'}`)
+      }
+    }
+
+    setProgressoApuracaoLote({
+      processando: false,
+      total: competencias.length,
+      concluidas,
+      erros: errosLote,
+      mensagem: errosLote.length === 0
+        ? `${concluidas} competências apuradas com sucesso.`
+        : `${concluidas} de ${competencias.length} competências foram apuradas.`,
+    })
+  }, [empresaAtiva, confrontoData, declaracoes, resolverConfigServicoParaDados, salvarApuracaoSistema])
 
   const handleFiles = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return
@@ -3325,7 +3473,13 @@ export default function SimplesNacionalPage() {
 
         {/* Aba: Confronto PGDAS × Apuração XML */}
         {abaAtiva === 'confronto_apuracao' && !semEmpresa && (
-          <AbaConfronto items={confrontoData} carregando={carregandoNfe} onExportarExcel={handleExportarConfrontoExcel} />
+          <AbaConfronto
+            items={confrontoData}
+            carregando={carregandoNfe}
+            onExportarExcel={handleExportarConfrontoExcel}
+            onApurarPeriodo={handleApurarPeriodoCompleto}
+            progressoApuracao={progressoApuracaoLote}
+          />
         )}
 
         {abaAtiva === 'configuracoes' && !semEmpresa && (
