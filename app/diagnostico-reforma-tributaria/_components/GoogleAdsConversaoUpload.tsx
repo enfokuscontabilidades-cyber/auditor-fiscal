@@ -9,7 +9,7 @@ const HOST_PERMITIDO = 'auditor.enfokus.com.br'
 const ROTA_PERMITIDA = '/diagnostico-reforma-tributaria'
 
 type JanelaGoogleAds = Window & {
-  dataLayer?: unknown[][]
+  dataLayer?: unknown[]
   gtag?: (...args: unknown[]) => void
   __googleAdsConversaoUploadConfigurado?: boolean
 }
@@ -25,7 +25,9 @@ export default function GoogleAdsConversaoUpload() {
 
     const janela = window as JanelaGoogleAds
     janela.dataLayer = janela.dataLayer || []
-    janela.gtag = janela.gtag || ((...args: unknown[]) => janela.dataLayer?.push(args))
+    janela.gtag = janela.gtag || function gtag(..._args: unknown[]) {
+      janela.dataLayer?.push(arguments)
+    }
 
     if (!janela.__googleAdsConversaoUploadConfigurado) {
       janela.gtag('js', new Date())
