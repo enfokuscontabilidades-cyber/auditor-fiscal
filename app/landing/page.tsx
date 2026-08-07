@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useEffect, useState } from 'react'
 import FormularioAcessoAntecipado from './_components/FormularioAcessoAntecipado'
 
 const C = { bg: '#f6f9fc', panel: '#ffffff', border: '#d6e1ec', cyan: '#10a9d1', text: '#10263d', muted: '#526a82', gold: '#a97816', green: '#168a55' }
@@ -50,12 +51,33 @@ const faq = [
 
 function Check({ children }: { children: React.ReactNode }) { return <div><span style={{ color: C.green, fontWeight: 700, marginRight: 9 }}>✓</span>{children}</div> }
 
+function ExpandableImage({ src, alt, style }: { src: string; alt: string; style?: React.CSSProperties }) {
+  const [aberta, setAberta] = useState(false)
+  useEffect(() => {
+    if (!aberta) return
+    const fechar = (event: KeyboardEvent) => { if (event.key === 'Escape') setAberta(false) }
+    document.addEventListener('keydown', fechar)
+    return () => document.removeEventListener('keydown', fechar)
+  }, [aberta])
+
+  return <>
+    <button type="button" className="lp-image-button" onClick={() => setAberta(true)} aria-label={`Ampliar imagem: ${alt}`}>
+      <img src={src} alt={alt} style={{ width: '100%', height: 'auto', display: 'block', ...style }} />
+      <span className="lp-image-hint">Clique para ampliar</span>
+    </button>
+    {aberta && <div className="lp-lightbox" role="dialog" aria-modal="true" aria-label={alt} onClick={() => setAberta(false)}>
+      <button type="button" className="lp-lightbox-close" onClick={() => setAberta(false)} aria-label="Fechar imagem ampliada">×</button>
+      <img src={src} alt={alt} onClick={event => event.stopPropagation()} />
+    </div>}
+  </>
+}
+
 export default function LandingPage() {
   const cta = { href: '#solicitar-acesso' }
   return <div className="lp-page" style={V.page}>
     <header><div style={V.wrap}><nav style={V.nav} aria-label="Navegação principal">
       <a href="#top" style={{ display: 'inline-flex', padding: '7px 11px', borderRadius: 9, background: '#10263d' }}><img src="/logo-enfokus-white.png" alt="Enfokus" style={{ height: 25, display: 'block' }} /></a>
-      <div className="lp-navlinks" style={V.navLinks}><a href="#como-funciona">Como funciona</a><a href="#recursos">Funcionalidades</a><a href="#telas">Telas reais</a><a href="#roadmap">Roadmap</a></div>
+      <div className="lp-navlinks" style={V.navLinks}><a href="#como-funciona">Como funciona</a><a href="#recursos">Funcionalidades</a><a href="#consulta-tributaria">CNAE e NCM</a><a href="#telas">Telas reais</a><a href="#roadmap">Roadmap</a></div>
       <div style={{ display: 'flex', gap: 10 }}><Link href="/login" style={{ ...V.secondary, padding: '10px 15px' }}>Entrar</Link><a {...cta} style={{ ...V.primary, padding: '10px 15px' }}>Quero testar por 7 dias</a></div>
     </nav></div></header>
 
@@ -67,7 +89,7 @@ export default function LandingPage() {
           <div style={V.actions}><a {...cta} style={V.primary}>Quero testar por 7 dias</a><a href="#recursos" style={V.secondary}>Ver o que o Enfokus analisa</a></div>
           <p style={V.proof}>Sem fidelidade. Você testa com um caso real da sua rotina.</p>
         </div>
-        <div style={V.screen}><img src="/landing/dashboard-atual-anonimizado.png" alt="Dashboard fiscal atualizado do Enfokus Auditor com dados demonstrativos" style={{ width: '100%', display: 'block' }} /></div>
+        <div style={V.screen}><ExpandableImage src="/landing/dashboard-atual-anonimizado.png" alt="Dashboard fiscal atualizado do Enfokus Auditor com dados demonstrativos" /></div>
       </section></div>
 
       <section style={V.alt}><div style={V.wrap}>
@@ -92,7 +114,20 @@ export default function LandingPage() {
         </div></details>
       </div></section>
 
-      <section style={V.alt} id="auditoria"><div style={V.wrap}><div style={V.heading}><span style={V.eyebrow}>Núcleo disponível</span><h2 style={{ ...V.h2, marginTop: 14 }}>Auditor SPED: conflitos reunidos em um fluxo de revisão.</h2><p style={V.lead}>Cruze SPED Fiscal e SPED Contribuições, interprete registros relevantes e concentre pontos de atenção em uma mesma tela.</p></div><div className="lp-grid2" style={V.grid2}>
+      <section style={V.alt} id="consulta-tributaria"><div style={V.wrap}>
+        <div style={V.heading}><span style={V.eyebrow}>Consulta tributária em destaque</span><h2 style={{ ...V.h2, marginTop: 14 }}>Análise de CNAE e NCM com contexto para decidir.</h2><p style={V.lead}>Consulte a atividade ou o produto e receba uma leitura organizada das regras que merecem validação. O Enfokus reúne fontes oficiais, hipóteses tributárias e pontos de atenção sem transformar a consulta em uma conclusão automática.</p></div>
+        <div className="lp-feature" style={{ ...V.feature, gridTemplateColumns: '.72fr 1.28fr', marginBottom: 34 }}>
+          <article style={{ ...V.card, borderColor: 'rgba(16,169,209,.38)' }}><span style={V.eyebrow}>CNAE e anexos</span><h3 style={{ ...V.cardTitle, fontSize: 22, marginTop: 13 }}>Regra principal do Simples e condições que podem alterar o anexo.</h3><p style={V.cardText}>Consulte a atividade oficial pelo código CNAE, identifique situações como Fator R e veja o que precisa ser confirmado antes de aplicar o enquadramento.</p><div style={V.bullets}><Check>Descrição oficial e fonte IBGE</Check><Check>Anexo ou regra principal aplicável</Check><Check>Condições e validações necessárias</Check></div></article>
+          <div style={V.shot}><ExpandableImage src="/landing/consulta-cnae-anonimizada.png" alt="Análise de CNAE e anexos do Simples Nacional com dados demonstrativos" style={{ borderRadius: 11 }} /></div>
+        </div>
+        <div className="lp-feature lp-reverse" style={{ ...V.feature, gridTemplateColumns: '.72fr 1.28fr', marginBottom: 26 }}>
+          <article style={{ ...V.card, borderColor: 'rgba(169,120,22,.38)' }}><span style={{ ...V.eyebrow, color: '#87600f', borderColor: 'rgba(169,120,22,.34)', background: 'rgba(169,120,22,.08)' }}>NCM · PIS/Cofins · IPI</span><h3 style={{ ...V.cardTitle, fontSize: 22, marginTop: 13 }}>Tributação do produto com alertas sobre informações pendentes.</h3><p style={V.cardText}>Consulte o NCM e veja regras cadastradas, efeitos no Simples Nacional, referências legais e confirmações necessárias sobre produto, operação e papel da empresa na cadeia.</p><div style={V.bullets}><Check>PIS, Cofins e IPI por NCM</Check><Check>Efeito potencial na segregação do PGDAS-D</Check><Check>Base legal e análise complementar</Check></div></article>
+          <div style={V.shot}><ExpandableImage src="/landing/consulta-ncm-anonimizada.png" alt="Detalhe da análise tributária de NCM para PIS, Cofins e IPI" style={{ borderRadius: 11 }} /></div>
+        </div>
+        <div style={{ ...V.quote, borderLeftColor: C.cyan, background: '#edf9fc', color: '#174b5b' }}>A consulta organiza a regra, mostra as ressalvas e indica o que precisa ser confirmado. A conclusão continua sendo técnica e profissional.</div>
+      </div></section>
+
+      <section style={V.section} id="auditoria"><div style={V.wrap}><div style={V.heading}><span style={V.eyebrow}>Núcleo disponível</span><h2 style={{ ...V.h2, marginTop: 14 }}>Auditor SPED: conflitos reunidos em um fluxo de revisão.</h2><p style={V.lead}>Cruze SPED Fiscal e SPED Contribuições, interprete registros relevantes e concentre pontos de atenção em uma mesma tela.</p></div><div className="lp-grid2" style={V.grid2}>
         <div style={V.card}><h3 style={V.cardTitle}>Cruzamentos e regras</h3><div style={V.bullets}><Check>Notas presentes em um SPED e ausentes no outro</Check><Check>CFOP de entrada e saída possivelmente invertido</Check><Check>Divergências de base, CST, ICMS, PIS e COFINS</Check><Check>Possível crédito indevido em uso e consumo</Check><Check>Validação analítica dos itens C170</Check></div></div>
         <div style={{ ...V.card, borderColor: 'rgba(66,226,141,.4)' }}><h3 style={V.cardTitle}>Apoio prático à revisão</h3><div style={V.bullets}><Check>Alertas classificados por nível de risco</Check><Check>Central de inconsistências com filtros</Check><Check>Exportações para documentar a análise</Check><Check>Mais contexto para decidir por onde começar</Check></div></div>
       </div></div></section>
@@ -100,14 +135,14 @@ export default function LandingPage() {
       <section style={V.section}><div style={V.wrap}><div className="lp-difference" style={{ display: 'grid', gridTemplateColumns: '.9fr 1.1fr', gap: 30, alignItems: 'center' }}><div><span style={V.eyebrow}>Uma camada adicional de inteligência</span><h2 style={{ ...V.h2, marginTop: 14 }}>Não queremos substituir seu sistema fiscal.</h2><p style={V.lead}>Seu ERP ou sistema contábil continua responsável pela escrituração e pelo fechamento. O Enfokus entra em outra etapa: conferência, cruzamento, revisão e análise.</p></div><div style={V.quote}>Seu sistema fiscal fecha.<br />O Enfokus confere, cruza e ajuda você a decidir.</div></div></div></section>
 
       <section id="telas" style={V.alt}><div style={V.wrap}><div style={V.heading}><h2 style={V.h2}>Telas reais da plataforma.</h2><p style={V.lead}>Veja como os módulos organizam diferentes etapas da rotina: da entrada dos arquivos à conferência, ao relatório e ao apoio à decisão. Todos os dados exibidos abaixo são demonstrativos.</p></div>
-        <div className="lp-feature" style={V.feature}><div><span style={V.eyebrow}>Validador NF-e / NFS-e</span><h3 style={{ fontSize: 25, fontWeight: 550, lineHeight: 1.3, margin: '12px 0' }}>Documentos, itens e classificações em uma visão operacional.</h3><p style={V.lead}>Importe NF-e e NFS-e, filtre por nota, fornecedor, CFOP, NCM e classificação, alterne entre entradas, saídas, serviços e resumo de CFOP e leve os dados para a apuração ou para o Excel.</p></div><div style={V.shot}><img src="/landing/validador-atual-anonimizado.png" alt="Validador NF-e e NFS-e atualizado do Enfokus com dados demonstrativos" style={{ width: '100%', display: 'block', borderRadius: 12 }} /></div></div>
-        <div className="lp-feature lp-reverse" style={V.feature}><div><span style={V.eyebrow}>Simples Nacional</span><h3 style={{ fontSize: 25, fontWeight: 550, lineHeight: 1.3, margin: '12px 0' }}>Confronto mensal entre PGDAS-D e receita fiscal.</h3><p style={V.lead}>Compare receita declarada, receita considerada pelos XMLs, quantidade de documentos, variações e diferenças de DAS por período, com status para priorizar o que precisa de revisão.</p></div><div style={V.shot}><img src="/landing/simples-atual-anonimizado.png" alt="Confronto atualizado do Simples Nacional com dados demonstrativos" style={{ width: '100%', display: 'block', borderRadius: 12 }} /></div></div>
-        <div className="lp-feature" style={{ ...V.feature, marginBottom: 38 }}><div><span style={V.eyebrow}>Relatórios fiscais</span><h3 style={{ fontSize: 25, fontWeight: 550, lineHeight: 1.3, margin: '12px 0' }}>Da visão consolidada ao detalhe do documento.</h3><p style={V.lead}>Consulte inconsistências, entradas e saídas, quantidade de documentos, produtos, participantes e CFOP. Combine filtros, pesquise participantes ou notas e exporte o resultado para Excel ou PDF.</p></div><div style={V.shot}><img src="/landing/relatorios-atual-anonimizado.png" alt="Relatórios fiscais atualizados do Enfokus com dados demonstrativos" style={{ width: '100%', display: 'block', borderRadius: 12 }} /></div></div>
+        <div className="lp-feature" style={V.feature}><div><span style={V.eyebrow}>Validador NF-e / NFS-e</span><h3 style={{ fontSize: 25, fontWeight: 550, lineHeight: 1.3, margin: '12px 0' }}>Documentos, itens e classificações em uma visão operacional.</h3><p style={V.lead}>Importe NF-e e NFS-e, filtre por nota, fornecedor, CFOP, NCM e classificação, alterne entre entradas, saídas, serviços e resumo de CFOP e leve os dados para a apuração ou para o Excel.</p></div><div style={V.shot}><ExpandableImage src="/landing/validador-atual-anonimizado.png" alt="Validador NF-e e NFS-e atualizado do Enfokus com dados demonstrativos" style={{ borderRadius: 12 }} /></div></div>
+        <div className="lp-feature lp-reverse" style={V.feature}><div><span style={V.eyebrow}>Simples Nacional</span><h3 style={{ fontSize: 25, fontWeight: 550, lineHeight: 1.3, margin: '12px 0' }}>Confronto mensal entre PGDAS-D e receita fiscal.</h3><p style={V.lead}>Compare receita declarada, receita considerada pelos XMLs, quantidade de documentos, variações e diferenças de DAS por período, com status para priorizar o que precisa de revisão.</p></div><div style={V.shot}><ExpandableImage src="/landing/simples-atual-anonimizado.png" alt="Confronto atualizado do Simples Nacional com dados demonstrativos" style={{ borderRadius: 12 }} /></div></div>
+        <div className="lp-feature" style={{ ...V.feature, marginBottom: 38 }}><div><span style={V.eyebrow}>Relatórios fiscais</span><h3 style={{ fontSize: 25, fontWeight: 550, lineHeight: 1.3, margin: '12px 0' }}>Da visão consolidada ao detalhe do documento.</h3><p style={V.lead}>Consulte inconsistências, entradas e saídas, quantidade de documentos, produtos, participantes e CFOP. Combine filtros, pesquise participantes ou notas e exporte o resultado para Excel ou PDF.</p></div><div style={V.shot}><ExpandableImage src="/landing/relatorios-atual-anonimizado.png" alt="Relatórios fiscais atualizados do Enfokus com dados demonstrativos" style={{ borderRadius: 12 }} /></div></div>
         <div className="lp-screens" style={V.grid3}>{[
           ['dashboard-atual-anonimizado.png','Dashboard fiscal','Indicadores de entradas, saídas, alertas e evolução mensal em uma visão gerencial.'],
           ['editor-atual-anonimizado.png','Editor SPED Fiscal','Fluxo guiado em sete etapas para validar, comparar, tratar conflitos e gerar o arquivo.'],
           ['planejamento-atual-anonimizado.png','Planejamento Tributário','Seleção de empresas, período e premissas para simulações comparativas.'],
-        ].map(([img,label,desc])=><figure style={{ ...V.shot, margin: 0, background: '#ffffff' }} key={img}><img src={`/landing/${img}`} alt={`${label} do Enfokus com dados demonstrativos`} style={{ width: '100%', display: 'block', borderRadius: 10 }} /><figcaption style={{ padding: '13px 10px 8px', color: C.text, fontSize: 14 }}><strong style={{ display: 'block', marginBottom: 4 }}>{label}</strong><span style={{ color: C.muted, fontSize: 13, lineHeight: 1.5 }}>{desc}</span></figcaption></figure>)}</div>
+        ].map(([img,label,desc])=><figure style={{ ...V.shot, margin: 0, background: '#ffffff' }} key={img}><ExpandableImage src={`/landing/${img}`} alt={`${label} do Enfokus com dados demonstrativos`} style={{ borderRadius: 10 }} /><figcaption style={{ padding: '13px 10px 8px', color: C.text, fontSize: 14 }}><strong style={{ display: 'block', marginBottom: 4 }}>{label}</strong><span style={{ color: C.muted, fontSize: 13, lineHeight: 1.5 }}>{desc}</span></figcaption></figure>)}</div>
       </div></section>
 
       <section id="roadmap" style={V.section}><div style={V.wrap}><div style={V.heading}><h2 style={V.h2}>Roadmap com status claro.</h2><p style={V.lead}>O acesso antecipado combina um núcleo utilizável com funcionalidades em diferentes estágios de evolução.</p></div><div className="lp-grid3" style={V.grid3}>{roadmap.map(([status,title,desc,kind])=>{const palette=kind==='ready'?['rgba(66,226,141,.12)',C.green]:kind==='validating'?['rgba(45,199,239,.11)','#74def7']:kind==='building'?['rgba(214,178,92,.11)',C.gold]:['rgba(148,163,184,.1)','#94a3b8'];return <article style={V.card} key={title}><span style={{ ...V.status, background: palette[0], color: palette[1], border: `1px solid ${palette[1]}55` }}>{status}</span><h3 style={V.cardTitle}>{title}</h3><p style={V.cardText}>{desc}</p></article>})}</div></div></section>
@@ -124,6 +159,6 @@ export default function LandingPage() {
       <section style={{ padding: '0 0 56px' }}><div style={V.wrap}><div className="lp-final" style={V.ctaBox}><div><span style={V.eyebrow}>7 dias gratuitos + acompanhamento</span><h2 style={{ ...V.h2, marginTop: 14 }}>Seu conhecimento vale mais do que horas de trabalho manual.</h2><p style={{ color: C.muted, margin: 0 }}>Teste o Enfokus Auditor em um caso real da sua rotina e veja quanto do processo de conferência pode ser simplificado.</p><p style={{ color: '#6b8095', fontSize: 13 }}>Após o teste, continue por R$ 79/mês durante o Programa de Acesso Antecipado.</p></div><a {...cta} style={V.primary}>Quero testar o Enfokus</a></div></div></section>
     </main>
     <footer><div style={V.wrap}><div style={V.footer}><span>© {new Date().getFullYear()} Enfokus Auditor</span><span><Link href="/privacidade" style={{ color: 'inherit' }}>Privacidade</Link> · <Link href="/termos" style={{ color: 'inherit' }}>Termos</Link></span></div></div></footer>
-    <style>{`html{scroll-behavior:smooth}.lp-page h1,.lp-page h2,.lp-page h3{font-family:"Segoe UI Variable Display","Segoe UI",Arial,sans-serif}.lp-page strong{font-weight:650}.lp-page button,.lp-page a{letter-spacing:0}.lp-navlinks a{color:inherit;text-decoration:none}.lp-navlinks a:hover{color:#087fa3}@media(max-width:900px){.lp-hero,.lp-origin,.lp-difference,.lp-feature{grid-template-columns:1fr!important}.lp-grid4,.lp-timeline{grid-template-columns:repeat(2,1fr)!important}.lp-program,.lp-final{grid-template-columns:1fr!important}.lp-program a,.lp-final a{width:fit-content}.lp-reverse>div:first-child{order:0}}@media(max-width:700px){.lp-navlinks{display:none!important}.lp-grid3,.lp-grid2,.lp-grid4,.lp-screens,.lp-timeline{grid-template-columns:1fr!important}.lp-hero{padding-top:28px!important}.lp-hero h1{font-size:36px!important;line-height:1.12!important}.lp-feature{margin-bottom:34px!important}.lp-program,.lp-final{padding:24px!important}.lp-program a,.lp-final a{width:100%}.lp-navlinks+div>a:last-child{display:none!important}}`}</style>
+    <style>{`html{scroll-behavior:smooth}.lp-page h1,.lp-page h2,.lp-page h3{font-family:"Segoe UI Variable Display","Segoe UI",Arial,sans-serif}.lp-page strong{font-weight:650}.lp-page button,.lp-page a{letter-spacing:0}.lp-navlinks a{color:inherit;text-decoration:none}.lp-navlinks a:hover{color:#087fa3}.lp-image-button{position:relative;display:block;width:100%;padding:0;border:0;background:transparent;cursor:zoom-in;overflow:hidden;border-radius:inherit}.lp-image-button:focus-visible{outline:3px solid #10a9d1;outline-offset:3px}.lp-image-hint{position:absolute;right:12px;bottom:12px;padding:7px 10px;border-radius:8px;background:rgba(6,25,43,.84);color:#fff;font-size:12px;font-weight:600;opacity:0;transform:translateY(4px);transition:.2s}.lp-image-button:hover .lp-image-hint,.lp-image-button:focus-visible .lp-image-hint{opacity:1;transform:none}.lp-lightbox{position:fixed;inset:0;z-index:10000;display:grid;place-items:center;padding:28px;background:rgba(3,13,24,.88);backdrop-filter:blur(8px);cursor:zoom-out}.lp-lightbox img{display:block;max-width:96vw;max-height:91vh;width:auto;height:auto;object-fit:contain;border-radius:12px;box-shadow:0 28px 90px rgba(0,0,0,.45);cursor:default}.lp-lightbox-close{position:fixed;top:18px;right:22px;width:44px;height:44px;border:1px solid rgba(255,255,255,.35);border-radius:50%;background:rgba(6,25,43,.85);color:#fff;font-size:30px;line-height:1;cursor:pointer;z-index:1}@media(max-width:900px){.lp-hero,.lp-origin,.lp-difference,.lp-feature{grid-template-columns:1fr!important}.lp-grid4,.lp-timeline{grid-template-columns:repeat(2,1fr)!important}.lp-program,.lp-final{grid-template-columns:1fr!important}.lp-program a,.lp-final a{width:fit-content}.lp-reverse>div:first-child{order:0}}@media(max-width:700px){.lp-navlinks{display:none!important}.lp-grid3,.lp-grid2,.lp-grid4,.lp-screens,.lp-timeline{grid-template-columns:1fr!important}.lp-hero{padding-top:28px!important}.lp-hero h1{font-size:36px!important;line-height:1.12!important}.lp-feature{margin-bottom:34px!important}.lp-program,.lp-final{padding:24px!important}.lp-program a,.lp-final a{width:100%}.lp-navlinks+div>a:last-child{display:none!important}.lp-image-hint{display:none}.lp-lightbox{padding:12px}.lp-lightbox img{max-width:98vw;max-height:88vh}}`}</style>
   </div>
 }
