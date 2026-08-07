@@ -217,7 +217,7 @@ export const FONTES_CNAE = {
   },
 } satisfies Record<string, FonteLegalCnae>
 
-const VERSAO_REGRA = 'SN-CNAE-2026.07.5'
+const VERSAO_REGRA = 'SN-CNAE-2026.08.1'
 
 const CNAES_ANEXO_IV_EXATOS = new Set([
   '6911701', // serviços advocatícios
@@ -228,6 +228,7 @@ const CNAES_ANEXO_IV_EXATOS = new Set([
 ])
 
 const CNAES_ANEXO_III_EXATOS = new Set([
+  '6821802', // corretagem no aluguel de imóveis
   '7911200', // agências de viagens
 ])
 
@@ -337,6 +338,20 @@ export function analisarCnae(cnae: CnaeIbge): EnquadramentoCnae {
   const secao = cnae.hierarquia.secao.id.toUpperCase()
   const divisao = cnae.hierarquia.divisao.id
   const texto = descricaoNormalizada(cnae)
+
+  if (codigo === '6821801') {
+    return baseEnquadramento(
+      'servico', 'anexo_iii', 'III', 'Regra principal: corretagem de imóveis no Anexo III',
+      'A receita de intermediação na compra e venda de imóveis de terceiros é tributada pelo Anexo III. O mesmo CNAE também abrange avaliação de imóveis, cuja receita deve ser segregada e submetida ao Fator R.',
+      'alta', false,
+      [
+        'Corretagem na compra e venda de imóveis de terceiros: Anexo III.',
+        'Avaliação de imóveis: Anexo III quando o Fator R for igual ou superior a 28%, ou Anexo V quando for inferior.',
+        'Segregar as receitas quando a empresa prestar as duas atividades.',
+      ],
+      ['A denominação deste CNAE reúne atividades com tratamentos distintos; confirme o serviço descrito na NFS-e.'],
+    )
+  }
 
   if (codigo === '7410202') {
     const entendimento: EntendimentoAdministrativoCnae = {

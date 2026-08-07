@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getPlanoReformaTributaria } from '@/lib/planos/reformaTributariaPlanos'
 import { registrarEventoRt } from '@/lib/planos/auditoria'
+import { getOrgId } from '@/lib/supabase/org'
 import { NextResponse } from 'next/server'
 
 export async function GET() {
@@ -9,11 +10,14 @@ export async function GET() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
 
+  const orgId = await getOrgId(supabase, user.id)
+  if (!orgId) return NextResponse.json(null)
+
   const { data, error } = await supabase
     .from('membros_organizacao')
     .select('papel, organizacao:organizacoes(id, nome, plano, produto_escopo, created_at, updated_at)')
     .eq('user_id', user.id)
-    .limit(1)
+    .eq('org_id', orgId)
     .single()
 
   if (error || !data) return NextResponse.json(null)
@@ -38,14 +42,12 @@ export async function POST(request: Request) {
   }
 
   // Impede criar segundo org
-  const { data: existing } = await supabase
+  const { count: existingCount } = await supabase
     .from('membros_organizacao')
-    .select('org_id')
+    .select('id', { count: 'exact', head: true })
     .eq('user_id', user.id)
-    .limit(1)
-    .single()
 
-  if (existing) {
+  if ((existingCount ?? 0) > 0) {
     return NextResponse.json({ error: 'Usuário já pertence a uma organização' }, { status: 409 })
   }
 

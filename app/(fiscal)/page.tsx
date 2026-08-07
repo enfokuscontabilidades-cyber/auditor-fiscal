@@ -106,6 +106,7 @@ export default function DashboardPage() {
   const [alertas, setAlertas]                   = useState<{ nivel_risco: string }[]>([])
   const [sessoes, setSessoes]                   = useState<SessaoRecente[]>([])
   const [loading, setLoading]                   = useState(false)
+  const [erroCarregamento, setErroCarregamento] = useState('')
 
   // ── Consulta CNPJ ────────────────────────────────────────────────────────────
   const [cnpjInput,   setCnpjInput]   = useState('')
@@ -124,8 +125,19 @@ export default function DashboardPage() {
 
   const carregarDados = useCallback(async (empresaId: string) => {
     setLoading(true)
+    setErroCarregamento('')
     try {
-      const mensalRes = await fetch(`/api/relatorios/documentos?empresa_id=${empresaId}&meses=6`).then(r => r.json())
+      const fetchJson = async (url: string): Promise<unknown> => {
+        const response = await fetch(url)
+        const body = await response.json().catch(() => null) as { error?: string } | unknown[] | null
+        if (!response.ok) {
+          const message = body && !Array.isArray(body) && 'error' in body ? body.error : undefined
+          throw new Error(message ?? `Falha ao carregar dados (HTTP ${response.status})`)
+        }
+        return body
+      }
+
+      const mensalRes = await fetchJson(`/api/relatorios/documentos?empresa_id=${empresaId}&meses=6`)
       const dadosMensaisCarregados = Array.isArray(mensalRes) ? mensalRes as DadoMensal[] : []
       const competencias = dadosMensaisCarregados
         .map(item => item.competencia)
@@ -138,9 +150,9 @@ export default function DashboardPage() {
       }
 
       const [produtosRes, fornecedoresRes, cfopsRes, alertasRes, sessoesRes] = await Promise.all([
-        competencias.length > 0 ? fetch(`/api/relatorios/produtos?${periodo.toString()}&limit=8`).then(r => r.json()) : Promise.resolve([]),
-        competencias.length > 0 ? fetch(`/api/relatorios/participantes?${periodo.toString()}&tipo=entrada&limit=6`).then(r => r.json()) : Promise.resolve([]),
-        competencias.length > 0 ? fetch(`/api/relatorios/cfop?${periodo.toString()}`).then(r => r.json()) : Promise.resolve([]),
+        competencias.length > 0 ? fetchJson(`/api/relatorios/produtos?${periodo.toString()}&limit=8`) : Promise.resolve([]),
+        competencias.length > 0 ? fetchJson(`/api/relatorios/participantes?${periodo.toString()}&tipo=entrada&limit=6`) : Promise.resolve([]),
+        competencias.length > 0 ? fetchJson(`/api/relatorios/cfop?${periodo.toString()}`) : Promise.resolve([]),
         supabase.from('fa_alertas').select('nivel_risco').eq('empresa_id', empresaId).eq('status', 'aberto'),
         supabase
           .from('fa_sessoes_analise')
@@ -154,8 +166,14 @@ export default function DashboardPage() {
       setTopProdutos(Array.isArray(produtosRes) ? produtosRes : [])
       setTopFornecedores(Array.isArray(fornecedoresRes) ? fornecedoresRes : [])
       setTopCfops(Array.isArray(cfopsRes) ? [...cfopsRes].sort((a, b) => Number(b.valor_total ?? 0) - Number(a.valor_total ?? 0)).slice(0, 8) : [])
+      if (alertasRes.error) throw alertasRes.error
+      if (sessoesRes.error) throw sessoesRes.error
       setAlertas(alertasRes.data ?? [])
       setSessoes((sessoesRes.data ?? []) as SessaoRecente[])
+    } catch (error) {
+      setDadosMensais([]); setTopProdutos([]); setTopFornecedores([])
+      setTopCfops([]); setAlertas([]); setSessoes([])
+      setErroCarregamento(error instanceof Error ? error.message : 'Não foi possível carregar o dashboard')
     } finally {
       setLoading(false)
     }
@@ -420,6 +438,13 @@ export default function DashboardPage() {
       <GlassCard title="Entradas × Saídas — últimos 6 meses" style={{ marginBottom: 20 }}>
         {loading ? (
           <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--af-muted)', fontSize: 13 }}>Carregando...</div>
+        ) : erroCarregamento ? (
+          <EmptyState
+            icon={<AlertTriangle size={24} />}
+            title="Falha ao carregar os dados"
+            description={erroCarregamento}
+            style={{ padding: '32px 24px' }}
+          />
         ) : dadosMensais.length === 0 ? (
           <EmptyState
             icon={<BarChart3 size={24} />}

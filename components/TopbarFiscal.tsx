@@ -34,7 +34,7 @@ const iconBtn: React.CSSProperties = {
 export default function TopbarFiscal() {
   const router = useRouter()
   const supabase = createClient()
-  const { empresaAtiva, definirEmpresaAtiva } = useEmpresaAtiva()
+  const { empresaAtiva, definirEmpresaAtiva, limparEmpresaAtiva } = useEmpresaAtiva()
   const { tema, alternarTema } = useTheme()
   const {
     notifications,
@@ -47,6 +47,7 @@ export default function TopbarFiscal() {
   } = useNotifications()
 
   const [empresas, setEmpresas] = useState<EmpresaItem[]>([])
+  const [empresasCarregadas, setEmpresasCarregadas] = useState(false)
   const [menuAberto, setMenuAberto] = useState(false)
   const [userMenuAberto, setUserMenuAberto] = useState(false)
   const [notifAberto, setNotifAberto] = useState(false)
@@ -61,8 +62,17 @@ export default function TopbarFiscal() {
 
   useEffect(() => {
     fetch('/api/empresas')
-      .then(r => r.json())
-      .then((d: unknown) => { if (Array.isArray(d)) setEmpresas(d as EmpresaItem[]) })
+      .then(async r => {
+        const body: unknown = await r.json()
+        if (!r.ok) throw new Error('Falha ao carregar empresas')
+        return body
+      })
+      .then((d: unknown) => {
+        if (!Array.isArray(d)) return
+        const lista = d as EmpresaItem[]
+        setEmpresas(lista)
+        setEmpresasCarregadas(true)
+      })
       .catch(() => {})
 
     supabase.auth.getUser().then(({ data: { user } }) => {
@@ -75,6 +85,12 @@ export default function TopbarFiscal() {
       setUserInitials(initials)
     })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (empresasCarregadas && empresaAtiva && !empresas.some(emp => emp.id === empresaAtiva.id)) {
+      limparEmpresaAtiva()
+    }
+  }, [empresaAtiva, empresas, empresasCarregadas, limparEmpresaAtiva])
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {

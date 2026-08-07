@@ -11,9 +11,13 @@ export async function GET() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
 
+  const orgId = await getOrgId(supabase, user.id)
+  if (!orgId) return NextResponse.json({ error: 'Usuario sem organizacao' }, { status: 403 })
+
   const { data, error } = await supabase
     .from('empresas')
     .select('id, razao_social, nome_fantasia, cnpj, regime, cnae_principal, inscricao_estadual')
+    .eq('org_id', orgId)
     .eq('status', 'Ativo')
     .order('razao_social')
 

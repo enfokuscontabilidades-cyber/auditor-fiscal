@@ -897,9 +897,10 @@ type ProgressoApuracaoLote = {
   erros: string[]
 }
 
-function AbaConfronto({ items, carregando, onExportarExcel, onApurarPeriodo, progressoApuracao }: {
+function AbaConfronto({ items, carregando, erro, onExportarExcel, onApurarPeriodo, progressoApuracao }: {
   items: ItemConfronto[]
   carregando: boolean
+  erro: string
   onExportarExcel: () => void
   onApurarPeriodo: () => void
   progressoApuracao: ProgressoApuracaoLote
@@ -937,6 +938,16 @@ function AbaConfronto({ items, carregando, onExportarExcel, onApurarPeriodo, pro
     return (
       <div style={{ ...S.card, padding: '48px 24px', textAlign: 'center', color: 'var(--af-muted)', fontSize: 13 }}>
         Carregando NF-e…
+      </div>
+    )
+  }
+
+  if (erro) {
+    return (
+      <div style={{ ...S.card, padding: '48px 24px', textAlign: 'center' }}>
+        <AlertTriangle size={32} style={{ color: 'var(--af-danger)', marginBottom: 12 }} />
+        <p style={{ color: 'var(--af-text)', fontSize: 14, fontWeight: 700, margin: '0 0 8px' }}>Falha ao carregar os dados fiscais</p>
+        <p style={{ color: 'var(--af-danger)', fontSize: 12, margin: 0 }}>{erro}</p>
       </div>
     )
   }
@@ -1978,6 +1989,7 @@ export default function SimplesNacionalPage() {
   const [itensConfronto, setItensConfronto] = useState<DocumentoFiscalItem[]>([])
   const [apuracoesConfronto, setApuracoesConfronto] = useState<SnApuracao[]>([])
   const [carregandoNfe, setCarregandoNfe] = useState(false)
+  const [erroDocsConfronto, setErroDocsConfronto] = useState('')
   const [progressoApuracaoLote, setProgressoApuracaoLote] = useState<ProgressoApuracaoLote>({
     processando: false, total: 0, concluidas: 0, erros: [],
   })
@@ -2051,6 +2063,7 @@ export default function SimplesNacionalPage() {
 
   const carregarDocsConfronto = useCallback(async (empresaId: string, cnpjEmpresa?: string, ehIndustrial = false) => {
     setCarregandoNfe(true)
+    setErroDocsConfronto('')
     try {
       // Tenta fa_documentos_fiscais primeiro
       const res = await fetch(`/api/documentos-fiscais?empresa_id=${encodeURIComponent(empresaId)}&incluir_itens=true`)
@@ -2061,10 +2074,16 @@ export default function SimplesNacionalPage() {
           setItensConfronto(rows.flatMap(row => row.fa_documentos_itens ?? []))
           return
         }
+      } else {
+        const body = await res.json().catch(() => ({})) as { error?: string }
+        throw new Error(body.error ?? `Falha ao carregar documentos (HTTP ${res.status})`)
       }
       // Fallback: fa_arquivos_xml (legacy — sempre disponível)
       const resXml = await fetch(`/api/arquivos-xml?empresa_id=${encodeURIComponent(empresaId)}&incluir_dados=true`)
-      if (!resXml.ok) { setDocsConfronto([]); setItensConfronto([]); return }
+      if (!resXml.ok) {
+        const body = await resXml.json().catch(() => ({})) as { error?: string }
+        throw new Error(body.error ?? `Falha ao carregar XMLs (HTTP ${resXml.status})`)
+      }
       const xmlRows: ArquivoXml[] = await resXml.json()
       const seenConfronto = new Set<string>()
       const docsConvertidos: DocumentoFiscal[] = (Array.isArray(xmlRows) ? xmlRows : [])
@@ -2119,9 +2138,10 @@ export default function SimplesNacionalPage() {
       setItensConfronto(docsConvertidos.flatMap(doc =>
         itensPorParsedXml(doc, (cnpjEmpresa ?? '').replace(/\D/g, ''), ehIndustrial)
       ))
-    } catch {
+    } catch (error) {
       setDocsConfronto([])
       setItensConfronto([])
+      setErroDocsConfronto(error instanceof Error ? error.message : 'Não foi possível carregar os documentos fiscais')
     } finally {
       setCarregandoNfe(false)
     }
@@ -3476,6 +3496,7 @@ export default function SimplesNacionalPage() {
           <AbaConfronto
             items={confrontoData}
             carregando={carregandoNfe}
+            erro={erroDocsConfronto}
             onExportarExcel={handleExportarConfrontoExcel}
             onApurarPeriodo={handleApurarPeriodoCompleto}
             progressoApuracao={progressoApuracaoLote}

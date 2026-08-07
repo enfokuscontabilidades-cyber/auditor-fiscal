@@ -80,6 +80,48 @@ describe('consulta tributária por CNAE', () => {
     expect(resultado.excecoes[0]).toMatchObject({ tratamento: 'anexo_i', anexo: 'I' })
   })
 
+  test('classifica a corretagem no aluguel de imoveis diretamente no Anexo III', () => {
+    const resultado = analisarCnae(cnae({
+      id: '6821802', descricao: 'CORRETAGEM NO ALUGUEL DE IMOVEIS', secao: 'L', divisao: '68', grupo: '682',
+    }))
+
+    expect(resultado).toMatchObject({
+      natureza: 'servico',
+      tratamento: 'anexo_iii',
+      anexo_indicativo: 'III',
+      confianca: 'alta',
+      conclusivo: true,
+    })
+  })
+
+  test('separa corretagem na compra e venda de avaliacao de imoveis no CNAE misto', () => {
+    const resultado = analisarCnae(cnae({
+      id: '6821801', descricao: 'CORRETAGEM NA COMPRA E VENDA E AVALIACAO DE IMOVEIS', secao: 'L', divisao: '68', grupo: '682',
+    }))
+
+    expect(resultado).toMatchObject({
+      tratamento: 'anexo_iii',
+      anexo_indicativo: 'III',
+      confianca: 'alta',
+      conclusivo: false,
+    })
+    expect(resultado.condicoes.join(' ')).toContain('Fator R')
+    expect(resultado.condicoes.join(' ')).toContain('Segregar')
+  })
+
+  test('mantem gestao e administracao de imoveis de terceiros sujeita ao Fator R', () => {
+    const resultado = analisarCnae(cnae({
+      id: '6822600', descricao: 'GESTAO E ADMINISTRACAO DA PROPRIEDADE IMOBILIARIA', secao: 'L', divisao: '68', grupo: '682',
+    }))
+
+    expect(resultado).toMatchObject({
+      tratamento: 'fator_r',
+      anexo_indicativo: null,
+      confianca: 'alta',
+      conclusivo: true,
+    })
+  })
+
   test('distingue comercio, reparacao e representacao no setor automotivo', () => {
     const comercio = analisarCnae(cnae({
       id: '4530703', descricao: 'COMERCIO A VAREJO DE PECAS E ACESSORIOS NOVOS PARA VEICULOS AUTOMOTORES', secao: 'G', divisao: '45', grupo: '453',
