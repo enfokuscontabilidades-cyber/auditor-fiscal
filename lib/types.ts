@@ -9,6 +9,10 @@ export type PerfilProfissionalAcesso =
   | 'outro'
 
 export type FinalidadeAcessoAntecipado =
+  | 'conferencia_fechamento_fiscal'
+  | 'consultoria_tributaria'
+  | 'recuperacao_tributaria'
+  | 'gestao_revisao_equipe'
   | 'controle_entregas_escritorio'
   | 'analises_fiscais_tributarias'
   | 'auditorias_independentes'
@@ -29,6 +33,8 @@ export interface LeadAcessoAntecipado {
   finalidades: FinalidadeAcessoAntecipado[]
   faixa_empresas: string | null
   principal_desafio: string | null
+  caso_real_teste: string | null
+  tamanho_equipe: string | null
   origem: string
   campanha: string | null
   codigo_solicitacao: string | null

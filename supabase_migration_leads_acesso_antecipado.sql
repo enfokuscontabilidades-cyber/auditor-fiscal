@@ -14,6 +14,8 @@ create table if not exists public.leads_acesso_antecipado (
   finalidades text[] not null default '{}',
   faixa_empresas text,
   principal_desafio text,
+  caso_real_teste text,
+  tamanho_equipe text,
   origem text not null default 'landing-acesso-antecipado',
   campanha text,
   codigo_solicitacao text,
@@ -32,6 +34,10 @@ create table if not exists public.leads_acesso_antecipado (
   created_at timestamptz not null default now(),
   atualizado_em timestamptz not null default now()
 );
+
+alter table public.leads_acesso_antecipado
+  add column if not exists caso_real_teste text,
+  add column if not exists tamanho_equipe text;
 
 do $$
 begin

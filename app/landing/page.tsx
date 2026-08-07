@@ -3,878 +3,127 @@
 import Link from 'next/link'
 import FormularioAcessoAntecipado from './_components/FormularioAcessoAntecipado'
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ─────────────────────────────────────────────────────────────────────────────
-// ─────────────────────────────────────────────────────────────────────────────
-
+const C = { bg: '#f6f9fc', panel: '#ffffff', border: '#d6e1ec', cyan: '#10a9d1', text: '#10263d', muted: '#526a82', gold: '#a97816', green: '#168a55' }
 const V: Record<string, React.CSSProperties> = {
-  // base
-  root: { margin: 0, padding: 0, boxSizing: 'border-box' },
-  page: {
-    minHeight: '100vh',
-    background: 'radial-gradient(1000px 600px at 80% -10%, #17395b 0%, transparent 60%), #061323',
-    color: '#f7fbff',
-    fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-    lineHeight: '1.5',
-  },
-  wrap: { width: 'min(1180px, calc(100% - 40px))', margin: '0 auto' },
-
-  // header
-  nav: {
-    height: 72,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderBottom: '1px solid rgba(169,189,213,0.14)',
-  },
-  navLinks: {
-    display: 'flex',
-    gap: 22,
-    alignItems: 'center',
-    color: '#a9bdd5',
-    fontSize: 14,
-  },
-
-  // buttons
-  btnPrimary: {
-    border: '1px solid transparent',
-    borderRadius: 10,
-    padding: '13px 18px',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    fontWeight: 800,
-    fontSize: 14,
-    cursor: 'pointer',
-    background: '#2dc7ef',
-    color: '#02111f',
-    textDecoration: 'none',
-    transition: '0.2s',
-  },
-  btnSecondary: {
-    border: '1px solid #315779',
-    borderRadius: 10,
-    padding: '13px 18px',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    fontWeight: 800,
-    fontSize: 14,
-    cursor: 'pointer',
-    background: '#10233d',
-    color: '#f7fbff',
-    textDecoration: 'none',
-    transition: '0.2s',
-  },
-
-  // hero
-  hero: {
-    padding: '28px 0 20px',
-    display: 'grid',
-    gridTemplateColumns: '1.03fr 0.97fr',
-    gap: 28,
-    alignItems: 'center',
-  },
-  eyebrow: {
-    display: 'inline-flex',
-    color: '#8ee8ff',
-    border: '1px solid rgba(45,199,239,0.38)',
-    background: 'rgba(45,199,239,0.08)',
-    padding: '7px 10px',
-    borderRadius: 99,
-    fontSize: 12,
-    fontWeight: 800,
-    letterSpacing: '0.04em',
-    textTransform: 'uppercase' as const,
-    marginBottom: 12,
-  },
-  h1: {
-    fontSize: 'clamp(36px, 4.7vw, 60px)',
-    lineHeight: 1.03,
-    margin: '12px 0 13px',
-    letterSpacing: '-0.045em',
-  },
-  heroText: { fontSize: 17, color: '#a9bdd5', maxWidth: 600, margin: '0 0 18px' },
-  actions: { display: 'flex', gap: 12, flexWrap: 'wrap' as const },
-  proof: { fontSize: 13, color: '#90a9c5', marginTop: 12 },
-  screen: {
-    borderRadius: 20,
-    border: '1px solid #2b4a6a',
-    background: '#10223a',
-    padding: 0,
-    boxShadow: '0 28px 80px rgba(0,0,0,0.32)',
-    overflow: 'hidden',
-  },
-
-  // metrics
-  numbers: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(3, 1fr)',
-    gap: 14,
-    padding: '14px 0 52px',
-  },
-  metric: {
-    border: '1px solid #294463',
-    background: 'linear-gradient(145deg, rgba(20,42,70,0.9), rgba(10,25,44,0.9))',
-    borderRadius: 16,
-    padding: 19,
-  },
-
-  // sections
-  section: { padding: '74px 0' },
-  sectionAlt: {
-    padding: '74px 0',
-    background: 'linear-gradient(180deg, rgba(18,39,65,0.62), rgba(6,19,35,0.3))',
-    borderTop: '1px solid rgba(169,189,213,0.12)',
-    borderBottom: '1px solid rgba(169,189,213,0.12)',
-  },
-  heading: { maxWidth: 760, marginBottom: 32 },
-  h2: { fontSize: 36, lineHeight: 1.12, margin: '0 0 12px', letterSpacing: '-0.03em' },
-  lead: { color: '#a9bdd5', margin: 0, fontSize: 17 },
-
-  // cards
-  grid3: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 18 },
-  card: {
-    background: 'rgba(15,32,54,0.92)',
-    border: '1px solid #294463',
-    borderRadius: 16,
-    padding: 24,
-  },
-  iconBox: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    background: 'rgba(45,199,239,0.12)',
-    border: '1px solid rgba(45,199,239,0.35)',
-    color: '#2dc7ef',
-    display: 'grid',
-    placeItems: 'center' as const,
-    fontWeight: 900,
-    marginBottom: 17,
-    fontSize: 14,
-  },
-  cardTitle: { margin: '0 0 8px', fontSize: 18 },
-  cardDesc: { margin: 0, color: '#a9bdd5', fontSize: 15 },
-
-  // feature blocks
-  feature: {
-    display: 'grid',
-    gridTemplateColumns: '0.92fr 1.08fr',
-    gap: 36,
-    alignItems: 'center',
-    marginBottom: 66,
-  },
-  featureEven: {
-    display: 'grid',
-    gridTemplateColumns: '1.08fr 0.92fr',
-    gap: 36,
-    alignItems: 'center',
-    marginBottom: 66,
-  },
-  featureH3: { fontSize: 28, lineHeight: 1.15, margin: '10px 0 12px', letterSpacing: '-0.025em' },
-  featureP: { color: '#a9bdd5', fontSize: 16 },
-  bullets: { display: 'grid', gap: 10, marginTop: 20 },
-  shot: {
-    borderRadius: 17,
-    padding: 6,
-    background: '#11243e',
-    border: '1px solid #294463',
-    overflow: 'hidden',
-  },
-
-  // audit panel
-  auditPanel: { display: 'grid', gridTemplateColumns: '1.05fr 0.95fr', gap: 20 },
-  auditCopy: {
-    border: '1px solid #294463',
-    borderRadius: 18,
-    padding: 28,
-    background: 'linear-gradient(145deg, rgba(18,43,70,0.9), rgba(10,25,44,0.9))',
-  },
-  auditH3: { fontSize: 28, lineHeight: 1.14, margin: '10px 0 12px', letterSpacing: '-0.025em' },
-  ruleList: { display: 'grid', gap: 10, marginTop: 20 },
-  rule: {
-    padding: '12px 14px',
-    border: '1px solid rgba(41,68,99,0.9)',
-    background: 'rgba(6,19,35,0.45)',
-    borderRadius: 12,
-    fontSize: 14,
-    color: '#dce8f4',
-  },
-  callout: {
-    border: '1px solid rgba(66,226,141,0.42)',
-    borderRadius: 18,
-    background: 'rgba(66,226,141,0.06)',
-    padding: 26,
-  },
-  calloutH3: { margin: '0 0 10px', fontSize: 22 },
-  calloutP: { margin: 0, color: '#a9bdd5' },
-
-  // capabilities list
-  capGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 24 },
-  capCard: {
-    background: 'rgba(15,32,54,0.92)',
-    border: '1px solid #294463',
-    borderRadius: 16,
-    padding: '22px 24px',
-  },
-  capTitle: { fontSize: 16, fontWeight: 800, color: '#8ee8ff', marginBottom: 12, marginTop: 0 },
-  capItem: { fontSize: 14, color: '#d9e6f4', marginBottom: 7, paddingLeft: 20, position: 'relative' as const },
-
-  // screenshots
-  screenshotsGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginTop: 32 },
-  screenshotCard: {
-    borderRadius: 14,
-    overflow: 'hidden',
-    border: '1px solid #294463',
-    background: '#0d1e34',
-  },
-  screenshotLabel: { padding: '10px 14px', fontSize: 13, color: '#a9bdd5', background: '#0d1e34' },
-
-  // roadmap
-  roadmapGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 },
-  road: {
-    borderRadius: 16,
-    padding: 24,
-    border: '1px solid #294463',
-    background: '#0d1e34',
-  },
-  statusReady: {
-    display: 'inline-flex',
-    borderRadius: 99,
-    padding: '5px 9px',
-    fontSize: 11,
-    fontWeight: 800,
-    letterSpacing: '0.04em',
-    textTransform: 'uppercase' as const,
-    marginBottom: 14,
-    background: 'rgba(66,226,141,0.12)',
-    color: '#66eda3',
-    border: '1px solid rgba(66,226,141,0.35)',
-  },
-  statusValidating: {
-    display: 'inline-flex',
-    borderRadius: 99,
-    padding: '5px 9px',
-    fontSize: 11,
-    fontWeight: 800,
-    letterSpacing: '0.04em',
-    textTransform: 'uppercase' as const,
-    marginBottom: 14,
-    background: 'rgba(45,199,239,0.11)',
-    color: '#74def7',
-    border: '1px solid rgba(45,199,239,0.35)',
-  },
-  statusBuilding: {
-    display: 'inline-flex',
-    borderRadius: 99,
-    padding: '5px 9px',
-    fontSize: 11,
-    fontWeight: 800,
-    letterSpacing: '0.04em',
-    textTransform: 'uppercase' as const,
-    marginBottom: 14,
-    background: 'rgba(214,178,92,0.11)',
-    color: '#e4c877',
-    border: '1px solid rgba(214,178,92,0.35)',
-  },
-  statusPlanned: {
-    display: 'inline-flex',
-    borderRadius: 99,
-    padding: '5px 9px',
-    fontSize: 11,
-    fontWeight: 800,
-    letterSpacing: '0.04em',
-    textTransform: 'uppercase' as const,
-    marginBottom: 14,
-    background: 'rgba(148,163,184,0.1)',
-    color: '#94a3b8',
-    border: '1px solid rgba(148,163,184,0.3)',
-  },
-  roadH3: { margin: '0 0 8px', fontSize: 18 },
-  roadP: { color: '#a9bdd5', margin: 0, fontSize: 15 },
-
-  // CTA beta
-  betaSection: { padding: '74px 0' },
-  betaBox: {
-    border: '1px solid rgba(45,199,239,0.5)',
-    borderRadius: 24,
-    background: 'linear-gradient(130deg, #123558, #0d1f36 60%, #102843)',
-    padding: 42,
-    display: 'grid',
-    gridTemplateColumns: '1fr auto',
-    alignItems: 'center',
-    gap: 32,
-    boxShadow: '0 22px 70px rgba(0,0,0,0.25)',
-  },
-  betaH2: { fontSize: 34, lineHeight: 1.12, margin: '10px 0' },
-  betaP: { color: '#c7d9eb', maxWidth: 700, margin: 0, fontSize: 16 },
-
-  // founder
-  founderSection: { padding: '0 0 74px' },
-  founderBox: {
-    border: '1px solid rgba(214,178,92,0.35)',
-    borderRadius: 24,
-    background: 'linear-gradient(130deg, rgba(25,20,8,0.9), rgba(13,19,35,0.9))',
-    padding: 42,
-  },
-  founderEyebrow: {
-    display: 'inline-flex',
-    color: '#e4c877',
-    border: '1px solid rgba(214,178,92,0.38)',
-    background: 'rgba(214,178,92,0.08)',
-    padding: '7px 10px',
-    borderRadius: 99,
-    fontSize: 12,
-    fontWeight: 800,
-    letterSpacing: '0.04em',
-    textTransform: 'uppercase' as const,
-    marginBottom: 12,
-  },
-  founderH2: { fontSize: 28, lineHeight: 1.14, margin: '10px 0 12px', letterSpacing: '-0.025em' },
-  founderP: { color: '#c7d9eb', margin: 0, fontSize: 16, maxWidth: 720 },
-
-  // footer
-  footer: {
-    padding: '30px 0',
-    borderTop: '1px solid rgba(169,189,213,0.14)',
-    color: '#849bb7',
-    fontSize: 13,
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: 18,
-    flexWrap: 'wrap' as const,
-  },
-
+  page: { minHeight: '100vh', background: 'radial-gradient(900px 520px at 82% -8%, rgba(45,199,239,.16) 0%, transparent 62%), #f6f9fc', color: C.text, fontFamily: '"Segoe UI Variable Text", "Segoe UI", Arial, sans-serif', fontSize: 16, lineHeight: 1.6 },
+  wrap: { width: 'min(1180px, calc(100% - 40px))', margin: '0 auto' }, nav: { height: 72, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #dce6ef' }, navLinks: { display: 'flex', gap: 22, alignItems: 'center', color: C.muted, fontSize: 14 },
+  primary: { border: 0, borderRadius: 10, padding: '12px 18px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 650, fontSize: 14, cursor: 'pointer', background: C.cyan, color: '#052235', textDecoration: 'none', boxShadow: '0 8px 20px rgba(16,169,209,.18)' },
+  secondary: { border: '1px solid #b9cbdc', borderRadius: 10, padding: '12px 18px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 650, fontSize: 14, background: '#ffffff', color: C.text, textDecoration: 'none' },
+  hero: { padding: '42px 0 42px', display: 'grid', gridTemplateColumns: '1.04fr .96fr', gap: 40, alignItems: 'center' }, eyebrow: { display: 'inline-flex', color: '#087fa3', border: '1px solid rgba(16,169,209,.34)', background: 'rgba(16,169,209,.08)', padding: '6px 10px', borderRadius: 99, fontSize: 11, fontWeight: 700, letterSpacing: '.055em', textTransform: 'uppercase' }, h1: { fontFamily: '"Segoe UI Variable Display", "Segoe UI", Arial, sans-serif', fontWeight: 500, fontSize: 'clamp(38px,4.35vw,56px)', lineHeight: 1.08, margin: '16px 0', letterSpacing: '-.035em' }, heroText: { fontSize: 16, lineHeight: 1.65, color: C.muted, maxWidth: 650, margin: '0 0 16px' }, offer: { color: '#334d66', fontSize: 14, lineHeight: 1.55, margin: '0 0 20px' }, actions: { display: 'flex', gap: 12, flexWrap: 'wrap' }, proof: { fontSize: 13, color: '#6b8095', marginTop: 12 }, screen: { borderRadius: 20, border: '1px solid #b9cad9', background: '#10223a', boxShadow: '0 24px 60px rgba(25,59,91,.18)', overflow: 'hidden' },
+  section: { padding: '56px 0' }, alt: { padding: '56px 0', background: 'linear-gradient(180deg,#edf5fa,#f7fafc)', borderTop: '1px solid #dce7ef', borderBottom: '1px solid #dce7ef' }, heading: { maxWidth: 800, marginBottom: 26 }, h2: { fontFamily: '"Segoe UI Variable Display", "Segoe UI", Arial, sans-serif', fontWeight: 500, fontSize: 'clamp(28px,2.7vw,36px)', lineHeight: 1.18, margin: '0 0 12px', letterSpacing: '-.025em' }, lead: { color: C.muted, margin: 0, fontSize: 16, lineHeight: 1.65 }, grid3: { display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 18 }, grid4: { display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16 }, grid2: { display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 18 }, card: { background: '#ffffff', border: `1px solid ${C.border}`, borderRadius: 16, padding: 22, boxShadow: '0 10px 28px rgba(25,59,91,.06)' }, icon: { width: 40, height: 40, borderRadius: 11, background: 'rgba(16,169,209,.10)', border: '1px solid rgba(16,169,209,.28)', color: C.cyan, display: 'grid', placeItems: 'center', fontWeight: 700, marginBottom: 15 }, cardTitle: { margin: '0 0 8px', fontSize: 17, fontWeight: 650, lineHeight: 1.35 }, cardText: { margin: 0, color: C.muted, fontSize: 14.5, lineHeight: 1.6 },
+  quote: { marginTop: 22, padding: '18px 22px', borderLeft: `3px solid ${C.gold}`, background: '#fff9e9', borderRadius: '0 14px 14px 0', color: '#76520d', fontSize: 17, lineHeight: 1.5, fontWeight: 600 },
+  feature: { display: 'grid', gridTemplateColumns: '.95fr 1.05fr', gap: 36, alignItems: 'center', marginBottom: 62 }, shot: { borderRadius: 17, padding: 6, background: '#10263d', border: '1px solid #b9cad9', boxShadow: '0 16px 40px rgba(25,59,91,.13)', overflow: 'hidden' }, bullets: { display: 'grid', gap: 9, marginTop: 18, color: '#334d66', fontSize: 15 },
+  status: { display: 'inline-flex', borderRadius: 99, padding: '5px 9px', fontSize: 11, fontWeight: 700, letterSpacing: '.045em', textTransform: 'uppercase', marginBottom: 14 },
+  timeline: { display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, margin: '24px 0' }, timelineCard: { padding: 18, background: '#ffffff', border: `1px solid ${C.border}`, borderRadius: 14, boxShadow: '0 8px 22px rgba(25,59,91,.05)' },
+  ctaBox: { border: '1px solid rgba(16,169,209,.35)', borderRadius: 24, background: 'linear-gradient(130deg,#eaf8fc,#ffffff 60%,#edf6fb)', padding: 42, display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', gap: 30, boxShadow: '0 18px 50px rgba(25,59,91,.10)' },
+  faq: { display: 'grid', gap: 10, maxWidth: 900 }, faqItem: { border: `1px solid ${C.border}`, borderRadius: 13, background: '#ffffff', padding: '18px 20px', boxShadow: '0 6px 18px rgba(25,59,91,.04)' },
+  footer: { padding: '30px 0', borderTop: '1px solid #dce6ef', color: '#6b8095', fontSize: 13, display: 'flex', justifyContent: 'space-between', gap: 18, flexWrap: 'wrap' },
 }
 
-function BulletItem({ children }: { children: React.ReactNode }) {
-  return (
-    <div style={V.capItem}>
-      <span style={{ position: 'absolute', left: 0, color: '#42e28d', fontWeight: 900 }}>✓</span>
-      {children}
-    </div>
-  )
-}
+const useCases = [
+  ['Auditor SPED', 'Cruze SPED Fiscal e SPED Contribuições e identifique documentos ausentes, divergências e situações que merecem revisão.'],
+  ['Validador NF-e', 'Importe XMLs, analise documentos e itens, valide operações e organize sua base fiscal.'],
+  ['Simples Nacional', 'Confronte faturamento fiscal com PGDAS-D e identifique divergências na receita declarada.'],
+  ['Relatórios', 'Analise dados por documento, produto, fornecedor, CFOP, NCM e competência.'],
+  ['Planejamento tributário', 'Simule cenários e compare regimes para apoiar análises tributárias.'],
+  ['Reforma tributária', 'Analise documentos e campos relacionados ao IBS e à CBS nas funcionalidades disponíveis do módulo.'],
+]
 
-function FeatureBullet({ children }: { children: React.ReactNode }) {
-  return (
-    <div style={{ color: '#d9e6f4', fontSize: 15 }}>
-      <span style={{ color: '#42e28d', fontWeight: 900, marginRight: 10 }}>✓</span>
-      {children}
-    </div>
-  )
-}
+const roadmap = [
+  ['Disponível', 'Auditor SPED', 'Cruzamentos entre SPED Fiscal e Contribuições, regras e exportações.', 'ready'],
+  ['Disponível', 'Validador NF-e e relatórios', 'Importação de XML, validação por item e relatórios fiscais.', 'ready'],
+  ['Em validação', 'Simples Nacional', 'Confronto entre faturamento fiscal, apuração e PGDAS-D.', 'validating'],
+  ['Em validação', 'Planejamento tributário', 'Simulações comparativas para apoiar estudos de regime.', 'validating'],
+  ['Em desenvolvimento', 'Reforma tributária', 'Evolução das análises de IBS e CBS conforme a implementação dos documentos.', 'building'],
+  ['Planejado', 'Novos cruzamentos', 'Expansão do catálogo conforme validação técnica e feedback dos participantes.', 'planned'],
+]
+
+const faq = [
+  ['O teste é realmente gratuito?', 'Sim. Você terá 7 dias para conhecer a plataforma sem cobrança.'],
+  ['Preciso cadastrar cartão para testar?', 'Não. Durante os 7 dias de teste não é necessário cadastrar cartão.'],
+  ['O que acontece depois dos 7 dias?', 'Você poderá encerrar o acesso ou continuar participando do Programa de Acesso Antecipado por R$ 79/mês.'],
+  ['Existe fidelidade?', 'Não durante o Programa de Acesso Antecipado.'],
+  ['O Enfokus substitui meu sistema contábil?', 'Não. O Enfokus complementa seu sistema atual, atuando principalmente nas etapas de conferência, cruzamento, auditoria e análise.'],
+  ['Posso utilizar dados de clientes reais?', 'Sim, desde que você tenha autorização para tratar esses dados. A plataforma utiliza acesso autenticado, isolamento dos dados por organização e controles de segurança compatíveis com a operação. Consulte nossa Política de Privacidade.'],
+  ['O produto já está finalizado?', 'Não. O Enfokus está em fase de acesso antecipado. O núcleo da plataforma já pode ser utilizado, enquanto funcionalidades continuam sendo evoluídas com base no uso e no feedback dos primeiros profissionais.'],
+]
+
+function Check({ children }: { children: React.ReactNode }) { return <div><span style={{ color: C.green, fontWeight: 700, marginRight: 9 }}>✓</span>{children}</div> }
 
 export default function LandingPage() {
-  const ctaProps = { href: '#solicitar-acesso' }
+  const cta = { href: '#solicitar-acesso' }
+  return <div className="lp-page" style={V.page}>
+    <header><div style={V.wrap}><nav style={V.nav} aria-label="Navegação principal">
+      <a href="#top" style={{ display: 'inline-flex', padding: '7px 11px', borderRadius: 9, background: '#10263d' }}><img src="/logo-enfokus-white.png" alt="Enfokus" style={{ height: 25, display: 'block' }} /></a>
+      <div className="lp-navlinks" style={V.navLinks}><a href="#como-funciona">Como funciona</a><a href="#recursos">Funcionalidades</a><a href="#telas">Telas reais</a><a href="#roadmap">Roadmap</a></div>
+      <div style={{ display: 'flex', gap: 10 }}><Link href="/login" style={{ ...V.secondary, padding: '10px 15px' }}>Entrar</Link><a {...cta} style={{ ...V.primary, padding: '10px 15px' }}>Quero testar por 7 dias</a></div>
+    </nav></div></header>
 
-  return (
-    <>
-      <div style={V.page}>
+    <main id="top">
+      <div style={V.wrap}><section className="lp-hero" style={V.hero}>
+        <div><span style={V.eyebrow}>Programa de Acesso Antecipado</span><h1 style={V.h1}>Pare de gastar horas reunindo dados para <em style={{ color: C.cyan, fontStyle: 'normal' }}>começar uma análise.</em></h1>
+          <p style={V.heroText}>O Enfokus Auditor cruza SPED, XML, PGDAS-D e outras informações fiscais para ajudar contadores, consultores e auditores a encontrar divergências e direcionar suas análises com muito mais rapidez.</p>
+          <p style={V.offer}><strong>7 dias gratuitos com acompanhamento</strong> · Depois, condição especial de R$ 79/mês durante o acesso antecipado.</p>
+          <div style={V.actions}><a {...cta} style={V.primary}>Quero testar por 7 dias</a><a href="#recursos" style={V.secondary}>Ver o que o Enfokus analisa</a></div>
+          <p style={V.proof}>Sem fidelidade. Você testa com um caso real da sua rotina.</p>
+        </div>
+        <div style={V.screen}><img src="/landing/dashboard-atual-anonimizado.png" alt="Dashboard fiscal atualizado do Enfokus Auditor com dados demonstrativos" style={{ width: '100%', display: 'block' }} /></div>
+      </section></div>
 
-        {/* ── HEADER ─────────────────────────────────────────────────────── */}
-        <header>
-          <div style={V.wrap}>
-            <nav style={V.nav}>
-              <a href="#top" style={{ textDecoration: 'none' }}>
-                <img src="/logo-enfokus-white.png" alt="Enfokus" style={{ height: 34, width: 'auto', display: 'block' }} />
-              </a>
-              <div className="lp-navlinks" style={V.navLinks}>
-                <a href="#recursos" style={{ textDecoration: 'none', color: 'inherit' }}>Recursos</a>
-                <a href="#auditoria" style={{ textDecoration: 'none', color: 'inherit' }}>Auditoria SPED</a>
-                <a href="#screenshots" style={{ textDecoration: 'none', color: 'inherit' }}>Telas</a>
-                <a href="#roadmap" style={{ textDecoration: 'none', color: 'inherit' }}>Roadmap</a>
-              </div>
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                <Link href="/login" style={{ ...V.btnSecondary, padding: '10px 16px', fontSize: 13 }}>Entrar</Link>
-                <a {...ctaProps} style={V.btnPrimary}>Solicitar acesso</a>
-              </div>
-            </nav>
-          </div>
-        </header>
+      <section style={V.alt}><div style={V.wrap}>
+        <div style={V.heading}><h2 style={V.h2}>Quanto do seu tempo técnico ainda é gasto montando planilhas?</h2><p style={V.lead}>Quem realiza conferência fiscal, auditoria ou planejamento sabe: muitas vezes, a análise não é a parte mais demorada. O tempo vai embora reunindo arquivos, consolidando dados, comparando documentos e procurando onde está a divergência.</p></div>
+        <div className="lp-grid4" style={V.grid4}>{['Horas cruzando informações manualmente','Planilhas espalhadas entre diferentes fontes','Dificuldade para revisar o trabalho da equipe','Tempo técnico consumido antes da análise começar'].map((x,i)=><article style={V.card} key={x}><div style={V.icon}>0{i+1}</div><h3 style={V.cardTitle}>{x}</h3></article>)}</div>
+        <p style={{ ...V.quote, fontSize: 18 }}>O Enfokus foi criado para reduzir essa etapa operacional. Menos tempo procurando. Mais tempo analisando.</p>
+      </div></section>
 
-        {/* ── HERO ────────────────────────────────────────────────────────── */}
-        <main id="top">
-          <div style={V.wrap}>
-            <div className="lp-hero" style={V.hero}>
-              <div>
-                <span style={V.eyebrow}>Beta fechado — apenas 10 escritórios parceiros</span>
-                <h1 style={V.h1}>
-                  Auditoria fiscal que transforma arquivos em{' '}
-                  <em style={{ color: '#2dc7ef', fontStyle: 'normal' }}>decisão e ação.</em>
-                </h1>
-                <p style={V.heroText}>
-                  Centralize SPED Fiscal, SPED Contribuições, XMLs de NF-e e PGDAS-D. O Enfokus organiza a base,
-                  cruza informações e destaca divergências para que seu time investigue o que realmente importa.
-                </p>
-                <div style={V.actions}>
-                  <a {...ctaProps} style={V.btnPrimary}>Quero uma das 10 vagas</a>
-                  <a href="#auditoria" style={V.btnSecondary}>Ver o que a plataforma analisa</a>
-                </div>
-                <p style={V.proof}>
-                  <strong style={{ color: '#42e28d' }}>10 escritórios parceiros.</strong>{' '}
-                  Acesso inicial sem custo em troca de testes e feedbacks reais.
-                </p>
-              </div>
-              <div style={V.screen}>
-                <img
-                  src="/landing/hero-enfokus.png"
-                  alt="Visão geral do painel fiscal da plataforma Enfokus"
-                  style={{ width: '100%', borderRadius: 18, display: 'block' }}
-                />
-              </div>
-            </div>
-          </div>
+      <section style={V.section}><div style={V.wrap}><div className="lp-origin" style={{ display: 'grid', gridTemplateColumns: '1fr .8fr', gap: 28, alignItems: 'center' }}>
+        <div><span style={V.eyebrow}>Uma ferramenta nascida na rotina contábil</span><h2 style={{ ...V.h2, marginTop: 14 }}>Criado por quem sentia essa dor todos os meses.</h2><p style={V.lead}>O Enfokus Auditor começou dentro de um escritório contábil. Foi criado para revisar fechamentos fiscais, validar documentos e acelerar análises tributárias que antes exigiam horas de conferências manuais.</p><p style={{ ...V.lead, marginTop: 14 }}>À medida que novas dores apareciam na rotina, novas funcionalidades eram incorporadas. O que era uma ferramenta interna evoluiu para uma plataforma voltada a profissionais que enfrentam os mesmos desafios.</p></div>
+        <div style={{ ...V.card, borderColor: '#e5cf9b', background: 'linear-gradient(145deg,#fff9e9,#ffffff)' }}><p style={{ color: C.gold, fontSize: 21, lineHeight: 1.4, fontWeight: 600, margin: 0 }}>Criado por profissionais da área, para profissionais da área.</p></div>
+      </div></div></section>
 
-          {/* ── MÉTRICAS RÁPIDAS ───────────────────────────────────────────── */}
-          <div style={V.wrap}>
-            <div className="lp-numbers" style={V.numbers}>
-              <div style={V.metric}>
-                <strong style={{ fontSize: 22, color: '#2dc7ef', display: 'block', lineHeight: 1.12 }}>Uma base fiscal</strong>
-                <span style={{ fontSize: 14, color: '#a9bdd5', display: 'block', marginTop: 6 }}>
-                  Importe uma vez e reutilize os dados em relatórios, conferências e apurações.
-                </span>
-              </div>
-              <div style={V.metric}>
-                <strong style={{ fontSize: 22, color: '#2dc7ef', display: 'block', lineHeight: 1.12 }}>SPED + XML + PGDAS-D</strong>
-                <span style={{ fontSize: 14, color: '#a9bdd5', display: 'block', marginTop: 6 }}>
-                  Fontes reunidas para enxergar documentos, tributos, receita e divergências no mesmo fluxo.
-                </span>
-              </div>
-              <div style={V.metric}>
-                <strong style={{ fontSize: 22, color: '#2dc7ef', display: 'block', lineHeight: 1.12 }}>Multiempresa</strong>
-                <span style={{ fontSize: 14, color: '#a9bdd5', display: 'block', marginTop: 6 }}>
-                  Estrutura pensada para escritórios que precisam acompanhar várias empresas com segurança.
-                </span>
-              </div>
-            </div>
-          </div>
+      <section id="como-funciona" style={V.alt}><div style={V.wrap}><div style={V.heading}><h2 style={V.h2}>Da informação bruta à análise em três passos.</h2></div><div className="lp-grid3" style={V.grid3}>
+        {[['Importe','Traga SPED, XML, PGDAS-D e demais informações utilizadas na análise.'],['Cruze','O Enfokus organiza os dados e executa cruzamentos e regras automaticamente.'],['Analise','Você recebe os pontos que merecem atenção e utiliza seu conhecimento técnico para decidir o que fazer.']].map((x,i)=><article style={V.card} key={x[0]}><div style={V.icon}>0{i+1}</div><h3 style={V.cardTitle}>{x[0]}</h3><p style={V.cardText}>{x[1]}</p></article>)}</div><div style={V.quote}>O sistema organiza e encontra os sinais. A decisão continua sendo do profissional.</div></div></section>
 
-          {/* ── SEÇÃO RECURSOS / BASE FISCAL ─────────────────────────────── */}
-          <section style={V.sectionAlt} id="recursos">
-            <div style={V.wrap}>
-              <div style={V.heading}>
-                <h2 style={V.h2}>O fiscal deixa de ser uma sequência de arquivos isolados.</h2>
-                <p style={V.lead}>
-                  Você não precisa abrir planilha após planilha para localizar uma inconsistência. A plataforma conecta
-                  informações importadas em uma base operacional para conferência, análise e priorização.
-                </p>
-              </div>
-              <div className="lp-grid3" style={V.grid3}>
-                <article style={V.card}>
-                  <div style={V.iconBox}>01</div>
-                  <h3 style={V.cardTitle}>Importe com controle</h3>
-                  <p style={V.cardDesc}>
-                    Envie XMLs diretos ou em ZIP, além de SPED Fiscal e Contribuições. A importação valida a empresa
-                    ativa para evitar mistura de dados entre clientes.
-                  </p>
-                </article>
-                <article style={V.card}>
-                  <div style={V.iconBox}>02</div>
-                  <h3 style={V.cardTitle}>Cruze fontes fiscais</h3>
-                  <p style={V.cardDesc}>
-                    Compare documentos e apurações entre SPED Fiscal e Contribuições, confronte receita XML com
-                    PGDAS-D e encontre diferenças antes que se tornem problema.
-                  </p>
-                </article>
-                <article style={V.card}>
-                  <div style={V.iconBox}>03</div>
-                  <h3 style={V.cardTitle}>Priorize a atuação</h3>
-                  <p style={V.cardDesc}>
-                    Transforme regras técnicas em alertas, relatórios e exportações para orientar a revisão da equipe
-                    e a conversa com o cliente.
-                  </p>
-                </article>
-              </div>
-            </div>
-          </section>
+      <section id="recursos" style={V.section}><div style={V.wrap}><div style={V.heading}><h2 style={V.h2}>O que você pode analisar com o Enfokus.</h2><p style={V.lead}>Casos de uso para conferência, revisão e apoio à decisão na rotina fiscal e tributária.</p></div><div className="lp-grid3" style={V.grid3}>{useCases.map(([t,d])=><article style={V.card} key={t}><h3 style={{ ...V.cardTitle, color: '#087fa3' }}>{t}</h3><p style={V.cardText}>{d}</p></article>)}</div>
+        <details style={{ ...V.faqItem, marginTop: 22 }}><summary style={{ cursor: 'pointer', color: '#087fa3', fontWeight: 650 }}>Ver todas as funcionalidades</summary><div className="lp-grid3" style={{ ...V.grid3, marginTop: 20 }}>
+          <div><h3 style={V.cardTitle}>Auditoria e regras fiscais</h3><div style={V.bullets}><Check>Importação e análise de SPED Fiscal e Contribuições</Check><Check>Cruzamento entre arquivos e documentos ausentes</Check><Check>Regras para CFOP, ICMS, PIS, COFINS, CST e itens C170</Check><Check>Central de inconsistências por nível de risco</Check></div></div>
+          <div><h3 style={V.cardTitle}>XML, NF-e e relatórios</h3><div style={V.bullets}><Check>Importação de XML e ZIP com validação de CNPJ</Check><Check>Classificação fiscal por documento e item</Check><Check>Relatórios por documento, participante, produto, NCM e CFOP</Check><Check>Filtros por competência e exportação para Excel</Check></div></div>
+          <div><h3 style={V.cardTitle}>Simples e Editor SPED</h3><div style={V.bullets}><Check>Conferência entre faturamento fiscal e PGDAS-D</Check><Check>Tratamento de devoluções e divergências de receita</Check><Check>Mesclagem de SPED base com Bloco K</Check><Check>Validação, comparação e tratamento de conflitos</Check></div></div>
+        </div></details>
+      </div></section>
 
-          {/* ── AUDITOR SPED ─────────────────────────────────────────────── */}
-          <section style={V.section} id="auditoria">
-            <div style={V.wrap}>
-              <div style={V.heading}>
-                <h2 style={V.h2}>Auditor SPED: encontre conflitos que normalmente ficam espalhados entre arquivos.</h2>
-                <p style={V.lead}>
-                  O núcleo de auditoria cruza SPED Fiscal e SPED Contribuições, interpreta registros relevantes e reúne
-                  pontos de revisão em uma mesma tela.
-                </p>
-              </div>
-              <div className="lp-audit-panel" style={V.auditPanel}>
-                <div style={V.auditCopy}>
-                  <span style={V.eyebrow}>Já disponível no núcleo fiscal</span>
-                  <h3 style={V.auditH3}>Do arquivo bruto à análise técnica em poucos passos.</h3>
-                  <p style={{ color: '#a9bdd5', margin: 0 }}>
-                    Importe múltiplos arquivos, execute a análise automática e exporte a documentação da revisão.
-                    A plataforma trabalha com documentos, itens C170, CFOP, apurações de ICMS, PIS e COFINS.
-                  </p>
-                  <div style={V.ruleList}>
-                    <div style={V.rule}>
-                      <strong style={{ color: '#8ee8ff' }}>Notas ausentes entre os SPEDs</strong><br />
-                      <small style={{ color: '#a9bdd5' }}>Identifique notas presentes no Fiscal que não aparecem no Contribuições e o caminho inverso.</small>
-                    </div>
-                    <div style={V.rule}>
-                      <strong style={{ color: '#8ee8ff' }}>CFOP invertido (entrada em saída, saída em entrada)</strong><br />
-                      <small style={{ color: '#a9bdd5' }}>Detecção automática de CFOPs classificados na natureza errada de operação.</small>
-                    </div>
-                    <div style={V.rule}>
-                      <strong style={{ color: '#8ee8ff' }}>Divergências de base e classificação</strong><br />
-                      <small style={{ color: '#a9bdd5' }}>Alertas para ICMS, PIS/COFINS, CST incompatível, alíquota efetiva atípica e ST sem tratamento.</small>
-                    </div>
-                    <div style={V.rule}>
-                      <strong style={{ color: '#8ee8ff' }}>Possível crédito indevido em uso e consumo</strong><br />
-                      <small style={{ color: '#a9bdd5' }}>Identificação de ICMS com crédito em itens classificados como uso e consumo ou imobilizado sem CIAP.</small>
-                    </div>
-                    <div style={V.rule}>
-                      <strong style={{ color: '#8ee8ff' }}>Validação analítica de itens C170</strong><br />
-                      <small style={{ color: '#a9bdd5' }}>Leitura por NCM, CFOP, CST, crédito, destinação e substituição tributária.</small>
-                    </div>
-                  </div>
-                </div>
-                <aside style={V.callout}>
-                  <h3 style={V.calloutH3}>O que sua equipe ganha na prática</h3>
-                  <p style={V.calloutP}>Mais contexto para decidir onde começar a revisão e menos dependência de conferências manuais desconectadas.</p>
-                  <ul style={{ paddingLeft: 18, color: '#d9e6f4', margin: '16px 0 0' }}>
-                    <li style={{ marginBottom: 9 }}>Exportação Excel com cruzamento, apuração, inconsistências e itens analisados.</li>
-                    <li style={{ marginBottom: 9 }}>Alertas classificados por nível de risco para apoiar a priorização.</li>
-                    <li style={{ marginBottom: 9 }}>Central de inconsistências com filtros por empresa e competência.</li>
-                    <li style={{ marginBottom: 9 }}>Estrutura de regras que evolui com as dores dos escritórios parceiros.</li>
-                  </ul>
-                </aside>
-              </div>
-            </div>
-          </section>
+      <section style={V.alt} id="auditoria"><div style={V.wrap}><div style={V.heading}><span style={V.eyebrow}>Núcleo disponível</span><h2 style={{ ...V.h2, marginTop: 14 }}>Auditor SPED: conflitos reunidos em um fluxo de revisão.</h2><p style={V.lead}>Cruze SPED Fiscal e SPED Contribuições, interprete registros relevantes e concentre pontos de atenção em uma mesma tela.</p></div><div className="lp-grid2" style={V.grid2}>
+        <div style={V.card}><h3 style={V.cardTitle}>Cruzamentos e regras</h3><div style={V.bullets}><Check>Notas presentes em um SPED e ausentes no outro</Check><Check>CFOP de entrada e saída possivelmente invertido</Check><Check>Divergências de base, CST, ICMS, PIS e COFINS</Check><Check>Possível crédito indevido em uso e consumo</Check><Check>Validação analítica dos itens C170</Check></div></div>
+        <div style={{ ...V.card, borderColor: 'rgba(66,226,141,.4)' }}><h3 style={V.cardTitle}>Apoio prático à revisão</h3><div style={V.bullets}><Check>Alertas classificados por nível de risco</Check><Check>Central de inconsistências com filtros</Check><Check>Exportações para documentar a análise</Check><Check>Mais contexto para decidir por onde começar</Check></div></div>
+      </div></div></section>
 
-          {/* ── O QUE A PLATAFORMA JÁ FAZ ───────────────────────────────── */}
-          <section style={V.sectionAlt}>
-            <div style={V.wrap}>
-              <div style={V.heading}>
-                <h2 style={V.h2}>O que a plataforma já faz.</h2>
-                <p style={V.lead}>
-                  Funcionalidades disponíveis ou em validação ativa com os primeiros escritórios parceiros.
-                </p>
-              </div>
-              <div className="lp-cap-grid" style={V.capGrid}>
+      <section style={V.section}><div style={V.wrap}><div className="lp-difference" style={{ display: 'grid', gridTemplateColumns: '.9fr 1.1fr', gap: 30, alignItems: 'center' }}><div><span style={V.eyebrow}>Uma camada adicional de inteligência</span><h2 style={{ ...V.h2, marginTop: 14 }}>Não queremos substituir seu sistema fiscal.</h2><p style={V.lead}>Seu ERP ou sistema contábil continua responsável pela escrituração e pelo fechamento. O Enfokus entra em outra etapa: conferência, cruzamento, revisão e análise.</p></div><div style={V.quote}>Seu sistema fiscal fecha.<br />O Enfokus confere, cruza e ajuda você a decidir.</div></div></div></section>
 
-                <div style={V.capCard}>
-                  <p style={V.capTitle}>Auditoria e cruzamentos fiscais</p>
-                  <BulletItem>Importação e análise de SPED Fiscal</BulletItem>
-                  <BulletItem>Importação e análise de SPED Contribuições</BulletItem>
-                  <BulletItem>Cruzamento entre SPED Fiscal e SPED Contribuições</BulletItem>
-                  <BulletItem>Notas presentes em um arquivo e ausentes no outro</BulletItem>
-                  <BulletItem>Detecção de CFOP invertido</BulletItem>
-                  <BulletItem>Alertas de possíveis inconsistências entre ICMS, PIS e COFINS</BulletItem>
-                  <BulletItem>Análise de apuração de ICMS</BulletItem>
-                  <BulletItem>Análise de PIS e COFINS</BulletItem>
-                  <BulletItem>Validação analítica de itens C170</BulletItem>
-                </div>
+      <section id="telas" style={V.alt}><div style={V.wrap}><div style={V.heading}><h2 style={V.h2}>Telas reais da plataforma.</h2><p style={V.lead}>Veja como os módulos organizam diferentes etapas da rotina: da entrada dos arquivos à conferência, ao relatório e ao apoio à decisão. Todos os dados exibidos abaixo são demonstrativos.</p></div>
+        <div className="lp-feature" style={V.feature}><div><span style={V.eyebrow}>Validador NF-e / NFS-e</span><h3 style={{ fontSize: 25, fontWeight: 550, lineHeight: 1.3, margin: '12px 0' }}>Documentos, itens e classificações em uma visão operacional.</h3><p style={V.lead}>Importe NF-e e NFS-e, filtre por nota, fornecedor, CFOP, NCM e classificação, alterne entre entradas, saídas, serviços e resumo de CFOP e leve os dados para a apuração ou para o Excel.</p></div><div style={V.shot}><img src="/landing/validador-atual-anonimizado.png" alt="Validador NF-e e NFS-e atualizado do Enfokus com dados demonstrativos" style={{ width: '100%', display: 'block', borderRadius: 12 }} /></div></div>
+        <div className="lp-feature lp-reverse" style={V.feature}><div><span style={V.eyebrow}>Simples Nacional</span><h3 style={{ fontSize: 25, fontWeight: 550, lineHeight: 1.3, margin: '12px 0' }}>Confronto mensal entre PGDAS-D e receita fiscal.</h3><p style={V.lead}>Compare receita declarada, receita considerada pelos XMLs, quantidade de documentos, variações e diferenças de DAS por período, com status para priorizar o que precisa de revisão.</p></div><div style={V.shot}><img src="/landing/simples-atual-anonimizado.png" alt="Confronto atualizado do Simples Nacional com dados demonstrativos" style={{ width: '100%', display: 'block', borderRadius: 12 }} /></div></div>
+        <div className="lp-feature" style={{ ...V.feature, marginBottom: 38 }}><div><span style={V.eyebrow}>Relatórios fiscais</span><h3 style={{ fontSize: 25, fontWeight: 550, lineHeight: 1.3, margin: '12px 0' }}>Da visão consolidada ao detalhe do documento.</h3><p style={V.lead}>Consulte inconsistências, entradas e saídas, quantidade de documentos, produtos, participantes e CFOP. Combine filtros, pesquise participantes ou notas e exporte o resultado para Excel ou PDF.</p></div><div style={V.shot}><img src="/landing/relatorios-atual-anonimizado.png" alt="Relatórios fiscais atualizados do Enfokus com dados demonstrativos" style={{ width: '100%', display: 'block', borderRadius: 12 }} /></div></div>
+        <div className="lp-screens" style={V.grid3}>{[
+          ['dashboard-atual-anonimizado.png','Dashboard fiscal','Indicadores de entradas, saídas, alertas e evolução mensal em uma visão gerencial.'],
+          ['editor-atual-anonimizado.png','Editor SPED Fiscal','Fluxo guiado em sete etapas para validar, comparar, tratar conflitos e gerar o arquivo.'],
+          ['planejamento-atual-anonimizado.png','Planejamento Tributário','Seleção de empresas, período e premissas para simulações comparativas.'],
+        ].map(([img,label,desc])=><figure style={{ ...V.shot, margin: 0, background: '#ffffff' }} key={img}><img src={`/landing/${img}`} alt={`${label} do Enfokus com dados demonstrativos`} style={{ width: '100%', display: 'block', borderRadius: 10 }} /><figcaption style={{ padding: '13px 10px 8px', color: C.text, fontSize: 14 }}><strong style={{ display: 'block', marginBottom: 4 }}>{label}</strong><span style={{ color: C.muted, fontSize: 13, lineHeight: 1.5 }}>{desc}</span></figcaption></figure>)}</div>
+      </div></section>
 
-                <div style={V.capCard}>
-                  <p style={V.capTitle}>Regras e alertas tributários</p>
-                  <BulletItem>Possível crédito indevido em uso e consumo</BulletItem>
-                  <BulletItem>Imobilizado com crédito e possível ausência de CIAP</BulletItem>
-                  <BulletItem>CFOP incompatível com a classificação sugerida</BulletItem>
-                  <BulletItem>Possíveis inconsistências de ST</BulletItem>
-                  <BulletItem>CST não tributável com valor de PIS/COFINS</BulletItem>
-                  <BulletItem>CST tributável com alíquota zero</BulletItem>
-                  <BulletItem>Alíquota efetiva de ICMS possivelmente incompatível</BulletItem>
-                  <BulletItem>Central de inconsistências com níveis de risco</BulletItem>
-                </div>
+      <section id="roadmap" style={V.section}><div style={V.wrap}><div style={V.heading}><h2 style={V.h2}>Roadmap com status claro.</h2><p style={V.lead}>O acesso antecipado combina um núcleo utilizável com funcionalidades em diferentes estágios de evolução.</p></div><div className="lp-grid3" style={V.grid3}>{roadmap.map(([status,title,desc,kind])=>{const palette=kind==='ready'?['rgba(66,226,141,.12)',C.green]:kind==='validating'?['rgba(45,199,239,.11)','#74def7']:kind==='building'?['rgba(214,178,92,.11)',C.gold]:['rgba(148,163,184,.1)','#94a3b8'];return <article style={V.card} key={title}><span style={{ ...V.status, background: palette[0], color: palette[1], border: `1px solid ${palette[1]}55` }}>{status}</span><h3 style={V.cardTitle}>{title}</h3><p style={V.cardText}>{desc}</p></article>})}</div></div></section>
 
-                <div style={V.capCard}>
-                  <p style={V.capTitle}>XML e NF-e</p>
-                  <BulletItem>Importação de XML de terceiros como entradas</BulletItem>
-                  <BulletItem>Importação de XML próprios como saídas</BulletItem>
-                  <BulletItem>Importação em lote e arquivos ZIP com XMLs</BulletItem>
-                  <BulletItem>Validação de CNPJ antes da importação</BulletItem>
-                  <BulletItem>Bloqueio de arquivos de empresas diferentes</BulletItem>
-                  <BulletItem>Sugestão de CFOP de entrada</BulletItem>
-                  <BulletItem>Classificação fiscal por item e manual por nota</BulletItem>
-                  <BulletItem>Exportação dos dados para Excel</BulletItem>
-                </div>
+      <section style={V.alt} id="acesso-antecipado"><div style={V.wrap}><div style={V.heading}><span style={V.eyebrow}>Programa de Acesso Antecipado</span><h2 style={{ ...V.h2, marginTop: 14 }}>Teste o Enfokus em um caso real da sua rotina.</h2><p style={V.lead}>Durante 7 dias, você testa a plataforma com acompanhamento. Antes de liberar o acesso, entendemos rapidamente sua rotina e escolhemos junto com você uma análise real para direcionar sua experiência.</p></div>
+        <div className="lp-timeline" style={V.timeline}>{[['Dia 0','Entendemos sua rotina e definimos o caso de teste.'],['Dia 1','Liberamos o acesso e orientamos os primeiros passos.'],['Dia 3','Acompanhamos a experiência e tiramos dúvidas.'],['Dia 7','Coletamos seu feedback e avaliamos a continuidade.']].map(([d,t])=><div style={V.timelineCard} key={d}><strong style={{ color: C.cyan }}>{d}</strong><p style={{ ...V.cardText, marginTop: 8 }}>{t}</p></div>)}</div>
+        <div className="lp-program" style={V.ctaBox}><div><h3 style={{ fontSize: 25, fontWeight: 550, margin: '0 0 10px' }}>Gostou e quer continuar?</h3><p style={{ color: C.muted, margin: 0 }}>Participantes poderão continuar utilizando a plataforma por <strong style={{ color: C.text }}>R$ 79/mês</strong> — condição especial enquanto durar o Programa de Acesso Antecipado.</p><div style={V.bullets}><Check>Sem fidelidade durante o programa</Check><Check>Canal direto para feedback</Check><Check>Participação próxima na evolução da plataforma</Check></div></div><a {...cta} style={V.primary}>Quero participar do acesso antecipado</a></div>
+      </div></section>
 
-                <div style={V.capCard}>
-                  <p style={V.capTitle}>Relatórios fiscais</p>
-                  <BulletItem>Relatórios de entradas e saídas</BulletItem>
-                  <BulletItem>Relatórios por documento, produto, participante</BulletItem>
-                  <BulletItem>Relatórios por NCM e CFOP</BulletItem>
-                  <BulletItem>Filtros por competência e movimentação</BulletItem>
-                  <BulletItem>Exportação para Excel</BulletItem>
-                </div>
+      <FormularioAcessoAntecipado />
 
-                <div style={V.capCard}>
-                  <p style={V.capTitle}>Simples Nacional</p>
-                  <BulletItem>Apuração com base nos dados fiscais importados</BulletItem>
-                  <BulletItem>Conferência entre XML e PGDAS-D</BulletItem>
-                  <BulletItem>Comparação entre faturamento fiscal e receita declarada</BulletItem>
-                  <BulletItem>Tratamento de devoluções de venda</BulletItem>
-                  <BulletItem>Identificação de divergências de receita</BulletItem>
-                  <BulletItem>Geração de PDF da apuração</BulletItem>
-                </div>
+      <section style={V.section}><div style={V.wrap}><div style={V.heading}><h2 style={V.h2}>Perguntas frequentes.</h2></div><div style={V.faq}>{faq.map(([q,a])=><details style={V.faqItem} key={q}><summary style={{ cursor: 'pointer', fontWeight: 650 }}>{q}</summary><p style={{ color: C.muted, margin: '12px 0 0' }}>{a}</p></details>)}</div></div></section>
 
-                <div style={V.capCard}>
-                  <p style={V.capTitle}>Editor SPED e estrutura SaaS</p>
-                  <BulletItem>Mesclagem de arquivos SPED (base + Bloco K)</BulletItem>
-                  <BulletItem>Validação, comparação e tratamento de conflitos</BulletItem>
-                  <BulletItem>Multiempresa e multiusuário por escritório</BulletItem>
-                  <BulletItem>Controle de acesso por organização</BulletItem>
-                  <BulletItem>Separação de dados por org (isolamento completo)</BulletItem>
-                  <BulletItem>Validação de empresa e CNPJ em importações</BulletItem>
-                  <BulletItem>Dados centralizados para alimentar mais de um módulo</BulletItem>
-                </div>
-
-              </div>
-            </div>
-          </section>
-
-          {/* ── SCREENSHOTS ──────────────────────────────────────────────── */}
-          <section style={V.section} id="screenshots">
-            <div style={V.wrap}>
-              <div style={V.heading}>
-                <h2 style={V.h2}>Telas reais da plataforma.</h2>
-                <p style={V.lead}>
-                  Imagens com dados demonstrativos anonimizados. Nenhuma informação real de cliente é exibida.
-                </p>
-              </div>
-
-              {/* Feature blocks com screenshots */}
-              <div className="lp-feature" style={V.feature}>
-                <div className="lp-feature-copy">
-                  <span style={V.eyebrow}>Relatórios fiscais</span>
-                  <h3 style={V.featureH3}>Documentos, produtos, participantes, NCM e CFOP em uma visão operacional.</h3>
-                  <p style={V.featureP}>
-                    Filtre competências, analise entradas e saídas, confira quantidades e valores e exporte a base para
-                    trabalhar com segurança nas rotinas do escritório.
-                  </p>
-                  <div style={V.bullets}>
-                    <FeatureBullet>Relatórios detalhados e resumidos por movimento</FeatureBullet>
-                    <FeatureBullet>Visões por documento, produto, participante, CFOP e NCM</FeatureBullet>
-                    <FeatureBullet>Excel para análises maiores e entregas internas</FeatureBullet>
-                  </div>
-                </div>
-                <div style={V.shot}>
-                  <img src="/landing/tela_02_anonimizada.png" alt="Relatórios fiscais — dados demonstrativos" style={{ display: 'block', width: '100%', borderRadius: 12 }} />
-                </div>
-              </div>
-
-              <div className="lp-feature lp-feature-even" style={V.featureEven}>
-                <div style={V.shot}>
-                  <img src="/landing/tela_03_anonimizada.png" alt="Simples Nacional — conferência XML vs PGDAS-D — dados demonstrativos" style={{ display: 'block', width: '100%', borderRadius: 12 }} />
-                </div>
-                <div className="lp-feature-copy">
-                  <span style={V.eyebrow}>Simples Nacional</span>
-                  <h3 style={V.featureH3}>Confronte a receita fiscal com o PGDAS-D antes de confiar no número declarado.</h3>
-                  <p style={V.featureP}>
-                    A apuração usa a mesma base fiscal dos relatórios. Isso evita leituras desencontradas e mostra,
-                    por competência, faturamento XML, devoluções, receita considerada, PGDAS-D e diferença.
-                  </p>
-                  <div style={V.bullets}>
-                    <FeatureBullet>Identificação de CFOPs e naturezas com impacto em receita</FeatureBullet>
-                    <FeatureBullet>Devoluções de venda tratadas como redutoras da receita</FeatureBullet>
-                    <FeatureBullet>Confronto visual, Excel e PDF da apuração</FeatureBullet>
-                  </div>
-                </div>
-              </div>
-
-              <div className="lp-feature" style={V.feature}>
-                <div className="lp-feature-copy">
-                  <span style={V.eyebrow}>Validador NF-e</span>
-                  <h3 style={V.featureH3}>Importe XMLs em lote sem perder o controle de quem pertence a cada empresa.</h3>
-                  <p style={V.featureP}>
-                    Fluxos separados para notas de terceiros e notas próprias, validação de CNPJ, detecção por
-                    competência, classificação de itens e organização da base que alimenta os outros módulos.
-                  </p>
-                  <div style={V.bullets}>
-                    <FeatureBullet>XML direto ou ZIP, com múltiplas competências</FeatureBullet>
-                    <FeatureBullet>Proteção contra importação de XML de outra empresa</FeatureBullet>
-                    <FeatureBullet>Sugestão de CFOP de entrada e classificação por item</FeatureBullet>
-                  </div>
-                </div>
-                <div style={V.shot}>
-                  <img src="/landing/tela_04_anonimizada.png" alt="Validador NF-e — dados demonstrativos" style={{ display: 'block', width: '100%', borderRadius: 12 }} />
-                </div>
-              </div>
-
-              <div className="lp-feature lp-feature-even" style={V.featureEven}>
-                <div style={V.shot}>
-                  <img src="/landing/tela_05_anonimizada.png" alt="Auditor SPED — dados demonstrativos" style={{ display: 'block', width: '100%', borderRadius: 12 }} />
-                </div>
-                <div className="lp-feature-copy">
-                  <span style={V.eyebrow}>Auditor SPED</span>
-                  <h3 style={V.featureH3}>Cruzamentos automáticos para achar o que ficaria escondido em planilhas.</h3>
-                  <p style={V.featureP}>
-                    Importe SPED Fiscal e Contribuições e acesse alertas, comparações e análises de apuração em uma
-                    tela unificada por empresa e competência.
-                  </p>
-                  <div style={V.bullets}>
-                    <FeatureBullet>Notas ausentes entre SPEDs identificadas automaticamente</FeatureBullet>
-                    <FeatureBullet>Regras fiscais executadas sobre os dados importados</FeatureBullet>
-                    <FeatureBullet>Exportação Excel da análise completa</FeatureBullet>
-                  </div>
-                </div>
-              </div>
-
-              <div className="lp-feature" style={{ ...V.feature, marginBottom: 0 }}>
-                <div className="lp-feature-copy">
-                  <span style={V.eyebrow}>Editor SPED</span>
-                  <h3 style={V.featureH3}>Uma rotina assistida para mesclar bases e revisar o Bloco K.</h3>
-                  <p style={V.featureP}>
-                    Fluxo guiado para usar uma base fiscal correta, incorporar o Bloco K de outra fonte, identificar
-                    conflitos e gerar um novo arquivo após a conferência.
-                  </p>
-                  <div style={V.bullets}>
-                    <FeatureBullet>Importação de arquivo base e fonte do Bloco K</FeatureBullet>
-                    <FeatureBullet>Conflitos apresentados para tratamento manual</FeatureBullet>
-                    <FeatureBullet>Fluxo em sete etapas: importar, validar, comparar, editar, verificar e gerar</FeatureBullet>
-                  </div>
-                </div>
-                <div style={V.shot}>
-                  <img src="/landing/tela_06_anonimizada.png" alt="Editor SPED Fiscal — dados demonstrativos" style={{ display: 'block', width: '100%', borderRadius: 12 }} />
-                </div>
-              </div>
-            </div>
-          </section>
-
-          {/* ── ROADMAP ──────────────────────────────────────────────────── */}
-          <section style={V.sectionAlt} id="roadmap">
-            <div style={V.wrap}>
-              <div style={V.heading}>
-                <h2 style={V.h2}>Entre agora para influenciar o que vem depois.</h2>
-                <p style={V.lead}>
-                  O núcleo fiscal já está em validação. Os próximos módulos serão construídos sobre a mesma base de dados,
-                  com prioridade para os problemas reais dos escritórios parceiros.
-                </p>
-              </div>
-              <div className="lp-roadmap-grid" style={V.roadmapGrid}>
-
-                <article style={V.road}>
-                  <span style={V.statusReady}>Disponível</span>
-                  <h3 style={V.roadH3}>Fiscal inteligente</h3>
-                  <p style={V.roadP}>SPED Fiscal e Contribuições, XML, relatórios, regras, alertas, Simples Nacional e exportações. Núcleo em validação com escritórios parceiros.</p>
-                </article>
-
-                <article style={V.road}>
-                  <span style={V.statusReady}>Disponível</span>
-                  <h3 style={V.roadH3}>Editor SPED</h3>
-                  <p style={V.roadP}>Mesclagem de arquivos SPED, wizard de sete etapas, tratamento de conflitos e geração do arquivo final com Bloco K.</p>
-                </article>
-
-                <article style={V.road}>
-                  <span style={V.statusValidating}>Em validação</span>
-                  <h3 style={V.roadH3}>Planejamento Tributário</h3>
-                  <p style={V.roadP}>Comparação de regimes (Simples, Presumido, Real), simulação de carga tributária, grupos econômicos e análise de risco de desenquadramento.</p>
-                </article>
-
-                <article style={V.road}>
-                  <span style={V.statusBuilding}>Em desenvolvimento</span>
-                  <h3 style={V.roadH3}>Obrigações Acessórias</h3>
-                  <p style={V.roadP}>Calendário e controle de entregas. Alertas de prazo para REINF, DCTFWeb, eSocial, DCTF e ECF.</p>
-                </article>
-
-                <article style={V.road}>
-                  <span style={V.statusPlanned}>Planejado</span>
-                  <h3 style={V.roadH3}>Contábil</h3>
-                  <p style={V.roadP}>Módulo contábil integrado à base fiscal, com evolução gradual após consolidação dos módulos tributários.</p>
-                </article>
-
-                <article style={V.road}>
-                  <span style={V.statusPlanned}>Planejado</span>
-                  <h3 style={V.roadH3}>DP e Financeiro</h3>
-                  <p style={V.roadP}>Departamento Pessoal e módulo Financeiro integrados, planejados como próximos pilares da plataforma.</p>
-                </article>
-
-              </div>
-            </div>
-          </section>
-
-          {/* ── CTA BETA ─────────────────────────────────────────────────── */}
-          <section style={V.betaSection} id="founder">
-            <div style={V.wrap}>
-              <div className="lp-beta-box" style={V.betaBox}>
-                <div>
-                  <span style={V.eyebrow}>Acesso gratuito de validação</span>
-                  <h2 style={V.betaH2}>10 escritórios terão acesso gratuito à fase beta.</h2>
-                  <p style={V.betaP}>
-                    Estamos selecionando escritórios parceiros para testar a plataforma em casos reais, contribuir com
-                    melhorias e ajudar a definir as próximas funcionalidades. Serão apenas 10 vagas, aprovadas de forma
-                    controlada.
-                  </p>
-                </div>
-                <a {...ctaProps} style={{ ...V.btnPrimary, fontSize: 15, padding: '15px 22px' }}>
-                  Solicitar acesso gratuito
-                </a>
-              </div>
-            </div>
-          </section>
-
-          {/* ── FOUNDER ACCESS ───────────────────────────────────────────── */}
-          <FormularioAcessoAntecipado />
-
-          <section style={V.founderSection}>
-            <div style={V.wrap}>
-              <div style={V.founderBox}>
-                <span style={V.founderEyebrow}>Founder Access</span>
-                <h2 style={V.founderH2}>Participe da construção da plataforma.</h2>
-                <p style={V.founderP}>
-                  Após a fase beta, escritórios fundadores terão condições especiais e participação próxima na evolução
-                  dos módulos, prioridades e integrações da Enfokus. O Founder Access reunirá os parceiros que apoiam o
-                  desenvolvimento e acompanham de perto as próximas entregas.
-                </p>
-              </div>
-            </div>
-          </section>
-
-        </main>
-
-        {/* ── FOOTER ───────────────────────────────────────────────────────── */}
-        <footer>
-          <div style={{ ...V.wrap, ...V.footer }}>
-            <span>© 2026 Enfokus. Auditoria fiscal para escritórios contábeis.</span>
-            <span>Dados exibidos nas imagens são demonstrativos e não representam informações reais de clientes.</span>
-          </div>
-        </footer>
-
-      </div>
-
-      {/* ── MODAL ──────────────────────────────────────────────────────────── */}
-      {/* ── RESPONSIVE STYLES ────────────────────────────────────────────── */}
-      <style>{`
-        html { scroll-behavior: smooth; }
-        * { box-sizing: border-box; }
-
-        .lp-navlinks a { color: #a9bdd5; }
-        .lp-navlinks a:hover { color: #f7fbff; }
-
-        @media (max-width: 900px) {
-          .lp-hero,
-          .lp-feature,
-          .lp-feature-even,
-          .lp-audit-panel {
-            grid-template-columns: 1fr !important;
-          }
-          .lp-grid3,
-          .lp-roadmap-grid,
-          .lp-numbers,
-          .lp-cap-grid {
-            grid-template-columns: 1fr !important;
-          }
-          .lp-beta-box {
-            grid-template-columns: 1fr !important;
-          }
-          .lp-navlinks {
-            display: none !important;
-          }
-        }
-
-        @media (max-width: 640px) {
-          .lp-feature,
-          .lp-feature-even {
-            gap: 20px !important;
-            margin-bottom: 40px !important;
-          }
-        }
-      `}</style>
-    </>
-  )
+      <section style={{ padding: '0 0 56px' }}><div style={V.wrap}><div className="lp-final" style={V.ctaBox}><div><span style={V.eyebrow}>7 dias gratuitos + acompanhamento</span><h2 style={{ ...V.h2, marginTop: 14 }}>Seu conhecimento vale mais do que horas de trabalho manual.</h2><p style={{ color: C.muted, margin: 0 }}>Teste o Enfokus Auditor em um caso real da sua rotina e veja quanto do processo de conferência pode ser simplificado.</p><p style={{ color: '#6b8095', fontSize: 13 }}>Após o teste, continue por R$ 79/mês durante o Programa de Acesso Antecipado.</p></div><a {...cta} style={V.primary}>Quero testar o Enfokus</a></div></div></section>
+    </main>
+    <footer><div style={V.wrap}><div style={V.footer}><span>© {new Date().getFullYear()} Enfokus Auditor</span><span><Link href="/privacidade" style={{ color: 'inherit' }}>Privacidade</Link> · <Link href="/termos" style={{ color: 'inherit' }}>Termos</Link></span></div></div></footer>
+    <style>{`html{scroll-behavior:smooth}.lp-page h1,.lp-page h2,.lp-page h3{font-family:"Segoe UI Variable Display","Segoe UI",Arial,sans-serif}.lp-page strong{font-weight:650}.lp-page button,.lp-page a{letter-spacing:0}.lp-navlinks a{color:inherit;text-decoration:none}.lp-navlinks a:hover{color:#087fa3}@media(max-width:900px){.lp-hero,.lp-origin,.lp-difference,.lp-feature{grid-template-columns:1fr!important}.lp-grid4,.lp-timeline{grid-template-columns:repeat(2,1fr)!important}.lp-program,.lp-final{grid-template-columns:1fr!important}.lp-program a,.lp-final a{width:fit-content}.lp-reverse>div:first-child{order:0}}@media(max-width:700px){.lp-navlinks{display:none!important}.lp-grid3,.lp-grid2,.lp-grid4,.lp-screens,.lp-timeline{grid-template-columns:1fr!important}.lp-hero{padding-top:28px!important}.lp-hero h1{font-size:36px!important;line-height:1.12!important}.lp-feature{margin-bottom:34px!important}.lp-program,.lp-final{padding:24px!important}.lp-program a,.lp-final a{width:100%}.lp-navlinks+div>a:last-child{display:none!important}}`}</style>
+  </div>
 }

@@ -12,12 +12,16 @@ const PERFIS: readonly PerfilProfissionalAcesso[] = [
 ]
 
 const FINALIDADES: readonly FinalidadeAcessoAntecipado[] = [
+  'conferencia_fechamento_fiscal', 'consultoria_tributaria', 'recuperacao_tributaria',
+  'gestao_revisao_equipe',
   'controle_entregas_escritorio', 'analises_fiscais_tributarias', 'auditorias_independentes',
   'validacao_sped_xml', 'simples_nacional', 'planejamento_tributario',
   'gestao_carteira_clientes', 'outro',
 ]
 
 const FAIXAS_EMPRESAS = ['atuacao_individual', '1_20', '21_50', '51_100', 'mais_100'] as const
+const CASOS_REAIS = ['sim', 'ainda_nao', 'preciso_ajuda'] as const
+const TAMANHOS_EQUIPE = ['sozinho', '2_5', '6_10', 'mais_10'] as const
 
 type LeadPayload = {
   nome?: unknown
@@ -29,6 +33,8 @@ type LeadPayload = {
   finalidades?: unknown
   faixa_empresas?: unknown
   principal_desafio?: unknown
+  caso_real_teste?: unknown
+  tamanho_equipe?: unknown
   consentimento_dados?: unknown
   consentimento_contato?: unknown
   origem?: unknown
@@ -83,6 +89,8 @@ export async function POST(request: NextRequest) {
   const perfil = texto(body.perfil_profissional, 60) as PerfilProfissionalAcesso
   const faixaEmpresas = texto(body.faixa_empresas, 40) || null
   const principalDesafio = texto(body.principal_desafio, 2000) || null
+  const casoRealTeste = texto(body.caso_real_teste, 30)
+  const tamanhoEquipe = texto(body.tamanho_equipe, 30) || null
   const finalidadesRecebidas = Array.isArray(body.finalidades)
     ? body.finalidades.filter((item): item is string => typeof item === 'string')
     : []
@@ -103,6 +111,15 @@ export async function POST(request: NextRequest) {
   }
   if (finalidades.length === 0) {
     return NextResponse.json({ error: 'Selecione ao menos uma finalidade para os testes.' }, { status: 400 })
+  }
+  if (!principalDesafio) {
+    return NextResponse.json({ error: 'Conte qual parte do trabalho mais consome seu tempo.' }, { status: 400 })
+  }
+  if (!CASOS_REAIS.includes(casoRealTeste as typeof CASOS_REAIS[number])) {
+    return NextResponse.json({ error: 'Informe se possui um caso real para o teste.' }, { status: 400 })
+  }
+  if (tamanhoEquipe && !TAMANHOS_EQUIPE.includes(tamanhoEquipe as typeof TAMANHOS_EQUIPE[number])) {
+    return NextResponse.json({ error: 'Selecione um tamanho de equipe válido.' }, { status: 400 })
   }
   if (faixaEmpresas && !FAIXAS_EMPRESAS.includes(faixaEmpresas as typeof FAIXAS_EMPRESAS[number])) {
     return NextResponse.json({ error: 'Selecione uma faixa de empresas válida.' }, { status: 400 })
@@ -129,6 +146,8 @@ export async function POST(request: NextRequest) {
     finalidades,
     faixa_empresas: faixaEmpresas,
     principal_desafio: principalDesafio,
+    caso_real_teste: casoRealTeste,
+    tamanho_equipe: tamanhoEquipe,
     origem: texto(body.origem, 100) || 'landing-acesso-antecipado',
     campanha: texto(body.campanha, 140) || null,
     consentimento_dados: true,
